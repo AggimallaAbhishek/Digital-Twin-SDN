@@ -71,6 +71,7 @@ markers = [
 
 [tool.coverage.run]
 source = ["common", "twin", "ml", "genai", "api", "telemetry", "controller"]
+branch = true
 omit = ["controller/apps/*"]   # Ryu apps run on the VM; covered by emulation tests
 
 [tool.coverage.report]

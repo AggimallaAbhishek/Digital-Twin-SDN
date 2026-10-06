@@ -159,7 +159,7 @@ Milestones          M0          M1   |                   M2 |             M3    
 
 | Phase | Dates | Status | Exit gate | Notes |
 |---|---|---|---|---|
-| 0 Setup & contracts | Oct 6–8 | 🟦 In progress | | P0.2 smoke ✅, P0.3 skeleton + CI ✅; branch protection, P0.5–P0.7 open |
+| 0 Setup & contracts | Oct 6–8 | 🟦 In progress | | P0.2 ✅ smoke, P0.3 ✅ (branch protection open), P0.5 layout ✅ (problem statement open), P0.6 code ✅ (team approval open), P0.7 open |
 | 1 Testbed | Oct 7–12 | 🟦 In progress | | P1.1 ✅ (2026-10-06) |
 | 2 Telemetry | Oct 8–14 | ⬜ | | |
 | 3 Twin | Oct 13–19 | ⬜ | | critical path |
@@ -216,8 +216,8 @@ Status values: ⬜ Not started · 🟦 In progress · 🟨 At risk · 🟥 Block
 #### P0.6: Freeze data contracts · TWIN + GENAI · **Oct 8**
 - **Produces:** `common/schemas.py`, `common/config.py`, `config/*.yaml`, `tests/unit/test_schemas.py`
 - **Done when:**
-  - [ ] Telemetry records, `Action` (allow-list + bounds), `Policy`, `Verdict`, `Scenario` and `KPIPrediction` are implemented as Pydantic models (PROJECT_PLAN §7).
-  - [ ] Every schema has valid and invalid examples in tests. Bounds are enforced by validators (100% branch coverage).
+  - [x] Telemetry records, `Action` (allow-list + bounds), `Policy`, `Verdict` (with `KPIValues`), `Scenario` are implemented as Pydantic models (PROJECT_PLAN §7). *(2026-10-06: `common/schemas.py`; static bounds in schemas, state-dependent bounds documented for the verifier P3.4)*
+  - [x] Every schema has valid and invalid examples in tests. Bounds are enforced by validators (100% branch coverage). *(2026-10-06: `tests/unit/test_schemas.py`, 82 tests incl. hypothesis; `common/schemas.py` 100% statements + branches)*
   - [ ] At least 4 of the 5 members approve the PR. **Contracts are now frozen.**
 
 #### P0.7: Local LLM setup · GENAI · **Oct 8** · ∥

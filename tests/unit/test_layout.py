@@ -25,6 +25,15 @@ def test_campus_v1_loads() -> None:
     assert [ap.name for ap in layout.aps] == ["ap1", "ap2", "ap3", "ap4"]
     assert layout.switches == ["s1", "s2"]
     assert layout.station_count == 20
+    assert layout.max_ping_loss_pct == 2.0
+    assert layout.reach_ping_count == 3
+
+
+def test_checks_section_is_optional_and_defaults_to_strict(raw: dict[str, Any]) -> None:
+    del raw["checks"]
+    layout = layout_from_dict(raw)
+    assert layout.max_ping_loss_pct == 0.0
+    assert layout.reach_ping_count == 1
 
 
 def test_stations_are_placed_inside_their_zone_with_margin() -> None:
@@ -76,6 +85,8 @@ def test_placement_changes_with_seed(raw: dict[str, Any]) -> None:
         (lambda d: d["wired_links"][0].__setitem__(2, 0), "bandwidth"),
         (lambda d: d["zones"]["lab"].update(x=[80, 40]), "zone"),
         (lambda d: d["stations"].update(margin_m=50), "margin"),
+        (lambda d: d["checks"].update(max_ping_loss_pct=150), "max_ping_loss_pct"),
+        (lambda d: d["checks"].update(reach_ping_count=0), "reach_ping_count"),
     ],
 )
 def test_invalid_layouts_are_rejected(raw: dict[str, Any], mutate: Any, message: str) -> None:

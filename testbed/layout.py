@@ -14,6 +14,7 @@ from typing import Any, Mapping
 import yaml
 
 VALID_CHANNELS_24GHZ = (1, 6, 11)
+MAX_PERCENT = 100.0
 
 
 @dataclass(frozen=True)
@@ -82,6 +83,8 @@ class CampusLayout:
     seed: int
     margin_m: float
     initial: dict[str, int]
+    max_ping_loss_pct: float
+    reach_ping_count: int
 
     def ap_for_zone(self, zone: str) -> APSpec:
         """Return the AP that serves `zone`."""
@@ -127,6 +130,14 @@ def layout_from_dict(data: Mapping[str, Any]) -> CampusLayout:
         if 2 * margin >= min(zone.x_max - zone.x_min, zone.y_max - zone.y_min):
             raise ValueError(f"stations.margin_m={margin} too large for zone {zone.name!r}")
 
+    checks = data.get("checks", {})
+    max_loss = float(checks.get("max_ping_loss_pct", 0.0))
+    reach_count = int(checks.get("reach_ping_count", 1))
+    if not 0 <= max_loss <= MAX_PERCENT:
+        raise ValueError(f"checks.max_ping_loss_pct must be within 0-100, got {max_loss}")
+    if reach_count < 1:
+        raise ValueError(f"checks.reach_ping_count must be >= 1, got {reach_count}")
+
     prop = data["propagation"]
     return CampusLayout(
         name=str(data["name"]),
@@ -144,6 +155,8 @@ def layout_from_dict(data: Mapping[str, Any]) -> CampusLayout:
         seed=int(sta["seed"]),
         margin_m=margin,
         initial=initial,
+        max_ping_loss_pct=max_loss,
+        reach_ping_count=reach_count,
     )
 
 

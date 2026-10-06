@@ -42,3 +42,7 @@ stations:
     lab: 5
     corridor: 7
     library: 5
+
+checks:                    # P1.1 connectivity check (testbed/connectivity.py), decided 2026-10-06
+  max_ping_loss_pct: 2.0   # budget for first-try single-ping loss (wmediumd radio errors, ~1% observed)
+  reach_ping_count: 3      # pings per failed pair when re-testing reachability

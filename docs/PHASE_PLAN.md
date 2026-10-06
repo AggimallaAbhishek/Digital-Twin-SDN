@@ -2,7 +2,7 @@
 
 **Project:** GenAI-Driven Digital Twin for Intelligent SDN-Based Wireless Network Optimization
 **Companion to:** [`PROJECT_PLAN.md`](PROJECT_PLAN.md), which covers the *what* and *why*. This file covers *how and in what order*.
-**Baseline version:** v1.0 · 2026-10-06 · 16 weeks · 4 people
+**Baseline version:** v1.1 · 2026-10-06 · 16 weeks · 4 people (see [Deviation log](#deviation-log))
 
 > **This file is the single source of truth for execution.** Work happens in the order written here. Anything not in this file is out of scope until it passes the [change control process](#2-change-control).
 
@@ -163,10 +163,10 @@ Decide on the [open questions in PROJECT_PLAN §17](PROJECT_PLAN.md#17-open-ques
   - [ ] If team size or timeline differs from 4 people / 16 weeks, this file is re-planned **before** P0.2 (via [change control](#2-change-control)).
 
 #### P0.2: Build the shared Ubuntu VM · NET · Week 1
-- Ubuntu 22.04, 4 vCPU, 8 GB RAM, 40 GB disk (UTM or Multipass on macOS).
+- Ubuntu **20.04** (arm64, UTM), 4 vCPU, ~4 GB RAM (raise to 6 GB before Phase 2), 21 GB root disk. Changed from 22.04 / 8 GB / 40 GB; see [ADR-003](adr/003-vm-ubuntu-20-04.md).
 - Mininet-WiFi from source with wmediumd: `git clone https://github.com/intrig-unicamp/mininet-wifi && cd mininet-wifi && sudo util/install.sh -Wlnfv`.
 - Open vSwitch, iperf3, D-ITG.
-- Ryu in a pinned environment (Python 3.9 + pinned `eventlet`) **or** OS-Ken. Record the choice in ADR-002.
+- Ryu in a venv on the VM's system Python 3.8 with pinned `eventlet`, **or** OS-Ken. Record the choice in ADR-002.
 - **Produces:** VM image shared with the team, `docs/setup.md` (step-by-step), `docs/adr/002-controller.md`
 - **Done when:**
   - [ ] A 2-AP, 4-station topology with Ryu `simple_switch_13` passes `pingall`.
@@ -665,3 +665,4 @@ Every change to this plan goes here **before** the work starts.
 | # | Date | Version | Change | Reason | Impact (schedule / other phases) | ADR | Agreed by |
 |---|---|---|---|---|---|---|---|
 | 0 | 2026-10-06 | v1.0 | Baseline plan created | — | — | — | — |
+| 1 | 2026-10-06 | v1.1 | Testbed VM: Ubuntu 20.04 (not 22.04), ~4 GB RAM (raise to 6 GB before Phase 2), 21 GB root | Existing VM already works (`mac80211_hwsim` loads on arm64); Ryu runs natively on Python 3.8; no rebuild time | None on schedule. VM-side code must stay Python 3.8-compatible | [ADR-003](adr/003-vm-ubuntu-20-04.md) | Abhishek (team to confirm) |

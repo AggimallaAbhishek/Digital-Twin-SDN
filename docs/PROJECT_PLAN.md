@@ -489,7 +489,7 @@ Everything here is free and runs on a laptop, apart from optional hosted LLM API
 
 | Layer | Recommended | Alternatives |
 |---|---|---|
-| Wireless emulation | Mininet-WiFi with **wmediumd** (Ubuntu 22.04 VM) | ns-3 with LTE / 5G-LENA, OMNeT++ |
+| Wireless emulation | Mininet-WiFi with **wmediumd** (Ubuntu 20.04 VM, see ADR-003) | ns-3 with LTE / 5G-LENA, OMNeT++ |
 | SDN controller | Ryu (Python, easy to extend) | ONOS, OpenDaylight, Floodlight, OS-Ken |
 | Switch | Open vSwitch (OpenFlow 1.3) | P4 / BMv2 for advanced work |
 | Traffic generation | iperf3, D-ITG, Scapy | tcpreplay with public traces |
@@ -513,7 +513,7 @@ Everything here is free and runs on a laptop, apart from optional hosted LLM API
 
 ### 10.1 Shared VM (the network side)
 
-1. Create one **Ubuntu 22.04** VM (UTM or Multipass on macOS; 4 vCPU, 8 GB RAM, 40 GB disk). Build it once and share the image so the whole team has an identical environment.
+1. Create one **Ubuntu 20.04** VM (UTM on macOS; 4 vCPU, 4–6 GB RAM, 21+ GB root disk; see `docs/adr/003-vm-ubuntu-20-04.md`). Build it once and share the image so the whole team has an identical environment.
 2. Install Mininet-WiFi from source with wmediumd support (follow the project's README; `sudo util/install.sh -Wlnfv` is the usual starting point).
 3. Install Open vSwitch, iperf3, D-ITG.
 4. Install Ryu (or OS-Ken) in a pinned environment.

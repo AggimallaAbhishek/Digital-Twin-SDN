@@ -4,12 +4,24 @@ Answers to the open questions in [PROJECT_PLAN §17](PROJECT_PLAN.md#17-open-que
 
 | # | Question | Answer | Status | Date | Decided by |
 |---|---|---|---|---|---|
-| Q1 | Team size and timeline | **4 people. Deadline Oct 31, 2026** (25 working days from Oct 6). Internal submission target **Oct 30**. The plan was rewritten as PHASE_PLAN **v2.0** (parallel tracks, reduced scope). | ✅ Decided | 2026-10-06 | Abhishek |
+| Q1 | Team size and timeline | **5 people** (see Team below). **Deadline Oct 31, 2026** (25 working days from Oct 6). Internal submission target **Oct 30**. The plan was rewritten as PHASE_PLAN **v2.0** (parallel tracks, reduced scope). | ✅ Decided | 2026-10-06 | Abhishek |
 | Q2 | Real hardware or emulation only? | **Fully virtual, software only.** Wi-Fi APs, stations and radio are emulated with Mininet-WiFi (`mac80211_hwsim` + wmediumd); switches are Open vSwitch; everything runs in the Ubuntu VM and Docker. No physical APs, Raspberry Pis or real Wi-Fi interfaces. | ✅ Decided | 2026-10-06 | Abhishek |
 | Q3 | LLM provider, and is there an API budget? | **Ollama only (local, free), no hosted API budget.** The specific model is chosen in P0.7 and recorded in ADR-001. | ✅ Decided | 2026-10-06 | Abhishek |
-| Q4 | Report format: IEEE? Page limit? How is it submitted? | — | ⬜ Open | | |
+| Q4 | Deliverables and report format | **A project report + a live demonstration.** No slides required. A backup screen recording is kept in case the live demo fails. Report template: use the department's template if one exists, otherwise our own structure (P7.1a). | ✅ Decided (template 🟨 to confirm) | 2026-10-06 | Abhishek |
 | Q5 | Controller: Ryu, or OS-Ken / ONOS? | Ryu 4.34 in a pinned venv ([ADR-002](adr/002-controller.md)). Team to confirm. | 🟨 Proposed | 2026-10-06 | Abhishek |
 | — | Testbed OS: Ubuntu 22.04 → 20.04 | Ubuntu 20.04 ([ADR-003](adr/003-vm-ubuntu-20-04.md)). Team to confirm. | 🟨 Proposed | 2026-10-06 | Abhishek |
+
+## Team
+
+| Name | Roll no. |
+|---|---|
+| Aggimalla Abhishek | 23BDS004 |
+| N. Likhith Naik | 23BDS037 |
+| Sundaram | 23BDS060 |
+| Sambhav Mishra | 23BDS050 |
+| Bikram Hawaldar | 23BCS033 |
+
+Roles (NET, TWIN, ML, GENAI, DOC) are assigned in PHASE_PLAN §6.
 
 ## Consequences
 

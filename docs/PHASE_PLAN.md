@@ -2,11 +2,11 @@
 
 **Project:** GenAI-Driven Digital Twin for Intelligent SDN-Based Wireless Network Optimization
 **Companion to:** [`PROJECT_PLAN.md`](PROJECT_PLAN.md), which covers the *what* and *why*. This file covers *how and in what order*.
-**Version:** **v2.0** · 2026-10-06 · **25 days (Oct 6 → submit Oct 30, deadline Oct 31)** · 4 people · fully virtual · Ollama only (see [Deviation log](#deviation-log) #2)
+**Version:** **v2.1** · 2026-10-06 · **25 days (Oct 6 → submit Oct 30, deadline Oct 31)** · **5 people** · fully virtual · Ollama only · deliverables: **report + live demonstration** (see [Deviation log](#deviation-log) #2–3)
 
 > **This file is the single source of truth for execution.** Work happens in the order and on the dates written here. Anything not in this file is out of scope until it passes the [change control process](#2-change-control).
 >
-> **v2.0 compresses the 16-week v1.1 plan into 25 days.** The four roles work **in parallel tracks** from day 1, and the scope was cut using the v1.1 cut lists. Where this file and `PROJECT_PLAN.md` disagree on scope, this file wins.
+> **v2.0 compresses the 16-week v1.1 plan into 25 days.** The five roles work **in parallel tracks** from day 1, and the scope was cut using the v1.1 cut lists. Where this file and `PROJECT_PLAN.md` disagree on scope, this file wins.
 
 ---
 
@@ -33,14 +33,14 @@
 
 ## 1. Rules for staying on plan
 
-1. **One track per person, dates are hard.** Each role owns one track (NET, TWIN, ML, GENAI) and works its phases in parallel with the others. A phase may start on its start date only if its **entry criteria** are met.
+1. **One track per person, dates are hard.** Each role owns one track (NET, TWIN, ML, GENAI, DOC) and works its phases in parallel with the others. A phase may start on its start date only if its **entry criteria** are met.
 2. **Build against contracts, not against each other.** From **Oct 8** everyone codes against the frozen `common/schemas.py`, and uses **fixtures or mocks** until the real upstream piece lands. Nobody waits idle.
 3. **Tasks in order** within a track, unless a task is marked `∥` (can run in parallel).
 4. **Done means the Definition of Done.** A task isn't done until every bullet in its *Done when* list is true and the change is merged to `main` (RULEBOOK §16).
 5. **No unplanned work.** If an idea isn't a task in this file, write it in the [Parking lot](#parking-lot) and keep going.
 6. **Behind schedule? Cut, don't extend.** Use the phase's **cut list** the same day a task slips by more than one day. **The Oct 30 submission date never moves.**
 7. **Integrate every day.** `main` must run end to end (`make up` + `make smoke-vm`, and later the full loop) at the end of every day. No integration crunch at the end.
-8. **Daily 15-minute stand-up** using the [template](#daily-stand-up-template). Milestone demos happen on M1, M2, M3 and M4.
+8. **Daily 15-minute stand-up** using the [template](#daily-stand-up-template). Milestone demos happen on M1, M2, M3 and M4. Every milestone demo is also a rehearsal for the **final live demonstration**.
 9. **The report is written continuously** (Phase 7 starts Oct 13), not in the last week.
 
 ---
@@ -51,7 +51,7 @@ Use this process for any change to scope, schedule, contracts or technology choi
 
 1. **Write it down.** Add a row to the [Deviation log](#deviation-log) saying what changes, why, and the impact.
 2. **Write an ADR** if it changes a technology, schema or architecture decision: `docs/adr/NNN-title.md`.
-3. **Agree at the daily stand-up.** It needs at least 3 of the 4 members.
+3. **Agree at the daily stand-up.** It needs at least 3 of the 5 members.
 4. **Update this file** and bump the version.
 5. **Only then** start the work.
 
@@ -74,7 +74,7 @@ Use this process for any change to scope, schedule, contracts or technology choi
 | GenAI | **Ollama local model only** (decisions Q3): intent → policy → compiler → twin check; copilot with tools; root-cause explanations |
 | UI | **Streamlit** dashboard + Grafana |
 | Evaluation | **3 variants** (V1 baseline, V2 heuristics without twin, V3 full system) × **3 scenarios** × **3 seeds** = 27 runs; intent accuracy on 30 intents |
-| Deliverables | Report, slides, demo video, repo |
+| Deliverables | **Report** + **live demonstration** (a backup screen recording is kept in case the live demo fails). No slides required. |
 
 ### Out of scope (parking lot / future work)
 
@@ -105,7 +105,7 @@ Use this process for any change to scope, schedule, contracts or technology choi
 | **Cut list** | What to drop, in order, if the phase is behind. |
 | **Do not** | Common diversions to avoid. |
 
-**Roles:** NET = Network engineer · TWIN = Twin and data engineer · ML = ML engineer · GENAI = GenAI and full-stack. Names go in [§6](#6-status-board).
+**Roles:** NET = Network engineer · TWIN = Twin and data engineer · ML = ML engineer · GENAI = GenAI and full-stack · **DOC = Report, evaluation and QA lead** (owns the report, literature review, test/demo runbooks and evaluation runs; acts as the independent tester). Names go in [§6](#6-status-board).
 
 ---
 
@@ -130,21 +130,30 @@ Milestones          M0          M1   |                   M2 |             M3    
 | M1 | **Oct 12** | A scenario runs on the campus topology and telemetry lands in InfluxDB/Grafana | flash crowd visible in Grafana |
 | M2 | **Oct 19** | Closed loop applies a **twin-verified** action, and rollback works | loop on vs off during a flash crowd |
 | M3 | **Oct 24** | LLM intents + copilot through the twin, dashboard works, **code freeze `eval-v1`** | full demo from the dashboard |
-| M4 | **Oct 28** | Evaluation done, figures generated, demo video recorded | results tables |
-| ★ | **Oct 30** | **Report submitted** (Oct 31 is the spare day) | — |
+| M4 | **Oct 28** | Evaluation done, figures generated, backup demo recording made | results tables |
+| ★ | **Oct 30** | **Report submitted + live demonstration ready** (Oct 31 is the spare day) | full live demo |
 
 ---
 
 ## 6. Status board
 
-**Team**
+**Team** *(assign one role per person at the next stand-up)*
 
-| Role | Name | Track |
-|---|---|---|
-| NET | | Phase 1, then P4.4 executor support, then evaluation runs |
-| TWIN | | Phase 2 → Phase 3, then the loop |
-| ML | | Phase 4, then evaluation analysis |
-| GENAI | | Phase 5 → Streamlit dashboard |
+| Name | Roll no. | Role | Track |
+|---|---|---|---|
+| Aggimalla Abhishek | 23BDS004 | | |
+| N. Likhith Naik | 23BDS037 | | |
+| Sundaram | 23BDS060 | | |
+| Sambhav Mishra | 23BDS050 | | |
+| Bikram Hawaldar | 23BCS033 | | |
+
+| Role | Track |
+|---|---|
+| NET | Phase 1, then P4.4 executor support, then P6.2 demo setup |
+| TWIN | Phase 2 → Phase 3, then the loop |
+| ML | Phase 4, then evaluation analysis (P6.6) |
+| GENAI | Phase 5 → Streamlit dashboard |
+| DOC | P0.4 literature, Phase 7 report, test runbooks, P6.4 evaluation runs, independent testing of every milestone |
 
 **Phases**
 
@@ -157,7 +166,7 @@ Milestones          M0          M1   |                   M2 |             M3    
 | 4 ML + executor | Oct 9–19 | ⬜ | | |
 | 5 GenAI | Oct 8–22 | ⬜ | | |
 | 6 Integration + eval | Oct 20–28 | ⬜ | | |
-| 7 Report | Oct 13–30 | ⬜ | | |
+| 7 Report + live demo prep | Oct 13–30 | ⬜ | | DOC leads |
 
 Status values: ⬜ Not started · 🟦 In progress · 🟨 At risk · 🟥 Blocked · ✅ Done
 
@@ -172,10 +181,11 @@ Status values: ⬜ Not started · 🟦 In progress · 🟨 At risk · 🟥 Block
 #### P0.1: Answer the open questions · all · **Oct 6**
 - **Produces:** `docs/decisions.md`
 - **Done when:**
-  - [x] Q1 team and timeline: 4 people, deadline Oct 31 → this v2.0 plan.
+  - [x] Q1 team and timeline: **5 people**, deadline Oct 31 → this v2.x plan.
   - [x] Q2 hardware: fully virtual.
   - [x] Q3 LLM: Ollama only, no API budget.
-  - [ ] Q4 report format (IEEE? page limit? submission portal?).
+  - [x] Q4 deliverables: **report + live demonstration**.
+  - [ ] Q4b report template/format: department template if one exists, otherwise our own (P7.1a).
   - [ ] Team confirms ADR-002 (Ryu) and ADR-003 (Ubuntu 20.04).
 
 #### P0.2: Shared testbed VM · NET · **Oct 8**
@@ -191,10 +201,10 @@ Status values: ⬜ Not started · 🟦 In progress · 🟨 At risk · 🟥 Block
   - [x] CI runs green. *(2026-10-06: run 37425770707 on `3ca050b`)*
   - [ ] `main` is branch-protected; PRs need 1 review and green CI.
 
-#### P0.4: Literature review (4 papers) · all (1 each) · **Oct 12** · ∥
+#### P0.4: Literature review (5 papers) · all (1 each), DOC edits · **Oct 12** · ∥
 - **Produces:** `docs/literature/<topic>.md` with summary, what we reuse, and citation (digital twin networks · RouteNet/GNN performance models · LLM intent-based networking · Wi-Fi channel/load-balancing optimization)
 - **Done when:**
-  - [ ] 4 summaries exist. They feed the report's Related Work section (P7.1).
+  - [ ] 5 summaries exist (the 5th topic is SDN for wireless / Mininet-WiFi). They feed the report's Related Work section (P7.1).
 - *Does not block M0.*
 
 #### P0.5: Problem statement, KPIs, campus layout · all · **Oct 7**
@@ -208,7 +218,7 @@ Status values: ⬜ Not started · 🟦 In progress · 🟨 At risk · 🟥 Block
 - **Done when:**
   - [ ] Telemetry records, `Action` (allow-list + bounds), `Policy`, `Verdict`, `Scenario` and `KPIPrediction` are implemented as Pydantic models (PROJECT_PLAN §7).
   - [ ] Every schema has valid and invalid examples in tests. Bounds are enforced by validators (100% branch coverage).
-  - [ ] All 4 members approve the PR. **Contracts are now frozen.**
+  - [ ] At least 4 of the 5 members approve the PR. **Contracts are now frozen.**
 
 #### P0.7: Local LLM setup · GENAI · **Oct 8** · ∥
 - **Produces:** `docs/adr/001-llm-provider.md`, a model choice in `config/llm.yaml`
@@ -323,7 +333,7 @@ Status values: ⬜ Not started · 🟦 In progress · 🟨 At risk · 🟥 Block
 | P5.1 | LLM client for Ollama (structured JSON output, timeout, retries) that logs model, tokens, latency and validity | Oct 9 | `genai/llm/client.py` | Schema-valid output on test prompts; every call logged |
 | P5.2 | Tool layer: `get_topology`, `get_metrics`, `get_alerts`, `simulate_in_twin`, `apply_action` (verified IDs only) | Oct 13 (mocks) → Oct 20 (live) | `genai/tools/` | Live data by Oct 20; `apply_action` refuses unverified IDs |
 | P5.3 | Intent engine: prompt + few-shot → `Policy` JSON → validation and repair (≤ 2 retries) → **deterministic compiler** → twin verify → `POST /intents` | Oct 16 | `genai/intent/`, `genai/prompts/` | Compiler at 100% branch coverage; invalid LLM output never reaches it |
-| P5.4 | Intent test set: **30 intents** with expected policies (each member writes 7–8) + eval script | Oct 15 ∥ | `genai/eval/intents.jsonl`, `genai/eval/run_intents.py` | Script reports accuracy |
+| P5.4 | Intent test set: **30 intents** with expected policies (each member writes 6) + eval script | Oct 15 ∥ | `genai/eval/intents.jsonl`, `genai/eval/run_intents.py` | Script reports accuracy |
 | P5.5 | Copilot: tool-using agent, `POST /chat` | Oct 20 | `genai/agent/` | Answers 5 diagnostic questions with live evidence; proposed actions go through `simulate_in_twin` |
 | P5.6 | Root-cause explainer on anomaly alerts | Oct 22 | `genai/rca/` | Correct diagnosis for `ap_failure` and `cochannel_interference` runs |
 
@@ -343,9 +353,9 @@ Status values: ⬜ Not started · 🟦 In progress · 🟨 At risk · 🟥 Block
 | ID | Task | Owner | Due | Done when |
 |---|---|---|---|---|
 | P6.1 | Streamlit dashboard: topology with AP load colours, KPI charts, twin vs live, action log with approve/deny, chat | GENAI | Oct 23 | All panels work during a live scenario; high-impact actions can be approved |
-| P6.2 | One-command demo (`make demo`) + `docs/runbooks/demo.md` | NET + TWIN | Oct 23 ∥ | A member who didn't write it runs the full demo from the runbook |
+| P6.2 | One-command demo (`make demo`) + **live demo script** `docs/runbooks/demo.md` (steps, talking points, fallback for each step) | NET + DOC | Oct 23 ∥ | DOC runs the full demo from the runbook without help |
 | P6.3 | **Code freeze: tag `eval-v1`** | all | **Oct 24** | Only evaluation-blocking fixes after this |
-| P6.4 | Experiment campaign: V1/V2/V3 × 3 scenarios × 3 seeds (27 runs) | NET + TWIN | Oct 26 | All runs complete; failed runs re-run and logged |
+| P6.4 | Experiment campaign: V1/V2/V3 × 3 scenarios × 3 seeds (27 runs) | DOC + NET | Oct 26 | All runs complete; failed runs re-run and logged |
 | P6.5 | Twin-blocking analysis (V2 actions the twin would reject) + intent eval (30) + LLM latency | TWIN + GENAI | Oct 27 ∥ | Numbers in `experiments/results/` |
 | P6.6 | Analysis scripts → all tables and figures (mean ± 95% CI) | ML | Oct 28 | One command regenerates every figure; nothing made by hand |
 
@@ -358,25 +368,25 @@ Status values: ⬜ Not started · 🟦 In progress · 🟨 At risk · 🟥 Block
 
 ## Phase 7: Report and submission (Oct 13–30) · all
 
-**Objective:** a complete, honest report submitted on **Oct 30**.
+**Objective:** a complete, honest report submitted on **Oct 30**, and a **live demonstration** that runs reliably from a cold start.
 
 | ID | Task | Owner | Due | Done when |
 |---|---|---|---|---|
-| P7.1a | Report skeleton (format from decisions Q4) + Introduction + Related Work (from P0.4) | GENAI + all | Oct 15 | Sections drafted in `docs/report/` |
+| P7.1a | Report skeleton + title page + Introduction + Related Work (from P0.4) | **DOC** | Oct 15 | Sections drafted in `docs/report/` |
 | P7.1b | System architecture + design sections | TWIN + NET | Oct 20 | Drafted with diagrams |
 | P7.1c | Method: twin model, heuristics, intent pipeline, safety model | ML + GENAI | Oct 25 | Drafted |
 | P7.1d | Results + discussion + limitations + future work (GNN, RL, RAG, hardware) | ML + all | Oct 28 | Drafted from P6.6 figures only |
-| P7.2 | Full draft reviewed by all 4 | all | **Oct 29** | Every member has reviewed every section |
-| P7.3 | Demo video (5–8 min, Phase 5 + M3 demo script) | GENAI | Oct 28 | Uploaded; link in README |
-| P7.4 | Slides + one rehearsal | all | Oct 29 | Rehearsed on time |
-| P7.5 | Repo clean-up: README, setup, runbooks; fresh clone → demo works | NET | Oct 29 | Verified by a member who didn't write it |
+| P7.2 | Full draft reviewed by all 5; DOC does the final edit | all | **Oct 29** | Every member has reviewed every section |
+| P7.3 | **Backup demo recording** (5–8 min screen capture of the live demo script), used only if the live demo fails | GENAI + DOC | Oct 28 | Stored locally + link in README |
+| P7.4 | **Live demonstration rehearsal** ×2 on the actual demo machine, from a cold start (`make demo`), including the failure fallbacks | all | Oct 29 | Two clean end-to-end runs; each member knows their speaking part |
+| P7.5 | Repo clean-up: README, setup, runbooks; fresh clone → demo works | DOC | Oct 29 | Verified by a member who didn't write it |
 | ★ | **Submit** | all | **Oct 30** | Submitted; Oct 31 is spare |
 
 ---
 
 ## Daily stand-up template
 
-Append to `docs/progress.md` every day (15 minutes, all 4 people).
+Append to `docs/progress.md` every day (15 minutes, all 5 people).
 
 ```markdown
 ### YYYY-MM-DD (day N/25) · next milestone: Mx on <date>
@@ -387,6 +397,7 @@ Append to `docs/progress.md` every day (15 minutes, all 4 people).
 | TWIN | | | |
 | ML | | | |
 | GENAI | | | |
+| DOC | | | |
 
 **main runs end to end today?** yes / no
 **Cut-list items used:**
@@ -404,3 +415,4 @@ Every change to this plan goes here **before** the work starts.
 | 0 | 2026-10-06 | v1.0 | Baseline plan created | — | — | — | — |
 | 1 | 2026-10-06 | v1.1 | Testbed VM: Ubuntu 20.04 (not 22.04), ~4 GB RAM (raise to 6 GB), 21 GB root | Existing VM already works (`mac80211_hwsim` loads on arm64); Ryu runs natively on Python 3.8; no rebuild time | None on schedule. VM-side code must stay Python 3.8-compatible | [ADR-003](adr/003-vm-ubuntu-20-04.md) | Abhishek (team to confirm) |
 | 2 | 2026-10-06 | **v2.0** | **Timeline 16 weeks → 25 days (submit Oct 30, deadline Oct 31)**; parallel tracks; scope cut: analytical twin only (no GNN/emulation twin), heuristics only (no RL), no LSTM/TimeGAN, copilot without RAG, Streamlit instead of React, evaluation 3 variants × 3 scenarios × 3 seeds; **LLM = Ollama only**; fully virtual | P0.1 answers: 4 people, deadline end of October, no API budget, no hardware | Whole plan rewritten. Removed items become future work in the report | ADR-001 (P0.7) | Abhishek (team to confirm) |
+| 3 | 2026-10-06 | **v2.1** | Team is **5 people** (new DOC role: report, evaluation and QA lead); deliverables are **report + live demonstration** (no slides; demo video becomes a backup recording only); P0.4 → 5 papers; P7.4 → live demo rehearsals | Team confirmed names; project requirements are a report and a live demo | Load per person drops; DOC frees the engineers from report writing | — | Abhishek (team to confirm) |

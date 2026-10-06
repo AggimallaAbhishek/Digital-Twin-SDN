@@ -437,7 +437,7 @@ These are ready to use now. Call one by typing `/<skill-name>` in Claude Code, o
 | `anthropic-skills:docs` | shared, editable team documents (the original project plan lives in one) | any |
 | `anthropic-skills:docx` | the final report has to be a Word / `.docx` file (for example an IEEE Word template) | P7.1 |
 | `anthropic-skills:pdf` | reading research papers for the literature review; producing or merging the final PDF | P0.4, P7.1 |
-| `anthropic-skills:pptx` | presentation slides as `.pptx` | P7.4 |
+| `anthropic-skills:pptx` | presentation slides as `.pptx` (not required: deliverables are report + live demo) | — |
 | `anthropic-skills:xlsx` | results tables that need to go into a spreadsheet | P6.6 |
 
 #### Skills by phase at a glance

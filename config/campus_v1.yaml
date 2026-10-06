@@ -1,0 +1,44 @@
+# Campus layout v1 (P0.5, docs/scenario.md). Single source of truth for the topology (P1.1),
+# the twin and the intent zones. Coordinates in metres. Loaded by testbed/layout.py.
+name: campus_v1
+area_m: [80, 70]
+
+propagation:
+  model: logDistance
+  exp: 4          # ~75 m AP range; RSSI >= -75 dBm within ~30 m (steering bound, PROJECT_PLAN §7.3)
+wmediumd_mode: interference
+
+zones:            # axis-aligned rectangles: x: [min, max], y: [min, max]
+  lecture_hall: {x: [0, 40], y: [35, 65]}
+  lab:          {x: [40, 80], y: [35, 65]}
+  corridor:     {x: [0, 40], y: [5, 35]}
+  library:      {x: [40, 80], y: [5, 35]}
+
+aps:              # 2.4 GHz, non-overlapping channels 1/6/11; ap1 and ap4 reuse ch1 on the diagonal (50 m)
+  - {name: ap1, zone: lecture_hall, position: [20, 50], channel: 1, mode: g}
+  - {name: ap2, zone: lab,          position: [60, 50], channel: 6, mode: g}
+  - {name: ap3, zone: corridor,     position: [20, 20], channel: 11, mode: g}
+  - {name: ap4, zone: library,      position: [60, 20], channel: 1, mode: g}
+
+switches: [s1, s2]
+
+wired_links:      # [node_a, node_b, bandwidth_mbps]
+  - [ap1, s1, 100]
+  - [ap3, s1, 100]
+  - [ap2, s2, 100]
+  - [ap4, s2, 100]
+  - [s1, s2, 100]
+
+servers:          # wired traffic endpoints (video/web/bulk sinks)
+  - {name: srv1, ip: 10.0.1.1/8, switch: s1, bw_mbps: 1000}
+
+stations:
+  count: 20
+  ip_prefix: "10.0.0."   # sta1 -> 10.0.0.1/8 ... sta20 -> 10.0.0.20/8
+  seed: 7                # station positions are seeded random points inside their zone
+  margin_m: 3            # keep stations this far from zone edges
+  initial:               # starting zone -> number of stations (must sum to count)
+    lecture_hall: 3
+    lab: 5
+    corridor: 7
+    library: 5

@@ -3,15 +3,14 @@
 
 Runs on the testbed VM (Python 3.8, ADR-003). Mininet-WiFi 2.7 issues a single `iw connect`
 during build() and marks the station associated even if it failed (race with hostapd start-up).
-ensure_associated() checks the real kernel link state and retries, so the topology does not
-depend on that timing (docs/setup.md, Known problems #4).
+testbed.wifi_utils.ensure_associated() checks the real kernel link state and retries
+(docs/setup.md, Known problems #4). Run from the repo root: python3 -m testbed.smoke.smoke_topo
 """
 
 from __future__ import annotations
 
 import sys
 import time
-from typing import Any
 
 from mininet.log import info, setLogLevel
 from mininet.node import RemoteController
@@ -19,28 +18,9 @@ from mn_wifi.link import wmediumd
 from mn_wifi.net import Mininet_wifi
 from mn_wifi.wmediumdConnector import interference
 
-ASSOC_RETRIES = 5
-ASSOC_WAIT_S = 1.0
+from testbed.wifi_utils import ensure_associated, link_signal
+
 AP_SETTLE_S = 2.0
-
-
-def is_connected(sta: Any) -> bool:
-    """Return True if the kernel reports a link on the station's first wireless interface."""
-    return "Connected to" in sta.cmd(f"iw dev {sta.wintfs[0].name} link")
-
-
-def ensure_associated(
-    sta: Any, ap: Any, retries: int = ASSOC_RETRIES, wait_s: float = ASSOC_WAIT_S
-) -> bool:
-    """Connect `sta` to `ap` until the kernel reports a link; return True on success."""
-    intf, ap_intf = sta.wintfs[0], ap.wintfs[0]
-    for _ in range(retries):
-        if is_connected(sta):
-            return True
-        sta.cmd(f"iw dev {intf.name} disconnect")
-        sta.cmd(f"iw dev {intf.name} connect {ap_intf.ssid} {ap_intf.mac}")
-        time.sleep(wait_s)
-    return is_connected(sta)
 
 
 def main() -> int:
@@ -68,9 +48,7 @@ def main() -> int:
 
     assoc = {sta.name: ensure_associated(sta, ap) for sta, ap in plan}
     for sta, ap in plan:
-        link = sta.cmd(f"iw dev {sta.name}-wlan0 link")
-        signal = next((ln.strip() for ln in link.splitlines() if "signal" in ln), "")
-        info(f"ASSOC {sta.name} -> {ap.name} ok={assoc[sta.name]} {signal}\n")
+        info(f"ASSOC {sta.name} -> {ap.name} ok={assoc[sta.name]} {link_signal(sta)}\n")
 
     net.pingAll(timeout="1")  # warm-up: lets the controller learn MACs
     loss = net.pingAll(timeout="1")

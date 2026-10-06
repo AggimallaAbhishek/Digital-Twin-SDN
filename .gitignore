@@ -1,0 +1,223 @@
+# =====================================================================
+# Digital-Twin-SDN .gitignore
+# See docs/RULEBOOK.md §14 (Security and secrets) and §12 (ML and experiment rules)
+# =====================================================================
+
+# ---------------------------------------------------------------------
+# 1. SECRETS AND CREDENTIALS: never commit (RULEBOOK §14)
+# ---------------------------------------------------------------------
+# Environment files (API keys, InfluxDB tokens, operator token)
+.env
+.env.*
+!.env.example
+*.env
+.envrc
+
+# Keys, certificates, keystores
+*.pem
+*.key
+*.crt
+*.cer
+*.csr
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa*
+id_ed25519*
+*.pub
+!docs/**/*.pub
+
+# Credential and token files
+secrets/
+.secrets/
+credentials.json
+*credentials*.json
+service-account*.json
+token.json
+*.token
+.netrc
+.pypirc
+.npmrc
+.htpasswd
+
+# Local config overrides that may hold secrets or personal paths
+config/*.local.yaml
+config/*.local.yml
+config/local/
+docker-compose.override.yml
+docker-compose.local.yml
+
+# Claude Code: personal/local settings (shared .claude/settings.json IS committed)
+.claude/settings.local.json
+.claude/*.local.*
+CLAUDE.local.md
+
+# Gitleaks reports may echo secrets
+gitleaks-report*.json
+
+# ---------------------------------------------------------------------
+# 2. DATA, MODELS AND RUN OUTPUTS: large, regenerable, may hold captures
+# ---------------------------------------------------------------------
+data/*
+!data/README.md
+models/*
+!models/README.md
+experiments/results/
+experiments/runs/
+*.parquet
+*.feather
+*.h5
+*.hdf5
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.safetensors
+*.joblib
+*.pkl
+*.pickle
+*.npy
+*.npz
+
+# Packet captures and raw traces (can contain real traffic or addresses)
+*.pcap
+*.pcapng
+*.cap
+traces/
+
+# RL / ML training logs
+runs/
+tensorboard/
+lightning_logs/
+wandb/
+mlruns/
+checkpoints/
+
+# Test fixtures ARE committed (RULEBOOK T-7), so re-include them
+!tests/fixtures/
+!tests/fixtures/**
+
+# ---------------------------------------------------------------------
+# 3. SERVICE STATE (Docker volumes, databases, vector store)
+# ---------------------------------------------------------------------
+influxdb-data/
+influxdb/data/
+grafana-data/
+grafana/data/
+mosquitto/data/
+mosquitto/log/
+chroma/
+chroma_db/
+.chroma/
+genai/rag/index/
+ollama/
+volumes/
+*.db
+*.sqlite
+*.sqlite3
+
+# ---------------------------------------------------------------------
+# 4. MININET-WIFI / TESTBED ARTIFACTS
+# ---------------------------------------------------------------------
+*.apconf
+*.staconf
+mn-wifi-*.log
+wmediumd*.log
+testbed/logs/
+*.vdi
+*.vmdk
+*.qcow2
+*.img
+*.iso
+*.ova
+*.utm/
+
+# ---------------------------------------------------------------------
+# 5. LOGS (may contain tokens, prompts, IPs)
+# ---------------------------------------------------------------------
+logs/
+*.log
+llm_logs/
+genai/logs/
+
+# ---------------------------------------------------------------------
+# 6. PYTHON
+# ---------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+.venv/
+venv/
+env/
+.python-version
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.hypothesis/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+.ipynb_checkpoints/
+.import_linter_cache/
+
+# ---------------------------------------------------------------------
+# 7. NODE / DASHBOARD
+# ---------------------------------------------------------------------
+node_modules/
+dashboard/dist/
+dashboard/build/
+dashboard/.next/
+dashboard/.vite/
+.pnpm-store/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.eslintcache
+*.tsbuildinfo
+
+# ---------------------------------------------------------------------
+# 8. EDITORS AND OS
+# ---------------------------------------------------------------------
+.DS_Store
+.AppleDouble
+._*
+Thumbs.db
+desktop.ini
+.idea/
+*.iml
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+*.swp
+*.swo
+*~
+
+# ---------------------------------------------------------------------
+# 9. LARGE MEDIA (demo video goes as a link, not into git)
+# ---------------------------------------------------------------------
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.gif
+!docs/figures/*.gif
+
+# ---------------------------------------------------------------------
+# 10. TEMP
+# ---------------------------------------------------------------------
+tmp/
+temp/
+*.tmp
+*.bak
+*.orig

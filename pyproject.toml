@@ -1,0 +1,131 @@
+[project]
+name = "digital-twin-sdn"
+version = "0.1.0"
+description = "GenAI-driven digital twin for intelligent SDN-based wireless network optimization"
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "pydantic>=2.8,<3",
+    "pyyaml>=6.0,<7",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "types-pyyaml",
+    "pytest>=8",
+    "pytest-cov>=5",
+    "pytest-socket>=0.7",
+    "hypothesis>=6",
+    "freezegun>=1.5",
+    "import-linter>=2.1",
+    "pre-commit>=3.8",
+    "bandit>=1.7",
+    "pip-audit>=2.7",
+]
+
+[tool.uv]
+package = false   # flat layout: run from repo root; packages are imported by path
+
+# ---------------------------------------------------------------- ruff (RULEBOOK §5.1)
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["data", "models", "experiments/notebooks", "*.md"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "N", "S", "SIM", "RUF", "PL", "PT", "ASYNC"]
+ignore = []
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "PLR2004"]   # asserts and magic numbers are fine in tests
+# testbed/ and controller/apps/ run on the VM's Python 3.8 (ADR-002/003): see their ruff.toml
+
+# ---------------------------------------------------------------- mypy
+[tool.mypy]
+python_version = "3.11"
+warn_unused_ignores = true
+warn_redundant_casts = true
+disallow_untyped_defs = true
+exclude = ["^data/", "^models/", "^experiments/notebooks/"]
+
+[[tool.mypy.overrides]]
+module = ["common.*", "twin.*", "controller.executor.*", "genai.intent.*"]
+strict = true
+
+[[tool.mypy.overrides]]
+# VM-only libraries (not installed on the Mac side)
+module = ["mininet.*", "mn_wifi.*", "ryu.*"]
+ignore_missing_imports = true
+
+# ---------------------------------------------------------------- pytest (RULEBOOK §6)
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers --disable-socket --allow-unix-socket"
+markers = [
+    "vm: needs the Mininet-WiFi VM",
+    "llm: calls an LLM (costs tokens)",
+    "integration: needs docker compose services",
+]
+
+[tool.coverage.run]
+source = ["common", "twin", "ml", "genai", "api", "telemetry", "controller"]
+omit = ["controller/apps/*"]   # Ryu apps run on the VM; covered by emulation tests
+
+[tool.coverage.report]
+fail_under = 75
+show_missing = true
+skip_empty = true
+
+# ---------------------------------------------------------------- import-linter (RULEBOOK §4)
+[tool.importlinter]
+root_packages = ["common", "testbed", "controller", "telemetry", "twin", "ml", "genai", "api"]
+
+[[tool.importlinter.contracts]]
+name = "common is the base layer"
+type = "forbidden"
+source_modules = ["common"]
+forbidden_modules = ["testbed", "controller", "telemetry", "twin", "ml", "genai", "api"]
+
+[[tool.importlinter.contracts]]
+name = "testbed depends only on common"
+type = "forbidden"
+source_modules = ["testbed"]
+forbidden_modules = ["controller", "telemetry", "twin", "ml", "genai", "api"]
+
+[[tool.importlinter.contracts]]
+name = "controller does not depend on twin internals, ml, genai or api"
+type = "forbidden"
+source_modules = ["controller"]
+forbidden_modules = ["ml", "genai", "api", "testbed", "telemetry"]
+
+[[tool.importlinter.contracts]]
+name = "telemetry depends only on common"
+type = "forbidden"
+source_modules = ["telemetry"]
+forbidden_modules = ["testbed", "controller", "twin", "ml", "genai", "api"]
+
+[[tool.importlinter.contracts]]
+name = "twin does not depend on ml, genai, api or controller"
+type = "forbidden"
+source_modules = ["twin"]
+forbidden_modules = ["ml", "genai", "api", "controller", "testbed", "telemetry"]
+
+[[tool.importlinter.contracts]]
+name = "ml does not depend on genai, api or controller"
+type = "forbidden"
+source_modules = ["ml"]
+forbidden_modules = ["genai", "api", "controller", "testbed", "telemetry"]
+
+[[tool.importlinter.contracts]]
+name = "genai talks to the system only through tools/api"
+type = "forbidden"
+source_modules = ["genai"]
+forbidden_modules = ["controller", "testbed", "twin", "telemetry", "ml"]
+
+[[tool.importlinter.contracts]]
+name = "api never imports the testbed"
+type = "forbidden"
+source_modules = ["api"]
+forbidden_modules = ["testbed"]

@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 """P0.2 smoke test: 2 APs, 4 stations, remote Ryu (simple_switch_13), wmediumd interference.
 
-Mininet-WiFi 2.7 issues a single `iw connect` during build() and marks the station
-associated even if it failed (race with hostapd start-up). ensure_associated() checks the
-real kernel link state and retries, so the topology does not depend on that timing.
+Runs on the testbed VM (Python 3.8, ADR-003). Mininet-WiFi 2.7 issues a single `iw connect`
+during build() and marks the station associated even if it failed (race with hostapd start-up).
+ensure_associated() checks the real kernel link state and retries, so the topology does not
+depend on that timing (docs/setup.md, Known problems #4).
 """
+
+from __future__ import annotations
+
 import sys
 import time
+from typing import Any
 
 from mininet.log import info, setLogLevel
 from mininet.node import RemoteController
@@ -14,20 +19,32 @@ from mn_wifi.link import wmediumd
 from mn_wifi.net import Mininet_wifi
 from mn_wifi.wmediumdConnector import interference
 
+ASSOC_RETRIES = 5
+ASSOC_WAIT_S = 1.0
+AP_SETTLE_S = 2.0
 
-def ensure_associated(sta, ap, retries=5, wait_s=1.0):
-    """Connect sta to ap until the kernel reports a link; return True on success."""
-    intf = sta.wintfs[0]
+
+def is_connected(sta: Any) -> bool:
+    """Return True if the kernel reports a link on the station's first wireless interface."""
+    return "Connected to" in sta.cmd(f"iw dev {sta.wintfs[0].name} link")
+
+
+def ensure_associated(
+    sta: Any, ap: Any, retries: int = ASSOC_RETRIES, wait_s: float = ASSOC_WAIT_S
+) -> bool:
+    """Connect `sta` to `ap` until the kernel reports a link; return True on success."""
+    intf, ap_intf = sta.wintfs[0], ap.wintfs[0]
     for _ in range(retries):
-        if "Connected to" in sta.cmd("iw dev %s link" % intf.name):
+        if is_connected(sta):
             return True
-        sta.cmd("iw dev %s disconnect" % intf.name)
-        sta.cmd("iw dev %s connect %s %s" % (intf.name, ap.wintfs[0].ssid, ap.wintfs[0].mac))
+        sta.cmd(f"iw dev {intf.name} disconnect")
+        sta.cmd(f"iw dev {intf.name} connect {ap_intf.ssid} {ap_intf.mac}")
         time.sleep(wait_s)
-    return "Connected to" in sta.cmd("iw dev %s link" % intf.name)
+    return is_connected(sta)
 
 
-def main():
+def main() -> int:
+    """Build the topology, verify association and connectivity; return a process exit code."""
     net = Mininet_wifi(controller=RemoteController, link=wmediumd, wmediumd_mode=interference)
     c0 = net.addController("c0", controller=RemoteController, ip="127.0.0.1", port=6653)
     ap1 = net.addAccessPoint("ap1", ssid="ssid-ap1", mode="g", channel="1", position="30,50,0")
@@ -47,22 +64,24 @@ def main():
     c0.start()
     ap1.start([c0])
     ap2.start([c0])
-    time.sleep(2)
+    time.sleep(AP_SETTLE_S)
 
     assoc = {sta.name: ensure_associated(sta, ap) for sta, ap in plan}
     for sta, ap in plan:
-        link = sta.cmd("iw dev %s-wlan0 link" % sta.name)
-        sig = [l.strip() for l in link.splitlines() if "signal" in l]
-        info("ASSOC %s -> %s ok=%s %s\n" % (sta.name, ap.name, assoc[sta.name], sig[0] if sig else ""))
+        link = sta.cmd(f"iw dev {sta.name}-wlan0 link")
+        signal = next((ln.strip() for ln in link.splitlines() if "signal" in ln), "")
+        info(f"ASSOC {sta.name} -> {ap.name} ok={assoc[sta.name]} {signal}\n")
 
-    net.pingAll(timeout="1")              # warm-up: lets the controller learn MACs
+    net.pingAll(timeout="1")  # warm-up: lets the controller learn MACs
     loss = net.pingAll(timeout="1")
     net.stop()
+
     ok = all(assoc.values()) and loss == 0
-    print("SMOKE_RESULT assoc=%d/%d loss=%s%% -> %s" % (sum(assoc.values()), len(assoc), loss, "PASS" if ok else "FAIL"))
-    sys.exit(0 if ok else 1)
+    verdict = "PASS" if ok else "FAIL"
+    print(f"SMOKE_RESULT assoc={sum(assoc.values())}/{len(assoc)} loss={loss}% -> {verdict}")
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":
     setLogLevel("info")
-    main()
+    sys.exit(main())

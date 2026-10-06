@@ -3,7 +3,7 @@
 **Project report and detailed development plan**
 Source: [project plan doc](https://claude.ai/artifact/QUKWaEwA6aLd2UFbJqY1PH) · Last updated: 2026-10-06
 
-> **Assumptions:** a 16-week semester and a team of 4. Neither is confirmed yet (see [Open questions](#17-open-questions)). If they change, re-plan [Section 11](#11-development-phases).
+> **⚠ Superseded scope (2026-10-06):** the project now has **25 days (deadline Oct 31), 4 people, fully virtual, and Ollama only**. Execution follows [`PHASE_PLAN.md` v2.0](PHASE_PLAN.md). Out of scope: GNN, cloned-emulation twin, RL, LSTM/TFT, TimeGAN, RAG vector DB, scenario generator, config synthesis, React, hosted LLM APIs. These sections stay as the design reference and future-work list; where they conflict with PHASE_PLAN v2.0, the phase plan wins.
 
 ---
 
@@ -854,7 +854,7 @@ Digital-Twin-SDN/
 ## 17. Open questions
 
 1. **Team size and timeline:** is it really 4 people and 16 weeks? This changes the phase plan.
-2. **Real hardware:** are Raspberry Pi / OpenWrt APs in scope, or emulation only?
+2. ~~**Real hardware:** are Raspberry Pi / OpenWrt APs in scope, or emulation only?~~ **Decided: fully virtual, software only** (see `docs/decisions.md`).
 3. **LLM provider:** which hosted model, and is there a budget for API calls?
 4. **Report format:** IEEE format confirmed? Is a paper submission a goal?
 5. **Controller:** stay with Ryu, or start directly on OS-Ken / ONOS?

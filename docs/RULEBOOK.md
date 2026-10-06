@@ -59,7 +59,7 @@
 | **P-4** Behind schedule | Use the phase **cut list**. Never quietly extend scope or deadlines. |
 | **P-5** Deviations are logged | Any change to scope, schedule, tech or contracts goes into the **Deviation log** before the work starts. |
 | **P-6** Done means Done | A task is closed only when its *Done when* list and [§16](#16-universal-definition-of-done) are both satisfied. |
-| **P-7** Weekly update | Update the status board and `docs/progress.md` every Friday. |
+| **P-7** Daily update | 15-minute stand-up every day; append to `docs/progress.md` (template in `PHASE_PLAN.md`) and update the status board (PHASE_PLAN v2.0). |
 
 ---
 
@@ -604,7 +604,7 @@ A separate `nightly.yml` (cron) runs the `llm` marker tests, the intent eval and
 
 ### 19.4 Claude Code edit-time hook (L1)
 
-Add this to `.claude/settings.json` (use the `update-config` skill). After every `Edit`/`Write` on a `.py` file, it auto-fixes lint and formatting and reports type errors back to the assistant.
+**Implemented in P0.3** (2026-10-06): `.claude/settings.json` runs `scripts/claude_post_edit.sh` after every `Edit`/`Write`. For a `.py` file inside the repo, the script runs `ruff check --fix` and `ruff format` (auto-fix), then `ruff check` and `mypy` on that file. Any remaining errors exit with code 2, which sends the error output back to Claude so it fixes the cause right away. Other files are ignored. All tools run through `uv run`, so they use the project's pinned versions.
 
 ```json
 {
@@ -613,10 +613,7 @@ Add this to `.claude/settings.json` (use the `update-config` skill). After every
       {
         "matcher": "Edit|Write",
         "hooks": [
-          {
-            "type": "command",
-            "command": "f=$(jq -r '.tool_input.file_path // empty'); case \"$f\" in *.py) ruff check --fix --quiet \"$f\"; ruff format --quiet \"$f\"; mypy --no-error-summary \"$f\" 1>&2 || exit 2;; esac"
-          }
+          { "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/scripts/claude_post_edit.sh", "timeout": 120 }
         ]
       }
     ]
@@ -624,7 +621,7 @@ Add this to `.claude/settings.json` (use the `update-config` skill). After every
 }
 ```
 
-*Exit code 2 sends the mypy output back to Claude so it fixes the type error right away. This requires `jq`, `ruff` and `mypy` on the PATH, so enable it only after P0.3 installs the toolchain.*
+Review or disable it with `/hooks` in Claude Code.
 
 ### 19.5 Pull request template: `.github/pull_request_template.md`
 

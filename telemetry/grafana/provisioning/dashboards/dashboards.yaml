@@ -1,0 +1,9 @@
+# Dashboards in telemetry/grafana/dashboards/*.json are loaded automatically (P2.3).
+apiVersion: 1
+providers:
+  - name: digital-twin-sdn
+    folder: Digital Twin SDN
+    type: file
+    disableDeletion: true
+    options:
+      path: /var/lib/grafana/dashboards

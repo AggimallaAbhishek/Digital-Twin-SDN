@@ -1,0 +1,13 @@
+# Module owners (RULEBOOK B-8). Replace with each role owner's GitHub handle once the team is confirmed (P0.1).
+*                    @AggimallaAbhishek
+/testbed/            @AggimallaAbhishek
+/controller/         @AggimallaAbhishek
+/telemetry/          @AggimallaAbhishek
+/twin/               @AggimallaAbhishek
+/ml/                 @AggimallaAbhishek
+/genai/              @AggimallaAbhishek
+/api/                @AggimallaAbhishek
+/dashboard/          @AggimallaAbhishek
+/common/schemas.py   @AggimallaAbhishek
+/docs/PHASE_PLAN.md  @AggimallaAbhishek
+/docs/RULEBOOK.md    @AggimallaAbhishek

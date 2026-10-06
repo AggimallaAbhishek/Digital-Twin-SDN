@@ -1,0 +1,72 @@
+# Layer L3 of RULEBOOK §7: runs on every push and pull request.
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: lint, types, boundaries, tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - name: Lint
+        run: uv run ruff check --output-format=github .
+      - name: Format
+        run: uv run ruff format --check .
+      - name: Types
+        run: uv run mypy .
+      - name: Import boundaries
+        run: uv run lint-imports
+      - name: Tests + coverage
+        run: uv run pytest -m "not vm and not llm and not integration" --cov --cov-report=term-missing
+
+  security:
+    name: secrets, SAST, dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - name: Gitleaks (full history)
+        run: |
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.30.0 git /repo --redact --verbose
+      - name: Bandit
+        run: uv run bandit -q -r common twin ml genai api telemetry controller -ll
+      - name: pip-audit
+        run: uv run pip-audit --skip-editable
+
+  compose:
+    name: docker compose config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/init_env.sh
+      - run: docker compose config --quiet
+
+  pr-title:
+    name: PR title has a task ID
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require a task ID like [P3.3] (RULEBOOK P-1)
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          echo "$TITLE" | grep -Eq '\[P[0-7]\.[0-9]+\]' || { echo "::error::PR title must contain a task ID like [P3.3]"; exit 1; }

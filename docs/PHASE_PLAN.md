@@ -160,7 +160,7 @@ Milestones          M0          M1   |                   M2 |             M3    
 | Phase | Dates | Status | Exit gate | Notes |
 |---|---|---|---|---|
 | 0 Setup & contracts | Oct 6–8 | 🟦 In progress | | P0.2 smoke ✅, P0.3 skeleton + CI ✅; branch protection, P0.5–P0.7 open |
-| 1 Testbed | Oct 7–12 | ⬜ | | |
+| 1 Testbed | Oct 7–12 | 🟦 In progress | | P1.1 ✅ (2026-10-06) |
 | 2 Telemetry | Oct 8–14 | ⬜ | | |
 | 3 Twin | Oct 13–19 | ⬜ | | critical path |
 | 4 ML + executor | Oct 9–19 | ⬜ | | |
@@ -244,7 +244,7 @@ Status values: ⬜ Not started · 🟦 In progress · 🟨 At risk · 🟥 Block
 
 | ID | Task | Due | Produces | Done when |
 |---|---|---|---|---|
-| P1.1 | Campus topology (4 APs, 2 switches, 20 stations, wmediumd), using `ensure_associated()` | Oct 8 | `testbed/topologies/campus_v1.py` | All 20 stations associate; `pingall` passes 3/3 runs |
+| P1.1 ✅ | Campus topology (4 APs, 2 switches, 20 stations, wmediumd), using `ensure_associated()` | Oct 8 | `testbed/topologies/campus_v1.py`, `testbed/layout.py`, `testbed/connectivity.py`, `config/campus_v1.yaml` | All 20 stations associate; **every pair reachable (retry up to 3 pings) and first-try single-ping loss ≤ 5%** (changed from "0% pingall", deviation #4), 3/3 runs. *(2026-10-06: `make campus-vm` 3/3 PASS, 420/420 reachable, loss 1.4–2.6%)* |
 | P1.2 | Ryu app: L2 forwarding, port/flow stats every 1 s, REST `GET /stats/ports`, `/stats/flows`, `/topology`, `POST/DELETE /flows`, `POST /qos/queue` | Oct 9 | `controller/apps/twin_controller.py` | Responses validate against schemas; an installed flow changes the path (`ovs-ofctl dump-flows`) |
 | P1.3 | AP agent inside the topology process: `GET /aps`, `/aps/{id}/stats`, `/stations`; `POST /aps/{id}/channel`, `/txpower`, `/stations/{id}/associate` | Oct 10 | `testbed/ap_agent.py` | POSTs change state; out-of-bounds values return 422 |
 | P1.4 | Scheduled-crowd mobility (group moves zone A → B over a time window) | Oct 10 ∥ | `testbed/mobility/` | 10 stations move to the lecture hall and re-associate |
@@ -416,3 +416,4 @@ Every change to this plan goes here **before** the work starts.
 | 1 | 2026-10-06 | v1.1 | Testbed VM: Ubuntu 20.04 (not 22.04), ~4 GB RAM (raise to 6 GB), 21 GB root | Existing VM already works (`mac80211_hwsim` loads on arm64); Ryu runs natively on Python 3.8; no rebuild time | None on schedule. VM-side code must stay Python 3.8-compatible | [ADR-003](adr/003-vm-ubuntu-20-04.md) | Abhishek (team to confirm) |
 | 2 | 2026-10-06 | **v2.0** | **Timeline 16 weeks → 25 days (submit Oct 30, deadline Oct 31)**; parallel tracks; scope cut: analytical twin only (no GNN/emulation twin), heuristics only (no RL), no LSTM/TimeGAN, copilot without RAG, Streamlit instead of React, evaluation 3 variants × 3 scenarios × 3 seeds; **LLM = Ollama only**; fully virtual | P0.1 answers: 4 people, deadline end of October, no API budget, no hardware | Whole plan rewritten. Removed items become future work in the report | ADR-001 (P0.7) | Abhishek (team to confirm) |
 | 3 | 2026-10-06 | **v2.1** | Team is **5 people** (new DOC role: report, evaluation and QA lead); deliverables are **report + live demonstration** (no slides; demo video becomes a backup recording only); P0.4 → 5 papers; P7.4 → live demo rehearsals | Team confirmed names; project requirements are a report and a live demo | Load per person drops; DOC frees the engineers from report writing | — | Abhishek (team to confirm) |
+| 4 | 2026-10-06 | v2.1 | P1.1 criterion: "pingall 0% loss" → **100% pair reachability (≤ 3 pings per failed pair) + first-try single-ping loss ≤ 5%** | wmediumd interference mode drops frames like real Wi-Fi. Without interference: 0% loss (2/2 runs). With it: 0.5–2.6% loss over 8 runs, always on 2-radio-hop station↔station pairs, all recovered on retry. A 0% (or 2%) criterion would be flaky (RULEBOOK T-4) | None on schedule; loss is reported in every run and in the report | — | Abhishek |

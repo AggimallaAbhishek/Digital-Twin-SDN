@@ -25,7 +25,7 @@ def test_campus_v1_loads() -> None:
     assert [ap.name for ap in layout.aps] == ["ap1", "ap2", "ap3", "ap4"]
     assert layout.switches == ["s1", "s2"]
     assert layout.station_count == 20
-    assert layout.max_ping_loss_pct == 2.0
+    assert layout.max_ping_loss_pct == 5.0
     assert layout.reach_ping_count == 3
 
 

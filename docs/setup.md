@@ -1,0 +1,110 @@
+# Setup Guide: Testbed VM (P0.2)
+
+How to build the Mininet-WiFi + Ryu testbed VM from scratch. **Verified on 2026-10-06:** the smoke test passed 3 of 3 runs.
+
+> Decisions behind this setup: [ADR-002](adr/002-controller.md) (Ryu) and [ADR-003](adr/003-vm-ubuntu-20-04.md) (Ubuntu 20.04).
+
+## 1. Verified environment
+
+| Component | Version |
+|---|---|
+| Host | macOS on Apple Silicon (arm64), UTM (QEMU backend) |
+| Guest OS | Ubuntu 20.04.6 LTS server, kernel 5.4.0-216-generic, **aarch64** |
+| VM resources | 4 vCPU, ~4 GB RAM (raise to 6 GB before Phase 2), 21 GB root |
+| Python (system) | 3.8.10, pip upgraded to 24.3.1 |
+| Mininet-WiFi | 2.7 (git `d0d3c94`, cloned 2026-10-06) |
+| Mininet (installed by Mininet-WiFi) | 2.3.1b4 |
+| hostapd / wpa_supplicant | 2.12-devel (built by the Mininet-WiFi installer) |
+| wmediumd | v0.5 |
+| Open vSwitch | 2.13.8 |
+| Ryu | 4.34, in `~/ryu-venv` with `eventlet==0.30.2`, `setuptools<58` |
+| Traffic | iperf3 (apt), D-ITG (apt `d-itg`: `ITGSend`/`ITGRecv`) |
+
+## 2. Access from the Mac
+
+The Mac uses a dedicated SSH key (`~/.ssh/id_ed25519_sdnvm`) and a host alias, so you can connect with `ssh sdnvm`:
+
+```sshconfig
+# ~/.ssh/config
+Host sdnvm
+  HostName 192.168.64.2
+  User abhishek
+  IdentityFile ~/.ssh/id_ed25519_sdnvm
+  IdentitiesOnly yes
+```
+
+On the VM, add the public key to `~/.ssh/authorized_keys`. Passwordless sudo is enabled for the lab user (`/etc/sudoers.d/abhishek-nopasswd`); remove that file to undo it.
+
+> Each team member uses their **own** key. Never share private keys (RULEBOOK §14).
+
+## 3. Install steps (on the VM)
+
+```bash
+# 0. Base
+sudo apt-get update
+sudo apt-get install -y git openssh-server
+
+# 1. Grow the root filesystem into the free space in the volume group (if the installer left some)
+sudo vgs                                   # check VFree
+sudo lvextend -r -l +100%FREE /dev/ubuntu-vg/ubuntu-lv
+
+# 2. Remove the distro Mininet if present (Mininet-WiFi installs its own)
+sudo apt-get remove -y mininet
+
+# 3. Upgrade pip: the installer passes --break-system-packages, which pip 20 doesn't have
+sudo -H python3 -m pip install --upgrade "pip>=23.1,<25"
+
+# 4. FlightRadarAPI workaround (see Known problems #2), BEFORE running the installer
+sudo -H python3 -m pip install "numpy<2" FlightRadarAPI beautifulsoup4
+D=$(python3 -c "import FlightRadar24,os;print(os.path.dirname(os.path.dirname(FlightRadar24.__file__)))")
+printf 'from FlightRadar24 import *  # noqa\nfrom FlightRadar24 import FlightRadar24API  # noqa\n' | sudo tee "$D/FlightRadarAPI.py"
+python3 -c "from FlightRadarAPI import FlightRadar24API; print('shim ok')"
+
+# 5. Mininet-WiFi with wireless deps, wmediumd, mininet-wifi deps, OpenFlow, OVS
+git clone https://github.com/intrig-unicamp/mininet-wifi ~/mininet-wifi
+cd ~/mininet-wifi
+sudo util/install.sh -Wlnfv
+#    If it fails part-way, do NOT re-run with -W (its hostapd patch step is not re-runnable).
+#    Re-run only the remaining steps instead, e.g.:  sudo util/install.sh -lnfv
+
+# 6. Traffic tools
+sudo apt-get install -y iperf3 d-itg python3-venv
+
+# 7. Ryu in its own venv (ADR-002)
+python3 -m venv ~/ryu-venv
+~/ryu-venv/bin/pip install --upgrade "pip<25" "setuptools<58" wheel
+~/ryu-venv/bin/pip install ryu "eventlet==0.30.2"
+~/ryu-venv/bin/ryu-manager --version          # ryu-manager 4.34
+```
+
+### Verify the install
+
+```bash
+sudo modprobe mac80211_hwsim radios=2 && echo HWSIM_OK
+cd ~ && python3 -c "import mn_wifi.net as n; print('mn_wifi', n.VERSION)"   # 2.7
+mn --version; wmediumd -V; hostapd -v; ovs-vsctl --version | head -1
+```
+
+## 4. Smoke test (P0.2 exit criterion)
+
+The test uses 2 APs (channels 1 and 6), 4 stations, wmediumd interference mode, a log-distance propagation model and Ryu `simple_switch_13`.
+
+```bash
+# copy the repo's testbed/ to the VM (or clone the repo there), then on the VM:
+testbed/smoke/run_smoke.sh
+# expected: SMOKE_RESULT assoc=4/4 loss=0.0% -> PASS
+```
+
+Logs go to `~/p02/` (`smoke.out`, `ryu.out`, `mnc.out`).
+
+## 5. Known problems and fixes
+
+| # | Symptom | Cause | Fix |
+|---|---|---|---|
+| 1 | Installer fails: `no such option: --break-system-packages` | Ubuntu 20.04 ships pip 20; the flag needs pip ≥ 23 | Step 3: upgrade pip to `<25` (pip 25 drops Python 3.8) |
+| 2 | `ModuleNotFoundError: No module named 'FlightRadarAPI'` while installing Mininet-WiFi | `mn_wifi/net.py` imports `FlightRadarAPI`, but every FlightRadarAPI release available for Python 3.8 ships the module as `FlightRadar24`. It also needs `beautifulsoup4`, which it doesn't declare. | Step 4: install `beautifulsoup4` and the two-line `FlightRadarAPI.py` shim. Only the optional flight-tracking example uses this module. |
+| 3 | Re-running `install.sh -W…` exits 1 with `Reversed (or previously applied) patch detected` | The hostapd patch step isn't re-runnable | Re-run without `-W` (`-lnfv`). The `.rej` files left in `hostap/` are harmless. |
+| 4 | Stations show `associatedTo=ap1` in Python, but `iw dev staX-wlan0 link` says `Not connected`, and pingall is 100% dropped | Mininet-WiFi 2.7 sends one `iw connect` during `build()` with no retry, and marks the station associated even when it fails (a race with hostapd start-up on this VM) | Our topologies call `ensure_associated()` after `ap.start()`. It checks the kernel link and retries (see `testbed/smoke/smoke_topo.py`). **Every topology in `testbed/` must do this.** |
+| 5 | An SSH session or script dies suddenly (exit 255) during cleanup | `mn -c` and `net.stop()` run `pkill -9 -f` on patterns like `ryu-manager`, `controller`, `hostapd`, `ping`, `wpa_supplicant`, which also matches **any** shell whose command line contains those words | Run testbed commands from script files (`run_smoke.sh`). Don't put those words in a one-line `ssh host '…'` command that also runs cleanup. |
+| 6 | Log files in `/tmp` disappear | `mn -c` deletes `/tmp/*.log` | Write logs outside `/tmp` (we use `~/p02/`, and `testbed/logs/` later) |
+| 7 | Ryu 4.34 errors with newer eventlet or setuptools | Ryu is unmaintained | Pin `eventlet==0.30.2` and `setuptools<58` in the venv (ADR-002) |

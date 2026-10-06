@@ -121,7 +121,7 @@ Each phase has the same structure:
 
 | Phase | Weeks | Status | Exit gate passed | Notes |
 |---|---|---|---|---|
-| 0 Research & setup | 1–2 | ⬜ Not started | | |
+| 0 Research & setup | 1–2 | 🟦 In progress | | P0.2 smoke test passing (2026-10-06); P0.1 decisions open |
 | 1 Wireless SDN testbed | 3–4 | ⬜ Not started | | |
 | 2 Telemetry & dataset | 5–6 | ⬜ Not started | | |
 | 3 Digital twin core ⚠ | 7–9 | ⬜ Not started | | critical path |
@@ -169,7 +169,7 @@ Decide on the [open questions in PROJECT_PLAN §17](PROJECT_PLAN.md#17-open-ques
 - Ryu in a venv on the VM's system Python 3.8 with pinned `eventlet`, **or** OS-Ken. Record the choice in ADR-002.
 - **Produces:** VM image shared with the team, `docs/setup.md` (step-by-step), `docs/adr/002-controller.md`
 - **Done when:**
-  - [ ] A 2-AP, 4-station topology with Ryu `simple_switch_13` passes `pingall`.
+  - [x] A 2-AP, 4-station topology with Ryu `simple_switch_13` passes `pingall`. *(2026-10-06: 3 of 3 runs PASS, `testbed/smoke/`)*
   - [ ] A second team member reproduces it from `docs/setup.md` alone.
 
 #### P0.3: Repo skeleton · GENAI · Week 1 · ∥

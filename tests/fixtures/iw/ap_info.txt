@@ -1,0 +1,9 @@
+Interface ap1-wlan1
+	ifindex 153
+	wdev 0x5c00000001
+	addr 02:00:00:00:14:00
+	ssid campus-ap1
+	type AP
+	wiphy 92
+	channel 1 (2412 MHz), width: 20 MHz (no HT), center1: 2412 MHz
+	txpower 14.00 dBm

@@ -12,6 +12,9 @@ from typing import Any
 
 ASSOC_RETRIES = 5
 ASSOC_WAIT_S = 1.0
+STEER_ATTEMPTS = 2
+STEER_WAIT_S = 4.0  # P1.3 probe: disconnect + connect to another AP took ~4 s
+STEER_POLL_S = 0.5
 
 
 def is_connected(sta: Any) -> bool:
@@ -31,6 +34,30 @@ def ensure_associated(
         sta.cmd(f"iw dev {intf.name} connect {ap_intf.ssid} {ap_intf.mac}")
         time.sleep(wait_s)
     return is_connected(sta)
+
+
+def connected_to(sta: Any, ap: Any) -> bool:
+    """True if the station's link is to this AP's BSSID (not just to any AP)."""
+    return f"Connected to {ap.wintfs[0].mac}" in sta.cmd(f"iw dev {sta.wintfs[0].name} link")
+
+
+def steer(sta: Any, ap: Any, attempts: int = STEER_ATTEMPTS, wait_s: float = STEER_WAIT_S) -> bool:
+    """Move `sta` to `ap` (disconnect, then connect to that BSSID); True once linked to it.
+
+    Unlike ensure_associated(), which accepts a link to any AP, this checks the target BSSID.
+    """
+    intf, ap_intf = sta.wintfs[0], ap.wintfs[0]
+    for _ in range(attempts):
+        if connected_to(sta, ap):
+            return True
+        sta.cmd(f"iw dev {intf.name} disconnect")
+        sta.cmd(f"iw dev {intf.name} connect {ap_intf.ssid} {ap_intf.mac}")
+        deadline = time.monotonic() + wait_s
+        while time.monotonic() < deadline:
+            time.sleep(STEER_POLL_S)
+            if connected_to(sta, ap):
+                return True
+    return connected_to(sta, ap)
 
 
 def link_signal(sta: Any) -> str:

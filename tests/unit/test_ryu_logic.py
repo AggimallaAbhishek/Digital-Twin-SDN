@@ -9,6 +9,7 @@ from controller.apps.ryu_logic import (
     dpid_str,
     flow_cookie,
     is_ours,
+    learn_mac,
     parse_flow_request,
     parse_qos_request,
     rate_bps,
@@ -165,3 +166,28 @@ def test_explicit_eth_type_is_kept() -> None:
 def test_drop_must_be_true() -> None:
     with pytest.raises(ValueError, match="drop must be true"):
         parse_flow_request({**FLOW, "actions": [{"drop": False}]})
+
+
+STA = "02:00:00:00:01:00"
+
+
+def test_first_sighting_of_a_mac_is_learned_not_a_move() -> None:
+    tables: dict[int, dict[str, int]] = {}
+    assert learn_mac(tables, dpid=1, mac=STA, port=1) is False
+    assert tables == {1: {STA: 1}}
+
+
+def test_same_port_again_is_not_a_move() -> None:
+    tables = {1: {STA: 1}}
+    assert learn_mac(tables, dpid=1, mac=STA, port=1) is False
+    assert tables == {1: {STA: 1}}
+
+
+def test_mac_on_a_new_port_is_a_move_and_is_forgotten_everywhere_else() -> None:
+    # sta2 steered from ap1 (s1 port 1) to ap2: it now reaches s1 over the s2 link (port 3)
+    other = "02:00:00:00:03:00"
+    tables = {1: {STA: 1, other: 3}, 2: {STA: 3, other: 1}}
+
+    assert learn_mac(tables, dpid=1, mac=STA, port=3) is True
+    # stale locations on every other datapath are dropped; they re-learn from new traffic
+    assert tables == {1: {STA: 3, other: 3}, 2: {other: 1}}

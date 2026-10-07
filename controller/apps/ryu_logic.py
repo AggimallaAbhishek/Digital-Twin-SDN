@@ -61,6 +61,22 @@ def is_ours(cookie: int) -> bool:
     return bool(cookie & OURS_TAG)
 
 
+def learn_mac(tables: dict[int, dict[str, int]], dpid: int, mac: str, port: int) -> bool:
+    """Record that `mac` was seen on `port` of `dpid`; return True if the host moved.
+
+    A move (station steered or roamed to another AP) means the MAC turned up on a different port
+    than learned. Its location is then forgotten on every datapath, and the caller must delete
+    the learned flows to and from it, or they keep forwarding to the old AP (P1.3 bug).
+    """
+    table = tables.setdefault(dpid, {})
+    moved = mac in table and table[mac] != port
+    if moved:
+        for other in tables.values():
+            other.pop(mac, None)
+    table[mac] = port
+    return moved
+
+
 def rate_bps(prev: tuple[int, float] | None, now: tuple[int, float]) -> float:
     """Bits per second between two (byte_counter, timestamp) samples; 0 if not computable."""
     if prev is None:

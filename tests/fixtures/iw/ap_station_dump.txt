@@ -1,0 +1,89 @@
+Station 02:00:00:00:00:00 (on ap1-wlan1)
+	authorized:	yes
+	authenticated:	yes
+	associated:	yes
+	preamble:	short
+	WMM/WME:	no
+	MFP:		no
+	TDLS peer:	no
+	inactive time:	8188 ms
+	rx bytes:	1242
+	rx packets:	14
+	tx bytes:	175
+	tx packets:	3
+	tx retries:	0
+	tx failed:	0
+	rx drop misc:	0
+	signal:  	-56 dBm
+	signal avg:	-56 dBm
+	tx bitrate:	1.0 MBit/s
+	tx duration:	0 us
+	rx bitrate:	12.0 MBit/s
+	rx duration:	0 us
+	DTIM period:	2
+	beacon interval:100
+	short slot time:yes
+	connected time:	39 seconds
+	associated at [boottime]:	2431.093s
+	associated at:	1791353299780 ms
+	current time:	1791353339563 ms
+
+Station 02:00:00:00:01:00 (on ap1-wlan1)
+	authorized:	yes
+	authenticated:	yes
+	associated:	yes
+	preamble:	short
+	WMM/WME:	no
+	MFP:		no
+	TDLS peer:	no
+	inactive time:	6144 ms
+	rx bytes:	1242
+	rx packets:	14
+	tx bytes:	175
+	tx packets:	3
+	tx retries:	0
+	tx failed:	0
+	rx drop misc:	0
+	signal:  	-58 dBm
+	signal avg:	-58 dBm
+	tx bitrate:	1.0 MBit/s
+	tx duration:	0 us
+	rx bitrate:	12.0 MBit/s
+	rx duration:	0 us
+	DTIM period:	2
+	beacon interval:100
+	short slot time:yes
+	connected time:	37 seconds
+	associated at [boottime]:	2431.093s
+	associated at:	1791353299780 ms
+	current time:	1791353339563 ms
+
+Station 02:00:00:00:02:00 (on ap1-wlan1)
+	authorized:	yes
+	authenticated:	yes
+	associated:	yes
+	preamble:	short
+	WMM/WME:	no
+	MFP:		no
+	TDLS peer:	no
+	inactive time:	4096 ms
+	rx bytes:	1242
+	rx packets:	14
+	tx bytes:	175
+	tx packets:	3
+	tx retries:	0
+	tx failed:	0
+	rx drop misc:	0
+	signal:  	-37 dBm
+	signal avg:	-37 dBm
+	tx bitrate:	1.0 MBit/s
+	tx duration:	0 us
+	rx bitrate:	54.0 MBit/s
+	rx duration:	0 us
+	DTIM period:	2
+	beacon interval:100
+	short slot time:yes
+	connected time:	35 seconds
+	associated at [boottime]:	2431.093s
+	associated at:	1791353299780 ms
+	current time:	1791353339563 ms

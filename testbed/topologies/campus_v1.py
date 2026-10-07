@@ -6,12 +6,15 @@ on 127.0.0.1:6653, e.g. via testbed/run_on_vm.sh):
 
     sudo python3 -m testbed.topologies.campus_v1 --check  # build, verify, stop; exit code = result
     sudo python3 -m testbed.topologies.campus_v1 --cli    # build and open the Mininet-WiFi CLI
+    sudo python3 -m testbed.topologies.campus_v1 --serve  # build, run the AP agent until stopped
 """
 
 from __future__ import annotations
 
 import argparse
+import signal
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,6 +28,7 @@ from mn_wifi.link import wmediumd
 from mn_wifi.net import Mininet_wifi
 from mn_wifi.wmediumdConnector import interference
 
+from testbed import ap_agent
 from testbed.connectivity import Pair, evaluate, ping_received
 from testbed.layout import CampusLayout, load_layout, place_stations
 from testbed.wifi_utils import ensure_associated, link_signal
@@ -127,15 +131,31 @@ def check(campus: Campus, assoc: dict[str, bool], layout: CampusLayout) -> bool:
     return report.passed and all(assoc.values())
 
 
+def serve(campus: Campus, port: int) -> None:
+    """Run the AP agent (testbed/ap_agent.py) until SIGINT/SIGTERM."""
+    stop = threading.Event()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(sig, lambda *_: stop.set())
+    server = ap_agent.start_in_background(ap_agent.from_campus(campus), port=port)
+    print(f"AP_AGENT_READY port={port}", flush=True)
+    try:
+        while not stop.wait(1.0):  # short waits so SIGTERM is handled promptly
+            pass
+    finally:
+        server.shutdown()
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point; returns a process exit code."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--layout", default=str(DEFAULT_LAYOUT))
     parser.add_argument("--controller-ip", default="127.0.0.1")
     parser.add_argument("--controller-port", type=int, default=6653)
+    parser.add_argument("--agent-port", type=int, default=ap_agent.DEFAULT_PORT)
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--check", action="store_true", help="check association, reachability, loss")
     mode.add_argument("--cli", action="store_true", help="open the Mininet-WiFi CLI")
+    mode.add_argument("--serve", action="store_true", help="run the AP agent until stopped")
     args = parser.parse_args(argv)
 
     layout = load_layout(args.layout)
@@ -144,6 +164,9 @@ def main(argv: list[str] | None = None) -> int:
         assoc = start_campus(campus)
         if args.cli:
             CLI(campus.net)
+            return 0
+        if args.serve:
+            serve(campus, args.agent_port)
             return 0
         return 0 if check(campus, assoc, layout) else 1
     finally:

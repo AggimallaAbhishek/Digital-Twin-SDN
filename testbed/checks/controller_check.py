@@ -34,11 +34,16 @@ FLOW_SETTLE_S = 1.5
 EXPECTED_DATAPATHS = 6  # 4 APs + 2 switches (config/campus_v1.yaml)
 
 
-def http(method: str, path: str, body: dict[str, Any] | None = None) -> tuple[int, Any]:
-    """Call the controller REST API; return (status, parsed JSON)."""
-    data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(  # noqa: S310 - fixed local controller URL
-        REST + path, data=data, method=method, headers={"Content-Type": "application/json"}
+def http(
+    method: str, path: str, body: Any = None, base: str = REST, raw: bytes | None = None
+) -> tuple[int, Any]:
+    """Call a local REST API (controller by default); return (status, parsed JSON).
+
+    `raw` sends those bytes as the body instead of JSON-encoding `body`.
+    """
+    data = raw if raw is not None else (json.dumps(body).encode() if body is not None else None)
+    req = urllib.request.Request(  # noqa: S310 - fixed local controller/agent URL
+        base + path, data=data, method=method, headers={"Content-Type": "application/json"}
     )
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310 - as above

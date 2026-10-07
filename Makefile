@@ -3,7 +3,7 @@
 RUN := uv run
 FAST_TESTS := -m "not vm and not llm and not integration"
 
-.PHONY: help setup env hooks fmt lint types imports test test-all check security up down ps logs sync-vm smoke-vm campus-vm controller-vm ap-agent-vm llm-check llm-client-check
+.PHONY: help setup env hooks fmt lint types imports test test-all check security up down ps logs sync-vm smoke-vm campus-vm controller-vm ap-agent-vm mobility-vm llm-check llm-client-check
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -72,6 +72,9 @@ controller-vm: sync-vm ## P1.2 controller check on the VM (REST, stats, flow ins
 
 ap-agent-vm: sync-vm ## P1.3 AP agent check on the VM (channel, tx power, steering, errors)
 	ssh sdnvm 'RYU_APP=controller.apps.twin_controller RYU_STARTUP_S=5 ~/Digital-Twin-SDN/testbed/run_on_vm.sh ap_agent testbed.checks.ap_agent_check'
+
+mobility-vm: sync-vm ## P1.4 crowd mobility check on the VM (10 stations walk to the lecture hall)
+	ssh sdnvm 'RYU_APP=controller.apps.twin_controller RYU_STARTUP_S=5 ~/Digital-Twin-SDN/testbed/run_on_vm.sh mobility testbed.checks.mobility_check'
 
 llm-check: ## P0.7: main + fallback LLM intent -> Policy check (config/llm.yaml; needs Ollama)
 	$(RUN) python -m genai.eval.compare_models

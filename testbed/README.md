@@ -7,7 +7,8 @@ Runs **on the testbed VM** (Ubuntu 20.04, **Python 3.8**; see ADR-003). Covers M
 | `smoke/` | P0.2 smoke test (2 APs, 4 stations, Ryu `simple_switch_13`) | ✅ passing |
 | `topologies/campus_v1.py` | P1.1 (`--check`, `--cli`, `--serve` runs the AP agent) | ✅ |
 | `ap_agent.py`, `ap_logic.py` | P1.3 AP agent (REST, port 8081) | ✅ `make ap-agent-vm` |
-| `mobility/`, `traffic/`, `run_scenario.py` | P1.4–P1.6 | — |
+| `mobility/` | P1.4 scheduled-crowd mobility | ✅ `make mobility-vm` |
+| `traffic/`, `run_scenario.py` | P1.5–P1.6 | — |
 
 **Rules for this folder**
 - Keep code Python 3.8-compatible. `ruff.toml` here sets `target-version = py38`.
@@ -35,4 +36,20 @@ OpenFlow can't change the radio, so this HTTP server runs inside the topology pr
 - **Bounds** (channels, tx power) are copied from `common/schemas.py` into `ap_logic.py`; `tests/unit/test_ap_logic.py` fails if they drift.
 - **Concurrency:** Mininet node shells aren't thread-safe. Anything else in the process that calls `node.cmd()` while the agent serves must hold `agent.lock`.
 - **Safety:** the agent applies what it is told. Only the action executor (P4.4) calls the POST endpoints, and only for actions with an accepted twin `Verdict`.
-- **Steering:** use `wifi_utils.steer()`, which checks the target BSSID. `ensure_associated()` accepts a link to *any* AP and is only for start-up.
+- **Steering:** use `wifi_utils.steer()`, which checks the target BSSID. `ensure_associated()` accepts a link to *any* AP and is only for start-up. Pass the agent's lock (`steer(..., lock=agent.lock)`): it is held per command, not for the ~4 s wait.
+
+## Crowd mobility (`mobility/`, P1.4)
+
+A scenario's `mobility.groups` (fields of `common/schemas.py` `CrowdGroup`) become one straight-line walk per station:
+
+- **Who:** a seeded sample of the stations in `from` that aren't still walking. Later groups see where earlier walkers ended up.
+- **When:** departures spaced evenly over `[start_s, start_s + spread_s]`; walking speed 1.2 m/s (`crowd.WALK_SPEED_MPS`), positions updated every second.
+- **Where:** a seeded point inside the `to` zone. `setPosition` moves the station in wmediumd's radio model, so its signal follows.
+- **Re-association (decision P1.4-A):** stations never roam on their own (sticky clients, P1.4 probe), so on arrival each one joins the **nearest AP**; a flash crowd therefore lands on ap1. RSSI-threshold roaming during the walk is in the PHASE_PLAN parking lot.
+
+```python
+walks = plan_crowd(parse_groups(scenario["mobility"]["groups"]), layout, place_stations(layout), seed)
+CrowdRunner(walks, layout, campus, lock=agent.lock).run()   # blocks; the scenario runner threads it
+```
+
+`crowd.py` is pure (unit-tested on the Mac, 100% branch coverage); `runner.py` drives Mininet-WiFi on the VM. The controller notices each re-associated station as a host move and drops its stale flows (Known problems #11).

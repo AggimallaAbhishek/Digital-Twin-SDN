@@ -90,7 +90,7 @@ Use this process for any change to scope, schedule, contracts or technology choi
 
 | Date | Idea | Raised by | Notes |
 |---|---|---|---|
-| | | | |
+| 2026-10-07 | RSSI-threshold roaming during crowd walks (roam to the strongest AP when the signal drops below −75 dBm) instead of joining the nearest AP on arrival | Claude (P1.4 design, option B) | More realistic, but weakens the flash crowd on ap1. P1.4 uses nearest-AP-on-arrival (decision A). Revisit only if evaluation needs mid-walk roaming |
 
 ---
 
@@ -160,7 +160,7 @@ Milestones          M0          M1   |                   M2 |             M3    
 | Phase | Dates | Status | Exit gate | Notes |
 |---|---|---|---|---|
 | 0 Setup & contracts | Oct 6–8 | 🟦 In progress | | P0.2 ✅, P0.3 ✅, P0.5 ✅, P0.7 ✅ (gpt-oss:120b-cloud + local qwen2.5:3b); open: P0.6 approval (Abhishek), P0.1 Q4b template, P0.4 literature (Oct 12), VM RAM → 6 GB |
-| 1 Testbed | Oct 7–12 | 🟦 In progress | | P1.1 ✅ (Oct 6), P1.2 ✅ (Oct 7), P1.3 ✅ (Oct 7) |
+| 1 Testbed | Oct 7–12 | 🟦 In progress | | P1.1 ✅ (Oct 6), P1.2 ✅ (Oct 7), P1.3 ✅ (Oct 7), P1.4 ✅ (Oct 7) |
 | 2 Telemetry | Oct 8–14 | ⬜ | | |
 | 3 Twin | Oct 13–19 | ⬜ | | critical path |
 | 4 ML + executor | Oct 9–19 | ⬜ | | |
@@ -248,7 +248,7 @@ Status values: ⬜ Not started · 🟦 In progress · 🟨 At risk · 🟥 Block
 | P1.1 ✅ | Campus topology (4 APs, 2 switches, 20 stations, wmediumd), using `ensure_associated()` | Oct 8 | `testbed/topologies/campus_v1.py`, `testbed/layout.py`, `testbed/connectivity.py`, `config/campus_v1.yaml` | All 20 stations associate; **every pair reachable (retry up to 3 pings) and first-try single-ping loss ≤ 5%** (changed from "0% pingall", deviation #4), 3/3 runs. *(2026-10-06: `make campus-vm` 3/3 PASS, 420/420 reachable, loss 1.4–2.6%)* |
 | P1.2 ✅ | Ryu app: L2 forwarding, port/flow stats every 1 s, REST `GET /stats/ports`, `/stats/flows`, `/topology`, `POST/DELETE /flows`, `POST /qos/queue` | Oct 9 | `controller/apps/twin_controller.py`, `controller/apps/ryu_logic.py` | Responses validate against schemas; an installed flow changes forwarding (`ovs-ofctl dump-flows`). *(2026-10-07: `make controller-vm` 19/19 checks, 3/3 runs: drop flow blocks sta1→srv1 and DELETE restores it; 400/404/409 errors; QoS flow installs. Contract test: real responses validate as `PortStats`/`FlowStats`. `ryu_logic` 100% branch coverage)* |
 | P1.3 ✅ | AP agent inside the topology process: `GET /aps`, `/aps/{id}/stats`, `/stations`; `POST /aps/{id}/channel`, `/txpower`, `/stations/{id}/associate` | Oct 10 | `testbed/ap_agent.py` | POSTs change state; out-of-bounds values return 422 *(2026-10-07: `make ap-agent-vm` 29/29 checks, 3/3 runs: ap1 → ch 6 via hostapd CSA and its 3 clients follow; tx power 14 → 10 dBm; sta2 steered ap1 → ap2 and still reaches srv1; 422 for off-plan channel / 25 dBm / bad JSON / non-AP target, 404 for unknown AP/station/path; every change confirmed with `iw`. Found and fixed a P1.2 bug: stale L2 flows after a host move (setup Known problems #11); `make controller-vm` still 19/19. Contract test: real responses validate as `APStats`/`StationStats`. `ap_logic` 100% branch coverage)* |
-| P1.4 | Scheduled-crowd mobility (group moves zone A → B over a time window) | Oct 10 ∥ | `testbed/mobility/` | 10 stations move to the lecture hall and re-associate |
+| P1.4 ✅ | Scheduled-crowd mobility (group moves zone A → B over a time window) | Oct 10 ∥ | `testbed/mobility/` | 10 stations move to the lecture hall and re-associate *(2026-10-07: `make mobility-vm` 12/12 checks, 3/3 runs: 6 corridor + 4 library stations walk to the lecture hall (shortened timeline: leave over 20 s from t=5 s, 1.2 m/s); 344 mid-walk samples within 0.06 m of the planned paths; all 10 re-associate to ap1 (nearest AP, decision P1.4-A), signal ≥ −75 dBm, reach srv1; other 10 untouched; ap1 13 clients; agent stats ≤ 0.02 s throughout (steer now holds the agent lock per command). Controller detected all 10 host moves. `make ap-agent-vm` still 29/29. `crowd.py` 100% branch coverage)* |
 | P1.5 | Traffic profiles (video, web, bulk) + KPI probe (throughput, latency, jitter, loss per flow) | Oct 11 ∥ | `testbed/traffic/` | Probe outputs schema-valid KPI records |
 | P1.6 | Scenario runner + 4 scenario YAMLs | Oct 12 | `testbed/run_scenario.py`, `experiments/scenarios/*.yaml` | 10-minute run without manual steps; same seed ×3 gives throughput within ±5% |
 

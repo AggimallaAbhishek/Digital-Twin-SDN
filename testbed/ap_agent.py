@@ -159,9 +159,8 @@ class ApAgent:
         sta = self._station(sta_name)
         ap_name = ap_logic.parse_associate_request(body)
         ap = self._ap(ap_name)
-        with self.lock:
-            if not steer(sta, ap):
-                raise RadioError(f"{sta_name} did not associate with {ap_name}")
+        if not steer(sta, ap, lock=self.lock):  # holds the lock per command, not for ~4 s
+            raise RadioError(f"{sta_name} did not associate with {ap_name}")
         return {"ts": _now(), "sta": sta_name, "ap": ap_name}
 
     # ------------------------------------------------------------------ helpers

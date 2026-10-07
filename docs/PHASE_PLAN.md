@@ -164,7 +164,7 @@ Milestones          M0          M1   |                   M2 |             M3    
 | 2 Telemetry | Oct 8–14 | ⬜ | | |
 | 3 Twin | Oct 13–19 | ⬜ | | critical path |
 | 4 ML + executor | Oct 9–19 | ⬜ | | |
-| 5 GenAI | Oct 8–22 | ⬜ | | |
+| 5 GenAI | Oct 8–22 | 🟦 In progress | | P5.1 ✅ (Oct 7) |
 | 6 Integration + eval | Oct 20–28 | ⬜ | | |
 | 7 Report + live demo prep | Oct 13–30 | ⬜ | | DOC leads |
 
@@ -331,7 +331,7 @@ Status values: ⬜ Not started · 🟦 In progress · 🟨 At risk · 🟥 Block
 
 | ID | Task | Due | Produces | Done when |
 |---|---|---|---|---|
-| P5.1 | LLM client for Ollama (structured JSON output, timeout, retries) with **automatic fallback from the cloud model to the local model** on error/timeout; logs model used, tokens, latency and validity | Oct 9 | `genai/llm/client.py` | Schema-valid output on test prompts; every call logged |
+| P5.1 ✅ | LLM client for Ollama (structured JSON output, timeout, retries) with **automatic fallback from the cloud model to the local model** on error/timeout; logs model used, tokens, latency and validity | Oct 9 | `genai/llm/client.py` | Schema-valid output on test prompts; every call logged *(2026-10-07: `make llm-client-check` 6/6: 5 test prompts schema-valid on `gpt-oss:120b-cloud` first try; unknown main model → HTTP 404 → `qwen2.5:3b` answers. Every attempt logged to `logs/llm_calls.jsonl` (no prompt text). Invalid output repaired ≤ 2× on the same model, then `LLMOutputError`; only unreachable models trigger fallback. `client.py` 100% branch coverage)* |
 | P5.2 | Tool layer: `get_topology`, `get_metrics`, `get_alerts`, `simulate_in_twin`, `apply_action` (verified IDs only) | Oct 13 (mocks) → Oct 20 (live) | `genai/tools/` | Live data by Oct 20; `apply_action` refuses unverified IDs |
 | P5.3 | Intent engine: prompt + few-shot → `Policy` JSON → validation and repair (≤ 2 retries) → **deterministic compiler** → twin verify → `POST /intents` | Oct 16 | `genai/intent/`, `genai/prompts/` | Compiler at 100% branch coverage; invalid LLM output never reaches it |
 | P5.4 | Intent test set: **30 intents** with expected policies (Claude drafts, Abhishek checks) + eval script | Oct 15 ∥ | `genai/eval/intents.jsonl`, `genai/eval/run_intents.py` | Script reports accuracy |

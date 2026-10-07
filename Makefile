@@ -3,7 +3,7 @@
 RUN := uv run
 FAST_TESTS := -m "not vm and not llm and not integration"
 
-.PHONY: help setup env hooks fmt lint types imports test test-all check security up down ps logs sync-vm smoke-vm campus-vm controller-vm llm-check
+.PHONY: help setup env hooks fmt lint types imports test test-all check security up down ps logs sync-vm smoke-vm campus-vm controller-vm llm-check llm-client-check
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -72,3 +72,6 @@ controller-vm: sync-vm ## P1.2 controller check on the VM (REST, stats, flow ins
 
 llm-check: ## P0.7: main + fallback LLM intent -> Policy check (config/llm.yaml; needs Ollama)
 	$(RUN) python -m genai.eval.compare_models
+
+llm-client-check: ## P5.1: LLM client live check (5 prompts + forced fallback; needs Ollama)
+	$(RUN) pytest tests/integration/test_llm_live.py -m llm -s -p no:cacheprovider

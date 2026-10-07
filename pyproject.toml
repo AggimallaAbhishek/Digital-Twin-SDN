@@ -54,7 +54,7 @@ disallow_untyped_defs = true
 exclude = ["^data/", "^models/", "^experiments/notebooks/"]
 
 [[tool.mypy.overrides]]
-module = ["common.*", "twin.*", "controller.executor.*", "genai.intent.*"]
+module = ["common.*", "twin.*", "controller.executor.*", "genai.intent.*", "genai.llm.*"]
 strict = true
 
 [[tool.mypy.overrides]]

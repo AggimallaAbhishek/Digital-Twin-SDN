@@ -1,0 +1,16 @@
+# P1.5 traffic profiles and KPI probe settings (PHASE_PLAN P1.5). Loaded by
+# testbed/traffic/profiles.py. All traffic is downlink: srv1 -> station (docs/scenario.md).
+window_s: 1.0            # one KPI record per flow per window
+
+ping:                    # latency probe: one ping per active station, alongside its flows
+  interval_s: 0.2
+  timeout_s: 1.0         # an unanswered ping is lost after this; also the latency of a dead link
+
+server:                  # on srv1
+  iperf_base_port: 5201  # iperf3 serves one test at a time: one port per iperf3 flow
+  http_port: 8000
+
+profiles:                # keys = common/schemas.py AppClass
+  video: {protocol: udp, rate_mbps: 3}       # constant-bitrate stream (scenario.md: 3 Mbps each)
+  bulk: {protocol: tcp, rate_mbps: null}     # null = unlimited (TCP takes what it can get)
+  web: {object_kb: 500, think_mean_s: 2.0, timeout_s: 10}  # fetch, exponential think, repeat

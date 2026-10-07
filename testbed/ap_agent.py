@@ -6,6 +6,7 @@ drives Mininet-WiFi directly (PROJECT_PLAN §5 design note). Runs on the testbed
     GET  /aps                        every AP: bssid, channel, tx power, position, clients
     GET  /aps/{ap}/stats             APStats fields (common/schemas.py) for one AP
     GET  /stations                   StationStats fields for every station
+    GET  /kpi                        latest KPIRecord fields per traffic flow (P1.5 probe)
     POST /aps/{ap}/channel           {"channel": 6}     hostapd channel switch, clients follow
     POST /aps/{ap}/txpower           {"dbm": 12}        rounded to whole dBm
     POST /stations/{sta}/associate   {"ap": "ap2"}      steer the station to that AP
@@ -68,6 +69,8 @@ class ApAgent:
         self._stations = stations
         self._ap_by_bssid = {ap.wintfs[0].mac: name for name, ap in aps.items()}
         self._baseline: dict[str, tuple[float, ap_logic.Counters]] = {}
+        # Latest KPI records; set to TrafficProbe.latest when traffic runs (testbed/traffic, P1.5)
+        self.kpi_source: Callable[[], list[Record]] = list
 
     # ------------------------------------------------------------------ reads
     def list_aps(self) -> Record:
@@ -132,6 +135,9 @@ class ApAgent:
                     }
                 )
         return {"ts": _now(), "stations": records}
+
+    def kpi(self) -> Record:
+        return {"ts": _now(), "kpis": self.kpi_source()}
 
     # ------------------------------------------------------------------ writes
     def set_channel(self, name: str, body: Any) -> Record:
@@ -200,6 +206,7 @@ _ROUTES: list[tuple[str, re.Pattern[str], str]] = [
     ("GET", re.compile(r"^/aps$"), "list_aps"),
     ("GET", re.compile(r"^/aps/([^/]+)/stats$"), "ap_stats"),
     ("GET", re.compile(r"^/stations$"), "stations"),
+    ("GET", re.compile(r"^/kpi$"), "kpi"),
     ("POST", re.compile(r"^/aps/([^/]+)/channel$"), "set_channel"),
     ("POST", re.compile(r"^/aps/([^/]+)/txpower$"), "set_txpower"),
     ("POST", re.compile(r"^/stations/([^/]+)/associate$"), "associate"),

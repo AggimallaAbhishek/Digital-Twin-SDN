@@ -1,0 +1,16 @@
+# AP failure (docs/scenario.md): ap2 (lab) goes down at t=240 s and stays down.
+# Its 5 stations rejoin the nearest AP that is up after radio_model.orphan_rejoin_s (normal
+# client behaviour): sta4, sta5 -> ap1 and sta6, sta7, sta8 -> ap4.
+# Before: ap2 5 x (0.6 + ~0.08 web) = ~3.4 of 4.6 Mbit/s. After: ap1 carries 5 video calls,
+# ~3.4 Mbit/s against its 3.45 Mbit/s cap (~99%); steering hall stations to ap3 relieves it.
+scenario_id: ap_failure
+duration_s: 600
+seed: 42
+topology: campus_v1
+traffic:
+  - {profile: web, stations: "*", start_s: 0}
+  - {profile: video, stations: "lab:*", start_s: 10, rate_mbps: 0.6}
+  - {profile: video, stations: "lecture_hall:*", start_s: 10, rate_mbps: 0.6}
+events:
+  - {at_s: 240, type: ap_down, ap: ap2}
+labels: [ap_failure]

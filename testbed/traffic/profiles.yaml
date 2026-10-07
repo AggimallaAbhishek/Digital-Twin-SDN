@@ -11,6 +11,6 @@ server:                  # on srv1
   http_port: 8000
 
 profiles:                # keys = common/schemas.py AppClass
-  video: {protocol: udp, rate_mbps: 3}       # constant-bitrate stream (scenario.md: 3 Mbps each)
+  video: {protocol: udp, rate_mbps: 1}       # constant-bitrate call (deviation #7; was 3)
   bulk: {protocol: tcp, rate_mbps: null}     # null = unlimited (TCP takes what it can get)
-  web: {object_kb: 500, think_mean_s: 2.0, timeout_s: 10}  # fetch, exponential think, repeat
+  web: {object_kb: 50, think_mean_s: 5.0, timeout_s: 10}  # ~0.08 Mbit/s per station (deviation #7)

@@ -192,7 +192,7 @@ Status values: ⬜ Not started · 🟦 In progress · 🟨 At risk · 🟥 Block
 - **Produces:** VM, `docs/setup.md`, ADR-002, ADR-003
 - **Done when:**
   - [x] A 2-AP, 4-station topology with Ryu `simple_switch_13` passes `pingall`. *(2026-10-06: 3 of 3 runs PASS, `testbed/smoke/`)*
-  - [ ] VM RAM raised to 6 GB in UTM (shut down first).
+  - [x] VM RAM raised to 6 GB in UTM (shut down first). *(2026-10-07: `free -m` 5925 MB total)*
   - [x] `make smoke-vm` works from the Mac over `ssh sdnvm`. *(Per-member keys not needed: solo, decisions Q6)*
 
 #### P0.3: Repo skeleton · GENAI · **Oct 6**

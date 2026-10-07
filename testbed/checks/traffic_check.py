@@ -31,6 +31,7 @@ from testbed.traffic.profiles import (
     APP_CLASSES,
     IperfProfile,
     TrafficConfig,
+    WebProfile,
     flow_id,
     load_traffic_config_file,
 )
@@ -47,7 +48,7 @@ MAX_IDLE_LOSS_PCT = 5.0  # wmediumd drops ~1-3% of frames on an idle campus (set
 MAX_IDLE_LATENCY_MS = 100.0
 MIN_BULK_MBPS = 1.0
 MAX_PERCENT = 100.0
-MIN_WEB_RECORDS = 5  # one fetch every ~2-3 s (500 KB + 2 s mean think time)
+MIN_WEB_SHARE = 0.5  # web: at least half the fetches the profile's think time implies
 FIELDS = {
     "ts",
     "flow_id",
@@ -86,15 +87,17 @@ def check_records(
         f"{len(every)} records, bad={bad[:2]}",
     )
     expected_iperf = RUN_S - SETTLE_S - 2
+    video, web = config.profiles["video"], config.profiles["web"]
+    video_mbps = video.rate_mbps if isinstance(video, IperfProfile) else None
+    think_s = web.think_mean_s if isinstance(web, WebProfile) else 1.0
+    min_web = max(1, int(MIN_WEB_SHARE * RUN_S / think_s))
     for fid, records in sorted(by_flow.items()):
-        need = MIN_WEB_RECORDS if CLASS_OF[fid] == "web" else expected_iperf
+        need = min_web if CLASS_OF[fid] == "web" else expected_iperf
         record(f"{fid} records", len(records) >= need, f"{len(records)} (need >= {need})")
         latency = median(records, "latency_ms")
         record(f"{fid} median latency", latency < MAX_IDLE_LATENCY_MS, f"{latency:.1f} ms")
         loss = median(records, "loss_pct")
         record(f"{fid} median loss", loss <= MAX_IDLE_LOSS_PCT, f"{loss:.1f}%")
-    video = config.profiles["video"]
-    video_mbps = video.rate_mbps if isinstance(video, IperfProfile) else None
     for sta, cls, rate in [*FLOWS, OVERRIDE_FLOW]:
         fid = flow_id(sta, cls)
         records = by_flow.get(fid, [])

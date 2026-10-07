@@ -46,3 +46,9 @@ stations:
 checks:                    # P1.1 connectivity check (testbed/connectivity.py), decided 2026-10-06
   max_ping_loss_pct: 5.0   # first-try single-ping loss budget; 5 runs: mean 1.8%, max 2.6% (wmediumd radio errors)
   reach_ping_count: 3      # pings per failed pair when re-testing reachability
+
+radio_model:               # P1.6 emulation model (deviation #7), shared with the twin (P3.3)
+  ap_capacity_mbps: 4.6    # measured: one AP carries ~4.6 Mbit/s downlink whatever the bitrate (P1.6 calibration)
+  cochannel_full_m: 30     # a same-channel AP this close takes a full share of the airtime
+  cochannel_zero_m: 60     # ... and from this far it no longer interferes (linear in between)
+  orphan_rejoin_s: 5       # stations of an AP that goes down join the nearest AP still up after this

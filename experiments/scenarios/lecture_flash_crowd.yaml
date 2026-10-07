@@ -1,0 +1,18 @@
+# Lecture-hall flash crowd (docs/scenario.md), the main evaluation scenario.
+# t=120-160 s: 6 corridor + 4 library stations leave for the lecture hall (all there by ~195 s).
+# t=210 s: everyone in the hall (3 + 10) streams the lecture at 0.4 Mbit/s.
+# ap1: 13 x (0.4 + ~0.08 web) = ~6.2 Mbit/s against its 3.45 Mbit/s co-channel cap (~180%).
+# Steering hall stations to ap3 (and a few to ap2) gives ~8 Mbit/s, so recovery is possible.
+scenario_id: lecture_flash_crowd
+duration_s: 600
+seed: 42
+topology: campus_v1
+mobility:
+  model: scheduled_crowd
+  groups:
+    - {stations: 6, from: corridor, to: lecture_hall, start_s: 120, spread_s: 40}
+    - {stations: 4, from: library, to: lecture_hall, start_s: 120, spread_s: 40}
+traffic:
+  - {profile: web, stations: "*", start_s: 0}
+  - {profile: video, stations: "lecture_hall:*", start_s: 210, rate_mbps: 0.4}
+labels: [congestion]

@@ -1,0 +1,14 @@
+# Normal daytime load (docs/scenario.md): training data for the forecaster and anomaly detector.
+# Everyone browses; one video call in the lab, corridor and library; one capped bulk transfer.
+# Busiest AP ~2.6 of 4.6 Mbit/s (lab), ap1/ap4 well under their co-channel cap (radio_model).
+scenario_id: normal
+duration_s: 600
+seed: 42
+topology: campus_v1
+traffic:
+  - {profile: web, stations: "*", start_s: 0}
+  - {profile: video, stations: sta4, start_s: 10}
+  - {profile: video, stations: sta9, start_s: 10}
+  - {profile: video, stations: sta16, start_s: 10}
+  - {profile: bulk, stations: sta5, start_s: 20, rate_mbps: 0.5}
+labels: [normal]

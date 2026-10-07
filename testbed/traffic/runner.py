@@ -27,7 +27,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import IO, Any, Callable, ContextManager, Dict
+from typing import IO, Any, Callable, ContextManager, Dict, Sequence
 
 from mininet.log import info
 
@@ -45,6 +45,7 @@ from testbed.traffic.parse import (
 )
 from testbed.traffic.profiles import (
     IperfProfile,
+    Profile,
     TrafficConfig,
     WebProfile,
     flow_id,
@@ -105,7 +106,7 @@ class TrafficProbe:
         self._stations = {sta.name: sta for sta, _ in campus.stations}
         self._lock = lock if lock is not None else contextlib.nullcontext()
         self._log_dir = log_dir
-        self._rng = random.Random(seed)  # noqa: S311 - web think times, not security
+        self._seed = seed
         self._data = threading.Lock()  # guards flows, pings, latest (reader threads write)
         self._stop = threading.Event()
         self._flows: dict[str, _Flow] = {}
@@ -123,29 +124,45 @@ class TrafficProbe:
         self._spawn(self._tick_loop, "kpi-tick")
 
     def start_flow(self, sta: str, app_class: str, rate_mbps: float | None = None) -> str:
-        """Start `app_class` traffic from srv1 to `sta`; return its flow ID.
+        """Start one flow; see start_flows()."""
+        return self.start_flows([(sta, app_class, rate_mbps)])[0]
 
-        `rate_mbps` (a scenario's TrafficItem.rate_mbps) overrides the profile's rate for video
-        and bulk; web has no rate, so passing one is an error rather than silently ignored.
+    def start_flows(self, items: Sequence[tuple[str, str, float | None]]) -> list[str]:
+        """Start (station, app_class, rate_mbps) flows from srv1 together; return their IDs.
+
+        All servers start first and get one SERVER_START_S to bind, then all clients start, so
+        a scenario step with 20 flows does not stall for 20 x SERVER_START_S. `rate_mbps` (a
+        scenario's TrafficItem.rate_mbps) overrides the profile's rate for video and bulk; web
+        has no rate, so passing one is an error rather than silently ignored.
         """
-        fid = flow_id(sta, app_class)
-        if fid in self._flows:
-            raise ValueError(f"flow {fid} is already running")
-        if sta not in self._stations:
-            raise ValueError(f"unknown station {sta!r}")
-        profile = self._config.profiles[app_class]
-        if rate_mbps is not None and not isinstance(profile, IperfProfile):
-            raise ValueError(f"{app_class} has no rate; rate_mbps applies to video and bulk")
-        self._ensure_ping(sta)
-        flow = _Flow(fid, sta, app_class)
-        if isinstance(profile, IperfProfile):
-            self._start_iperf(flow, profile, rate_mbps)
-        else:
-            self._start_web(flow, profile)
-        with self._data:
-            self._flows[fid] = flow
-        info(f"TRAFFIC_FLOW_STARTED {fid}\n")
-        return fid
+        flows = [self._new_flow(sta, cls, rate) for sta, cls, rate in items]
+        if len({f.flow_id for f, _, _ in flows}) != len(flows):
+            raise ValueError("the same flow is listed twice")
+        ports: dict[str, int] = {}
+        http_started_now = False
+        for flow, profile, _ in flows:
+            self._ensure_ping(flow.sta)
+            if isinstance(profile, IperfProfile):
+                ports[flow.flow_id] = next(self._ports)
+                self._popen(self._server, iperf_server_command(ports[flow.flow_id]), read=False)
+            elif not self._http_started:
+                self._start_http(profile)
+                http_started_now = True
+        if ports or http_started_now:  # let new servers bind before their clients connect
+            time.sleep(SERVER_START_S)
+        for flow, profile, rate in flows:
+            if isinstance(profile, IperfProfile):
+                self._start_iperf_client(flow, profile, ports[flow.flow_id], rate)
+            else:
+                self._start_web_loop(flow, profile)
+            with self._data:
+                self._flows[flow.flow_id] = flow
+            info(f"TRAFFIC_FLOW_STARTED {flow.flow_id}\n")
+        return [flow.flow_id for flow, _, _ in flows]
+
+    def has_flow(self, sta: str, app_class: str) -> bool:
+        """True if `app_class` traffic already runs to `sta`."""
+        return flow_id(sta, app_class) in self._flows
 
     def latest(self) -> list[Record]:
         """The most recent KPI record of every flow (for the AP agent's GET /kpi)."""
@@ -187,28 +204,43 @@ class TrafficProbe:
         proc = self._popen(self._stations[sta], ping_command(self._config, self._server_ip))
         self._spawn(lambda: self._read_ping(proc, window), f"ping-{sta}")
 
-    def _start_iperf(self, flow: _Flow, profile: IperfProfile, rate_mbps: float | None) -> None:
-        port = next(self._ports)
-        self._popen(self._server, iperf_server_command(port), read=False)
-        time.sleep(SERVER_START_S)
+    def _new_flow(
+        self, sta: str, app_class: str, rate_mbps: float | None
+    ) -> tuple[_Flow, Profile, float | None]:
+        fid = flow_id(sta, app_class)
+        if fid in self._flows:
+            raise ValueError(f"flow {fid} is already running")
+        if sta not in self._stations:
+            raise ValueError(f"unknown station {sta!r}")
+        if app_class not in self._config.profiles:
+            raise ValueError(f"unknown traffic profile {app_class!r}")
+        profile = self._config.profiles[app_class]
+        if rate_mbps is not None and not isinstance(profile, IperfProfile):
+            raise ValueError(f"{app_class} has no rate; rate_mbps applies to video and bulk")
+        return _Flow(fid, sta, app_class), profile, rate_mbps
+
+    def _start_iperf_client(
+        self, flow: _Flow, profile: IperfProfile, port: int, rate_mbps: float | None
+    ) -> None:
         command = iperf_client_command(profile, self._server_ip, port, RUN_FOREVER_S, rate_mbps)
         proc = self._popen(self._stations[flow.sta], command)
         self._spawn(lambda: self._read_iperf(proc, flow), f"iperf-{flow.flow_id}")
 
-    def _start_web(self, flow: _Flow, profile: WebProfile) -> None:
-        if not self._http_started:
-            www = self._log_dir / "www"
-            www.mkdir(parents=True, exist_ok=True)
-            (www / web_object_name(profile)).write_bytes(b"\0" * profile.object_kb * 1000)
-            port = self._config.http_port
-            command = http_server_command(str(www), self._server_ip, port)
-            self._popen(self._server, command, read=False)
-            self._http_started = True
-            time.sleep(SERVER_START_S)
+    def _start_web_loop(self, flow: _Flow, profile: WebProfile) -> None:
         self._spawn(lambda: self._web_loop(flow, profile), f"web-{flow.flow_id}")
+
+    def _start_http(self, profile: WebProfile) -> None:
+        www = self._log_dir / "www"
+        www.mkdir(parents=True, exist_ok=True)
+        (www / web_object_name(profile)).write_bytes(b"\0" * profile.object_kb * 1000)
+        command = http_server_command(str(www), self._server_ip, self._config.http_port)
+        self._popen(self._server, command, read=False)
+        self._http_started = True
 
     def _web_loop(self, flow: _Flow, profile: WebProfile) -> None:
         command = web_fetch_command(profile, self._server_ip, self._config.http_port)
+        # one generator per flow: think times do not depend on how threads interleave (P1.6 ±5%)
+        rng = random.Random(f"{self._seed}:{flow.flow_id}")  # noqa: S311 - think times, not security
         while not self._stop.is_set():
             try:
                 proc = self._popen(self._stations[flow.sta], command)
@@ -220,7 +252,7 @@ class TrafficProbe:
                 if fetch is not None:
                     with self._data:
                         flow.fetches.append(fetch)
-            self._stop.wait(self._rng.expovariate(1.0 / profile.think_mean_s))
+            self._stop.wait(rng.expovariate(1.0 / profile.think_mean_s))
 
     # ------------------------------------------------------------------ readers
     def _read_ping(self, proc: subprocess.Popen[str], window: PingWindow) -> None:

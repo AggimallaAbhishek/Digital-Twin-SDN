@@ -1,0 +1,15 @@
+# Co-channel interference (docs/scenario.md): ap3 is forced onto channel 1 at t=180 s, joining
+# ap1 (30 m away) and ap4 (40 m). The emulated interference (radio_model) then caps ap3 at
+# ~1.73 Mbit/s while the corridor's 7 video calls need ~3.4 (~200%). Moving ap3 back to
+# channel 11 removes the cap.
+scenario_id: cochannel_interference
+duration_s: 600
+seed: 42
+topology: campus_v1
+traffic:
+  - {profile: web, stations: "*", start_s: 0}
+  - {profile: video, stations: "corridor:*", start_s: 10, rate_mbps: 0.4}
+  - {profile: video, stations: "lecture_hall:*", start_s: 10, rate_mbps: 0.4}
+events:
+  - {at_s: 180, type: force_channel, ap: ap3, channel: 1}
+labels: [interference]

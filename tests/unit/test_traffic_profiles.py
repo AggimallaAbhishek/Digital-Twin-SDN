@@ -33,9 +33,9 @@ def test_shipped_config_loads() -> None:
     assert (config.ping_interval_s, config.ping_timeout_s) == (0.2, 1.0)
     assert (config.iperf_base_port, config.http_port) == (5201, 8000)
     assert config.profiles == {
-        "video": IperfProfile("video", "udp", 3.0),
+        "video": IperfProfile("video", "udp", 1.0),  # deviation #7: was 3 Mbit/s
         "bulk": IperfProfile("bulk", "tcp", None),
-        "web": WebProfile("web", 500, 2.0, 10.0),
+        "web": WebProfile("web", 50, 5.0, 10.0),  # deviation #7: was 500 KB / 2 s
     }
 
 
@@ -101,7 +101,7 @@ def test_video_client_is_reverse_udp_at_the_profile_rate() -> None:
     assert isinstance(VIDEO, IperfProfile)
     assert iperf_client_command(VIDEO, SRV, 5201, duration_s=600) == [
         "iperf3", "-c", SRV, "-p", "5201", "-R", "-i", "1", "--forceflush", "-t", "600",
-        "-u", "-b", "3M",
+        "-u", "-b", "1M",
     ]  # fmt: skip
 
 
@@ -136,7 +136,7 @@ def test_web_fetch_prints_one_result_line_and_times_out() -> None:
     assert isinstance(WEB, WebProfile)
     assert web_fetch_command(WEB, SRV, 8000) == [
         "curl", "-s", "-o", "/dev/null", "--max-time", "10", "-w", CURL_FORMAT,
-        "http://10.0.1.1:8000/object_500kb.bin",
+        "http://10.0.1.1:8000/object_50kb.bin",
     ]  # fmt: skip
     assert CURL_FORMAT == "CURL %{http_code} %{size_download} %{time_total}\\n"
 

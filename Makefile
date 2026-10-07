@@ -3,7 +3,7 @@
 RUN := uv run
 FAST_TESTS := -m "not vm and not llm and not integration"
 
-.PHONY: help setup env hooks fmt lint types imports test test-all check security up down ps logs sync-vm smoke-vm campus-vm controller-vm ap-agent-vm mobility-vm traffic-vm llm-check llm-client-check
+.PHONY: help setup env hooks fmt lint types imports test test-all check security up down ps logs sync-vm smoke-vm campus-vm controller-vm ap-agent-vm mobility-vm traffic-vm scenario-vm scenario-repro-vm llm-check llm-client-check
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -56,10 +56,11 @@ ps: ## Service status
 logs: ## Follow service logs
 	docker compose logs -f --tail=50
 
-sync-vm: ## Copy testbed/, controller/ and config/ to the VM (~/Digital-Twin-SDN)
-	ssh sdnvm 'mkdir -p ~/Digital-Twin-SDN'
-	ssh sdnvm 'rm -rf ~/Digital-Twin-SDN/testbed ~/Digital-Twin-SDN/controller ~/Digital-Twin-SDN/config'
+sync-vm: ## Copy testbed/, controller/, config/ and the scenarios to the VM (~/Digital-Twin-SDN)
+	ssh sdnvm 'mkdir -p ~/Digital-Twin-SDN/experiments'
+	ssh sdnvm 'rm -rf ~/Digital-Twin-SDN/testbed ~/Digital-Twin-SDN/controller ~/Digital-Twin-SDN/config ~/Digital-Twin-SDN/experiments/scenarios'
 	scp -qr testbed controller config sdnvm:Digital-Twin-SDN/
+	scp -qr experiments/scenarios sdnvm:Digital-Twin-SDN/experiments/
 
 smoke-vm: sync-vm ## P0.2 smoke test on the VM (2 APs, 4 stations)
 	ssh sdnvm '~/Digital-Twin-SDN/testbed/smoke/run_smoke.sh'
@@ -78,6 +79,17 @@ mobility-vm: sync-vm ## P1.4 crowd mobility check on the VM (10 stations walk to
 
 traffic-vm: sync-vm ## P1.5 traffic + KPI probe check on the VM (video, bulk, web flows; GET /kpi)
 	ssh sdnvm 'RYU_APP=controller.apps.twin_controller RYU_STARTUP_S=5 ~/Digital-Twin-SDN/testbed/run_on_vm.sh traffic testbed.checks.traffic_check'
+
+SCENARIO ?= lecture_flash_crowd
+GIT_COMMIT = $(shell git rev-parse --short HEAD)$(shell git diff --quiet HEAD -- || echo -dirty)
+RUN_SCENARIO = RYU_APP=controller.apps.twin_controller RYU_STARTUP_S=5 TIMEOUT_S=1200 ~/Digital-Twin-SDN/testbed/run_on_vm.sh
+
+scenario-vm: sync-vm ## P1.6 run one scenario on the VM (SCENARIO=lecture_flash_crowd, ~11 min)
+	ssh sdnvm '$(RUN_SCENARIO) scenario-$(SCENARIO) testbed.run_scenario experiments/scenarios/$(SCENARIO).yaml --git-commit $(GIT_COMMIT)'
+
+scenario-repro-vm: sync-vm ## P1.6 run SCENARIO 3x with its seed and compare throughput (±5%, ~35 min)
+	for i in 1 2 3; do ssh sdnvm '$(RUN_SCENARIO) repro-$(SCENARIO)-'$$i' testbed.run_scenario experiments/scenarios/$(SCENARIO).yaml --run-id repro-$(SCENARIO)-'$$i' --git-commit $(GIT_COMMIT)' || exit 1; done
+	ssh sdnvm 'cd ~/Digital-Twin-SDN && python3 -B -m testbed.checks.repro_check ~/p02/runs/repro-$(SCENARIO)-1 ~/p02/runs/repro-$(SCENARIO)-2 ~/p02/runs/repro-$(SCENARIO)-3'
 
 llm-check: ## P0.7: main + fallback LLM intent -> Policy check (config/llm.yaml; needs Ollama)
 	$(RUN) python -m genai.eval.compare_models

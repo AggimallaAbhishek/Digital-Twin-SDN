@@ -1,6 +1,6 @@
 # ADR-003: Testbed VM runs Ubuntu 20.04 (not 22.04)
 
-- **Status:** Accepted (by Abhishek, 2026-10-06), pending team confirmation
+- **Status:** Accepted (Abhishek, 2026-10-06; confirmed 2026-10-07)
 - **Phase / task:** P0.2
 - **Deviation log:** PHASE_PLAN.md #1
 

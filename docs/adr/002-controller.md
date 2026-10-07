@@ -1,6 +1,6 @@
 # ADR-002: SDN controller is Ryu 4.34 in a pinned venv
 
-- **Status:** Accepted (by Abhishek, 2026-10-06), pending team confirmation
+- **Status:** Accepted (Abhishek, 2026-10-06; confirmed 2026-10-07)
 - **Phase / task:** P0.2
 - **Related:** ADR-003 (Ubuntu 20.04 VM), RULEBOOK §5.1, PROJECT_PLAN §9
 

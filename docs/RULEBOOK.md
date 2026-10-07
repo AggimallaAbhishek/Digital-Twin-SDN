@@ -262,7 +262,7 @@ These rules apply to Claude Code and any other AI assistant working in this repo
 |---|---|
 | **G-1** Branches | `<role>/<task-id>-<short-name>`, for example `twin/P3.3-analytical-sim`. |
 | **G-2** Commit messages | Conventional commits: `feat(twin): add airtime model [P3.3]`, `fix(executor): …`, `test:`, `docs:`, `chore:`. |
-| **G-3** `main` protection | No direct pushes. A PR needs 1 approving review, green CI and an up-to-date branch. |
+| **G-3** `main` protection | Solo project (decisions Q6): direct commits to `main` are allowed only with pre-commit passing (`make check`). CI runs on every push; a red `main` is fixed or reverted immediately (B-10). Use `/code-review` before committing larger changes. |
 | **G-4** PR size | Under 400 changed lines where possible. Split larger work into stacked PRs. |
 | **G-5** PR template | Every PR fills in the checklist in [§19.5](#195-pull-request-template). |
 | **G-6** Review focus | Reviewers check task scope, tests, boundaries, safety invariants and readability, in that order. |

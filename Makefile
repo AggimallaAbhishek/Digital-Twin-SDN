@@ -3,7 +3,7 @@
 RUN := uv run
 FAST_TESTS := -m "not vm and not llm and not integration"
 
-.PHONY: help setup env hooks fmt lint types imports test test-all check security up down ps logs sync-vm smoke-vm campus-vm
+.PHONY: help setup env hooks fmt lint types imports test test-all check security up down ps logs sync-vm smoke-vm campus-vm llm-check
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -65,3 +65,6 @@ smoke-vm: sync-vm ## P0.2 smoke test on the VM (2 APs, 4 stations)
 
 campus-vm: sync-vm ## P1.1 campus check on the VM (4 APs, 20 stations, pingall)
 	ssh sdnvm '~/Digital-Twin-SDN/testbed/run_on_vm.sh campus testbed.topologies.campus_v1 --check'
+
+llm-check: ## P0.7: local LLM intent -> Policy check (needs Ollama running)
+	$(RUN) python -m genai.eval.compare_models --models qwen2.5:3b

@@ -1,0 +1,9 @@
+# LLM configuration (P0.7, ADR-001). Local Ollama only (decisions Q3). Read by genai/llm/client.py (P5.1).
+provider: ollama
+base_url: http://localhost:11434
+model: qwen2.5:3b          # P0.7: 5/5 intents fully correct, mean 3.0 s, 2.2 GB resident
+fallback_model: qwen2.5:7b # re-compare on the 30-intent set in P5.4; switch only via ADR
+temperature: 0
+timeout_s: 60
+max_repair_retries: 2      # RULEBOOK L-2
+keep_alive: 30m            # keep weights loaded during the demo (avoids a cold-load pause)

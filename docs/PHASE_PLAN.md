@@ -159,7 +159,7 @@ Milestones          M0          M1   |                   M2 |             M3    
 
 | Phase | Dates | Status | Exit gate | Notes |
 |---|---|---|---|---|
-| 0 Setup & contracts | Oct 6–8 | 🟦 In progress | | P0.2 ✅ smoke, P0.3 ✅ (branch protection open), P0.5 layout ✅ (problem statement open), P0.6 code ✅ (team approval open), P0.7 open |
+| 0 Setup & contracts | Oct 6–8 | 🟦 In progress | | P0.2 ✅, P0.3 ✅, P0.5 ✅, P0.7 ✅ (qwen2.5:3b); open: P0.6 approval (Abhishek), P0.1 Q4b template, P0.4 literature (Oct 12), VM RAM → 6 GB |
 | 1 Testbed | Oct 7–12 | 🟦 In progress | | P1.1 ✅ (2026-10-06) |
 | 2 Telemetry | Oct 8–14 | ⬜ | | |
 | 3 Twin | Oct 13–19 | ⬜ | | critical path |
@@ -210,8 +210,8 @@ Status values: ⬜ Not started · 🟦 In progress · 🟨 At risk · 🟥 Block
 #### P0.5: Problem statement, KPIs, campus layout · all · **Oct 7**
 - **Produces:** `docs/problem_statement.md`, `docs/scenario.md`
 - **Done when:**
-  - [ ] KPIs with targets: throughput, latency, loss, Jain fairness, time to recover, twin MAPE, intent accuracy.
-  - [ ] Campus fixed: 4 APs (positions, channels), 2 switches, 20 stations, 4 zones, and the 4 scenario definitions.
+  - [x] KPIs with targets: throughput, latency, loss, Jain fairness, time to recover, twin MAPE, intent accuracy. *(2026-10-07: `docs/problem_statement.md`)*
+  - [x] Campus fixed: 4 APs (positions, channels), 2 switches, 20 stations, 4 zones, and the 4 scenario definitions. *(2026-10-06: `docs/scenario.md`, `config/campus_v1.yaml`)*
 
 #### P0.6: Freeze data contracts · TWIN + GENAI · **Oct 8**
 - **Produces:** `common/schemas.py`, `common/config.py`, `config/*.yaml`, `tests/unit/test_schemas.py`
@@ -223,9 +223,9 @@ Status values: ⬜ Not started · 🟦 In progress · 🟨 At risk · 🟥 Block
 #### P0.7: Local LLM setup · GENAI · **Oct 8** · ∥
 - **Produces:** `docs/adr/001-llm-provider.md`, a model choice in `config/llm.yaml`
 - **Done when:**
-  - [ ] 2–3 local models are compared (for example `qwen2.5:7b-instruct`, `llama3.1:8b`, `phi3`) on 5 sample intents for valid JSON and correct fields, then one is picked.
-  - [ ] It fits in memory alongside Docker and the VM (16 GB Mac). Record peak RAM.
-  - [ ] A one-line script gets a schema-valid JSON reply from the chosen model.
+  - [x] 2–3 local models are compared on 5 sample intents for valid JSON and correct fields, then one is picked. *(2026-10-07: phi3 / qwen2.5:3b / qwen2.5:7b → **qwen2.5:3b**, 5/5, ADR-001)*
+  - [x] It fits in memory alongside Docker and the VM (16 GB Mac). Record peak RAM. *(2.2 GB resident)*
+  - [x] A one-line script gets a schema-valid JSON reply from the chosen model. *(`make llm-check`)*
 
 ### Exit gate (M0, Oct 8)
 - [ ] P0.1, P0.3, P0.5, P0.6, P0.7 done (P0.4 continues to Oct 12; P0.2 RAM and access by Oct 8)

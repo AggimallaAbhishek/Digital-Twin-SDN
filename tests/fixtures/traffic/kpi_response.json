@@ -1,0 +1,41 @@
+{
+ "ts": "2026-10-07T08:40:53.519+00:00",
+ "kpis": [
+  {
+   "ts": "2026-10-07T08:40:53.467+00:00",
+   "flow_id": "sta1-video",
+   "app_class": "video",
+   "throughput_mbps": 2.98,
+   "latency_ms": 3.564,
+   "jitter_ms": 2.83,
+   "loss_pct": 0.0
+  },
+  {
+   "ts": "2026-10-07T08:40:53.467+00:00",
+   "flow_id": "sta16-video",
+   "app_class": "video",
+   "throughput_mbps": 1.52,
+   "latency_ms": 0.528,
+   "jitter_ms": 2.746,
+   "loss_pct": 0.0
+  },
+  {
+   "ts": "2026-10-07T08:40:53.467+00:00",
+   "flow_id": "sta4-bulk",
+   "app_class": "bulk",
+   "throughput_mbps": 4.59,
+   "latency_ms": 53.72,
+   "jitter_ms": 28.975,
+   "loss_pct": 0.0
+  },
+  {
+   "ts": "2026-10-07T08:40:53.467+00:00",
+   "flow_id": "sta9-web",
+   "app_class": "web",
+   "throughput_mbps": 4.541,
+   "latency_ms": 15.89,
+   "jitter_ms": 13.072,
+   "loss_pct": 0.0
+  }
+ ]
+}

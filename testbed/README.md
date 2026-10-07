@@ -8,7 +8,8 @@ Runs **on the testbed VM** (Ubuntu 20.04, **Python 3.8**; see ADR-003). Covers M
 | `topologies/campus_v1.py` | P1.1 (`--check`, `--cli`, `--serve` runs the AP agent) | ✅ |
 | `ap_agent.py`, `ap_logic.py` | P1.3 AP agent (REST, port 8081) | ✅ `make ap-agent-vm` |
 | `mobility/` | P1.4 scheduled-crowd mobility | ✅ `make mobility-vm` |
-| `traffic/`, `run_scenario.py` | P1.5–P1.6 | — |
+| `traffic/` | P1.5 traffic profiles + KPI probe (`GET /kpi` on the agent) | ✅ `make traffic-vm` |
+| `run_scenario.py` | P1.6 | — |
 
 **Rules for this folder**
 - Keep code Python 3.8-compatible. `ruff.toml` here sets `target-version = py38`.
@@ -27,6 +28,7 @@ OpenFlow can't change the radio, so this HTTP server runs inside the topology pr
 | GET | `/aps` | → `{ts, aps: [{ap, bssid, ssid, channel, tx_power_dbm, x, y, n_clients}]}` |
 | GET | `/aps/{ap}/stats` | → `{ts, ap, channel, n_clients, channel_util, tx_power_dbm, retries, noise_dbm}` (`APStats` fields) |
 | GET | `/stations` | → `{ts, stations: [{sta, ap, rssi_dbm, snr_db, tx_bitrate_mbps, rx_bitrate_mbps, x, y}]}` (`StationStats` fields) |
+| GET | `/kpi` | → `{ts, kpis: [{ts, flow_id, app_class, throughput_mbps, latency_ms, jitter_ms, loss_pct}]}`: latest `KPIRecord` fields per flow (P1.5); `[]` when no traffic runs |
 | POST | `/aps/{ap}/channel` | `{"channel": 1\|6\|11}` → `{ts, ap, channel}`. hostapd channel switch; clients follow without reconnecting |
 | POST | `/aps/{ap}/txpower` | `{"dbm": 5–20}` → `{ts, ap, tx_power_dbm}`. Rounded to whole dBm (Mininet applies integers) |
 | POST | `/stations/{sta}/associate` | `{"ap": "ap2"}` → `{ts, sta, ap}`. Disconnect + connect to that BSSID (~4 s) |
@@ -53,3 +55,37 @@ CrowdRunner(walks, layout, campus, lock=agent.lock).run()   # blocks; the scenar
 ```
 
 `crowd.py` is pure (unit-tested on the Mac, 100% branch coverage); `runner.py` drives Mininet-WiFi on the VM. The controller notices each re-associated station as a host move and drops its stale flows (Known problems #11).
+
+## Traffic and KPI probe (`traffic/`, P1.5)
+
+Profiles live in `traffic/profiles.yaml`. All traffic is **downlink**, srv1 → station (docs/scenario.md).
+
+| Profile | Tool | Default |
+|---|---|---|
+| `video` | iperf3 UDP, reverse mode | 3 Mbit/s constant (a scenario's `rate_mbps` overrides it) |
+| `bulk` | iperf3 TCP, reverse mode | unlimited (optional `rate_mbps` cap) |
+| `web` | curl fetches a 500 KB object from `python3 -m http.server` on srv1 | exponential think time, mean 2 s (seeded); 10 s timeout |
+
+**KPI records.** One record per flow per 1 s window, with the `KPIRecord` fields minus `scenario_id`/`run_id`, which the collector adds. `flow_id` is `<sta>-<class>`.
+
+| | throughput | latency | jitter | loss |
+|---|---|---|---|---|
+| video | iperf3 per-second line | ping RTT mean | iperf3 jitter | iperf3 datagram loss (ping loss if iperf3 counted none) |
+| bulk | iperf3 per-second line | ping RTT mean | spread of the ping RTTs | ping loss |
+| web | mean goodput of the fetches that finished in the window | ping RTT mean | spread of the ping RTTs | the higher of ping loss and the failed-fetch % |
+
+- **Latency** is a round-trip time from `ping -O -i 0.2` on each active station to srv1. It is stricter than one-way delay. Flows on the same station share it.
+- **Lost pings:** a ping counts as lost if no reply arrives within 1 s. Loss is tracked by sequence number, not by clock, because ping's real interval drifts (about 0.207 s on the VM). A dead link therefore reads 100% loss, with latency set to the 1 s timeout, rather than producing no records.
+- **Web records** appear only in windows where a fetch finished. Video and bulk produce one record every window.
+- **Bulk raises its own station's latency.** It fills the radio at about 4.6 Mbit/s, and its RTT rises to roughly 60–80 ms from queueing behind its own traffic. That is expected.
+- **Process model:** tools start with `node.popen()`, so they run as their own processes, not in the shared node shell, and the agent lock is held only while each one launches. iperf3 3.7 can't stream JSON, so the probe reads its `--forceflush` text output.
+
+```python
+probe = TrafficProbe(campus, load_traffic_config_file(), log_dir, lock=agent.lock, seed=seed)
+agent.kpi_source = probe.latest          # GET /kpi
+probe.start()
+probe.start_flow("sta1", "video")        # P1.6 picks stations and start times from the scenario
+probe.stop_all()
+```
+
+`parse.py` and `profiles.py` are pure: unit-tested on the Mac with 100% branch coverage. `runner.py` drives Mininet-WiFi on the VM. Every record is also appended to `<LOG_DIR>/kpi.jsonl`.

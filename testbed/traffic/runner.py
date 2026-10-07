@@ -63,6 +63,10 @@ RUN_FOREVER_S = 86400  # iperf3 -t; flows run until stop_all()
 Record = Dict[str, Any]  # runtime alias: typing.Dict for Python 3.8
 
 
+class _StoppedError(RuntimeError):
+    """A tool was about to start after stop_all() began."""
+
+
 @dataclass
 class _Flow:
     """One running flow and the samples it collected since the last window."""
@@ -106,7 +110,8 @@ class TrafficProbe:
         self._flows: dict[str, _Flow] = {}
         self._pings: dict[str, PingWindow] = {}
         self._latest: dict[str, Record] = {}
-        self._procs: list[subprocess.Popen[str]] = []
+        self._procs: list[subprocess.Popen[str]] = []  # running tools; guarded by _procs_lock
+        self._procs_lock = threading.Lock()  # once stopping, no new tool can start
         self._threads: list[threading.Thread] = []
         self._next_port = config.iperf_base_port
         self._http_started = False
@@ -142,11 +147,13 @@ class TrafficProbe:
 
     def stop_all(self) -> None:
         """Stop every flow, probe and server; wait for the reader threads."""
-        self._stop.set()
-        for proc in self._procs:
+        with self._procs_lock:
+            self._stop.set()
+            procs = list(self._procs)
+        for proc in procs:
             if proc.poll() is None:
                 proc.terminate()
-        for proc in self._procs:
+        for proc in procs:
             try:
                 proc.wait(timeout=STOP_TIMEOUT_S)
             except subprocess.TimeoutExpired:
@@ -157,7 +164,8 @@ class TrafficProbe:
 
     def running_processes(self) -> int:
         """How many tool processes are still alive (0 after stop_all)."""
-        return sum(proc.poll() is None for proc in self._procs)
+        with self._procs_lock:
+            return sum(proc.poll() is None for proc in self._procs)
 
     # ------------------------------------------------------------------ tools
     def _ensure_ping(self, sta: str) -> None:
@@ -190,7 +198,10 @@ class TrafficProbe:
     def _web_loop(self, flow: _Flow, profile: WebProfile) -> None:
         command = web_fetch_command(profile, self._server_ip, self._config.http_port)
         while not self._stop.is_set():
-            proc = self._popen(self._stations[flow.sta], command)
+            try:
+                proc = self._popen(self._stations[flow.sta], command)
+            except _StoppedError:
+                return
             out, _ = proc.communicate()
             for line in out.splitlines():
                 fetch = parse_curl(line)
@@ -248,11 +259,20 @@ class TrafficProbe:
 
     # ------------------------------------------------------------------ helpers
     def _popen(self, node: Any, command: list[str]) -> subprocess.Popen[str]:
-        with self._lock:
-            proc: subprocess.Popen[str] = node.popen(
-                command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True
-            )
-        self._procs.append(proc)
+        """Start a tool in `node`'s namespace; refused once stop_all() has begun."""
+        with self._procs_lock:
+            if self._stop.is_set():
+                raise _StoppedError(f"probe stopped; not starting {command[0]}")
+            with self._lock:
+                proc: subprocess.Popen[str] = node.popen(
+                    command,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    universal_newlines=True,
+                )
+            # drop finished tools (one curl per web fetch would otherwise pile up)
+            self._procs = [p for p in self._procs if p.poll() is None]
+            self._procs.append(proc)
         return proc
 
     def _spawn(self, target: Callable[[], None], name: str) -> None:

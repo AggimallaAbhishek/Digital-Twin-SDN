@@ -81,7 +81,12 @@ markers = [
 
 [tool.coverage.run]
 source = ["common", "twin", "ml", "genai", "api", "telemetry", "controller"]
-source_pkgs = ["testbed.ap_logic", "testbed.mobility.crowd"]  # pure testbed logic (rest: VM checks)
+source_pkgs = [
+    "testbed.ap_logic",
+    "testbed.mobility.crowd",
+    "testbed.traffic.parse",
+    "testbed.traffic.profiles",
+]  # pure testbed logic (rest: VM checks)
 branch = true
 omit = ["controller/apps/twin_controller.py"]  # Ryu adapter runs on the VM; covered by make controller-vm
 

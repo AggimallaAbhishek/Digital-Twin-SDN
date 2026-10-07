@@ -19,12 +19,18 @@ TIMEOUT_S="${TIMEOUT_S:-600}"
 mkdir -p "$LOG_DIR"
 
 sudo mn -c > "$LOG_DIR/mnc-$NAME.out" 2>&1
-nohup "$RYU_MANAGER" $RYU_APP > "$LOG_DIR/ryu-$NAME.out" 2>&1 < /dev/null &
+# Ryu runs from the repo root so repo apps (e.g. RYU_APP=controller.apps.twin_controller) import.
+(cd "$REPO" && PYTHONPATH="$REPO" exec nohup "$RYU_MANAGER" $RYU_APP \
+  > "$LOG_DIR/ryu-$NAME.out" 2>&1 < /dev/null) &
 RYU=$!
-sleep 3
-cd "$REPO" && sudo timeout "$TIMEOUT_S" python3 -m "$MODULE" "$@" > "$LOG_DIR/$NAME.out" 2>&1
+sleep "${RYU_STARTUP_S:-3}"
+# LOG_DIR is passed through sudo so modules write artefacts to the user's log dir, not /root.
+cd "$REPO" && sudo LOG_DIR="$LOG_DIR" timeout "$TIMEOUT_S" python3 -B -m "$MODULE" "$@" \
+  > "$LOG_DIR/$NAME.out" 2>&1
 RC=$?
-kill "$RYU" 2>/dev/null
+sudo chown -R "$(id -un)" "$LOG_DIR"  # artefacts written under sudo stay user-owned
+pkill -f "[r]yu-manager $RYU_APP" 2>/dev/null || kill "$RYU" 2>/dev/null
+wait "$RYU" 2>/dev/null  # reap the background job quietly (no "Terminated" message)
 echo "EXIT=$RC" >> "$LOG_DIR/$NAME.out"
 grep -E "_RESULT" "$LOG_DIR/$NAME.out"
 exit "$RC"

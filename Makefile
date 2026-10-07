@@ -3,7 +3,7 @@
 RUN := uv run
 FAST_TESTS := -m "not vm and not llm and not integration"
 
-.PHONY: help setup env hooks fmt lint types imports test test-all check security up down ps logs sync-vm smoke-vm campus-vm llm-check
+.PHONY: help setup env hooks fmt lint types imports test test-all check security up down ps logs sync-vm smoke-vm campus-vm controller-vm llm-check
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -56,15 +56,19 @@ ps: ## Service status
 logs: ## Follow service logs
 	docker compose logs -f --tail=50
 
-sync-vm: ## Copy testbed/ and config/ to the VM (~/Digital-Twin-SDN)
+sync-vm: ## Copy testbed/, controller/ and config/ to the VM (~/Digital-Twin-SDN)
 	ssh sdnvm 'mkdir -p ~/Digital-Twin-SDN'
-	scp -qr testbed config sdnvm:Digital-Twin-SDN/
+	ssh sdnvm 'rm -rf ~/Digital-Twin-SDN/testbed ~/Digital-Twin-SDN/controller ~/Digital-Twin-SDN/config'
+	scp -qr testbed controller config sdnvm:Digital-Twin-SDN/
 
 smoke-vm: sync-vm ## P0.2 smoke test on the VM (2 APs, 4 stations)
 	ssh sdnvm '~/Digital-Twin-SDN/testbed/smoke/run_smoke.sh'
 
 campus-vm: sync-vm ## P1.1 campus check on the VM (4 APs, 20 stations, pingall)
 	ssh sdnvm '~/Digital-Twin-SDN/testbed/run_on_vm.sh campus testbed.topologies.campus_v1 --check'
+
+controller-vm: sync-vm ## P1.2 controller check on the VM (REST, stats, flow install/delete)
+	ssh sdnvm 'RYU_APP=controller.apps.twin_controller RYU_STARTUP_S=5 ~/Digital-Twin-SDN/testbed/run_on_vm.sh controller testbed.checks.controller_check'
 
 llm-check: ## P0.7: main + fallback LLM intent -> Policy check (config/llm.yaml; needs Ollama)
 	$(RUN) python -m genai.eval.compare_models

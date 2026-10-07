@@ -1,9 +1,12 @@
-# LLM configuration (P0.7, ADR-001). Local Ollama only (decisions Q3). Read by genai/llm/client.py (P5.1).
+# LLM configuration (P0.7, ADR-001). Served through the local Ollama daemon (decisions Q3, revised 2026-10-07).
+# Main model is an Ollama cloud model; the client falls back to the local model if the cloud call
+# fails or exceeds cloud_timeout_s, so every GenAI feature still works offline (RULEBOOK L-8).
 provider: ollama
 base_url: http://localhost:11434
-model: qwen2.5:3b          # P0.7: 5/5 intents fully correct, mean 3.0 s, 2.2 GB resident
-fallback_model: qwen2.5:7b # re-compare on the 30-intent set in P5.4; switch only via ADR
+model: gpt-oss:120b-cloud      # P0.7 round 3: 5/5, mean 1.6 s; needs internet + Ollama sign-in
+fallback_model: qwen2.5:3b     # local, offline: 5/5, mean 3.0 s, 2.2 GB resident
+cloud_timeout_s: 15            # fall back quickly if the cloud is slow (demo safety)
+timeout_s: 60                  # local model timeout
 temperature: 0
-timeout_s: 60
-max_repair_retries: 2      # RULEBOOK L-2
-keep_alive: 30m            # keep weights loaded during the demo (avoids a cold-load pause)
+max_repair_retries: 2          # RULEBOOK L-2
+keep_alive: 30m                # keep local fallback weights loaded during the demo

@@ -4,7 +4,8 @@ Same prompt and the same JSON-schema-constrained output for every model, tempera
 schema-valid (common.schemas.Policy), correct scope (zone + app classes), correct objectives,
 latency, and the model's resident size reported by Ollama.
 
-    uv run python -m genai.eval.compare_models --models phi3 qwen2.5:3b qwen2.5:7b
+    uv run python -m genai.eval.compare_models --models gpt-oss:120b-cloud qwen2.5:3b
+    uv run python -m genai.eval.compare_models   # main + fallback from config/llm.yaml
 """
 
 from __future__ import annotations
@@ -12,15 +13,19 @@ from __future__ import annotations
 import argparse
 import json
 import time
+import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
+import yaml
 from pydantic import ValidationError
 
 from common.schemas import Policy
 
 OLLAMA_URL = "http://localhost:11434"
+LLM_CONFIG = Path(__file__).resolve().parents[2] / "config" / "llm.yaml"
 TIMEOUT_S = 300
 
 SYSTEM_PROMPT = """You convert a network operator's intent into ONE JSON policy for a campus Wi-Fi
@@ -107,7 +112,20 @@ def _get(path: str) -> dict[str, Any]:
 def run_case(model: str, intent: str) -> tuple[Policy | None, float, str]:
     """Ask `model` for a policy; return (parsed policy or None, seconds, error text)."""
     start = time.monotonic()
-    reply = _post(
+    try:
+        reply = _call_chat(model, intent)
+    except (urllib.error.URLError, TimeoutError) as exc:  # HTTPError is a URLError
+        return None, time.monotonic() - start, f"request failed: {exc}"
+    elapsed = time.monotonic() - start
+    content = reply.get("message", {}).get("content", "")
+    try:
+        return Policy.model_validate_json(content), elapsed, ""
+    except ValidationError as exc:
+        return None, elapsed, f"{exc.error_count()} validation error(s): {content[:160]}"
+
+
+def _call_chat(model: str, intent: str) -> dict[str, Any]:
+    return _post(
         "/api/chat",
         {
             "model": model,
@@ -120,12 +138,6 @@ def run_case(model: str, intent: str) -> tuple[Policy | None, float, str]:
             "options": {"temperature": 0},
         },
     )
-    elapsed = time.monotonic() - start
-    content = reply.get("message", {}).get("content", "")
-    try:
-        return Policy.model_validate_json(content), elapsed, ""
-    except ValidationError as exc:
-        return None, elapsed, f"{exc.error_count()} validation error(s): {content[:160]}"
 
 
 def score(
@@ -169,8 +181,11 @@ def resident_gb(model: str) -> float:
 def main() -> None:
     """Compare models and print a markdown table plus per-case failures."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--models", nargs="+", required=True)
+    parser.add_argument("--models", nargs="+", help="default: model + fallback_model from config")
     args = parser.parse_args()
+    if not args.models:
+        config = yaml.safe_load(LLM_CONFIG.read_text())
+        args.models = [config["model"], config["fallback_model"]]
 
     rows = []
     for model in args.models:

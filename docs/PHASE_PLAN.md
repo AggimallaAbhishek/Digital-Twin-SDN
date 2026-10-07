@@ -2,7 +2,7 @@
 
 **Project:** GenAI-Driven Digital Twin for Intelligent SDN-Based Wireless Network Optimization
 **Companion to:** [`PROJECT_PLAN.md`](PROJECT_PLAN.md), which covers the *what* and *why*. This file covers *how and in what order*.
-**Version:** **v2.2** · 2026-10-07 · **25 days (Oct 6 → submit Oct 30, deadline Oct 31)** · **built by 1 person + Claude Code** (5 names on the report) · fully virtual · Ollama only · deliverables: **report + live demonstration** (see [Deviation log](#deviation-log) #2–5)
+**Version:** **v2.3** · 2026-10-07 · **25 days (Oct 6 → submit Oct 30, deadline Oct 31)** · **built by 1 person + Claude Code** (5 names on the report) · fully virtual · Ollama (cloud model + local fallback) · deliverables: **report + live demonstration** (see [Deviation log](#deviation-log) #2–6)
 
 > **This file is the single source of truth for execution.** Work happens in the order and on the dates written here. Anything not in this file is out of scope until it passes the [change control process](#2-change-control).
 >
@@ -71,7 +71,7 @@ Use this process for any change to scope, schedule, contracts or technology choi
 | Telemetry | Collector → **InfluxDB directly** (MQTT optional), Grafana |
 | Twin | State sync, **analytical simulator**, verifier, `/twin/simulate` API |
 | ML | Baseline + Holt-Winters forecaster, Isolation Forest anomaly detector, **heuristic optimizer**, executor with rollback, loop orchestrator |
-| GenAI | **Ollama local model only** (decisions Q3): intent → policy → compiler → twin check; copilot with tools; root-cause explanations |
+| GenAI | **Ollama: `gpt-oss:120b-cloud` with automatic local fallback `qwen2.5:3b`** (decisions Q3, ADR-001): intent → policy → compiler → twin check; copilot with tools; root-cause explanations |
 | UI | **Streamlit** dashboard + Grafana |
 | Evaluation | **3 variants** (V1 baseline, V2 heuristics without twin, V3 full system) × **3 scenarios** × **3 seeds** = 27 runs; intent accuracy on 30 intents |
 | Deliverables | **Report** + **live demonstration** (a backup screen recording is kept in case the live demo fails). No slides required. |
@@ -82,7 +82,7 @@ Use this process for any change to scope, schedule, contracts or technology choi
 - GNN surrogate, cloned-emulation twin
 - LSTM / TFT forecasting, **RL (PPO)**, TimeGAN synthetic data
 - RAG vector database (the copilot uses tools only), what-if scenario generator, config synthesis
-- Hosted LLM APIs (Claude / GPT / Gemini), LLM fine-tuning
+- Paid hosted LLM APIs (Claude / GPT / Gemini API keys), LLM fine-tuning
 - React dashboard, random-waypoint mobility, voip profile, mixed video + bulk scenario
 - ns-3, OMNeT++, P4, ONOS/ODL, Kubernetes, 5G/LTE, multi-controller, mobile app
 
@@ -159,7 +159,7 @@ Milestones          M0          M1   |                   M2 |             M3    
 
 | Phase | Dates | Status | Exit gate | Notes |
 |---|---|---|---|---|
-| 0 Setup & contracts | Oct 6–8 | 🟦 In progress | | P0.2 ✅, P0.3 ✅, P0.5 ✅, P0.7 ✅ (qwen2.5:3b); open: P0.6 approval (Abhishek), P0.1 Q4b template, P0.4 literature (Oct 12), VM RAM → 6 GB |
+| 0 Setup & contracts | Oct 6–8 | 🟦 In progress | | P0.2 ✅, P0.3 ✅, P0.5 ✅, P0.7 ✅ (gpt-oss:120b-cloud + local qwen2.5:3b); open: P0.6 approval (Abhishek), P0.1 Q4b template, P0.4 literature (Oct 12), VM RAM → 6 GB |
 | 1 Testbed | Oct 7–12 | 🟦 In progress | | P1.1 ✅ (2026-10-06) |
 | 2 Telemetry | Oct 8–14 | ⬜ | | |
 | 3 Twin | Oct 13–19 | ⬜ | | critical path |
@@ -183,7 +183,7 @@ Status values: ⬜ Not started · 🟦 In progress · 🟨 At risk · 🟥 Block
 - **Done when:**
   - [x] Q1 team and timeline: **5 people**, deadline Oct 31 → this v2.x plan.
   - [x] Q2 hardware: fully virtual.
-  - [x] Q3 LLM: Ollama only, no API budget.
+  - [x] Q3 LLM: Ollama, no paid API budget; cloud model + local fallback (revised 2026-10-07).
   - [x] Q4 deliverables: **report + live demonstration**.
   - [ ] Q4b report template/format: department template if one exists, otherwise our own (P7.1a).
   - [ ] Team confirms ADR-002 (Ryu) and ADR-003 (Ubuntu 20.04).
@@ -226,6 +226,7 @@ Status values: ⬜ Not started · 🟦 In progress · 🟨 At risk · 🟥 Block
   - [x] 2–3 local models are compared on 5 sample intents for valid JSON and correct fields, then one is picked. *(2026-10-07: phi3 / qwen2.5:3b / qwen2.5:7b → **qwen2.5:3b**, 5/5, ADR-001)*
   - [x] It fits in memory alongside Docker and the VM (16 GB Mac). Record peak RAM. *(2.2 GB resident)*
   - [x] A one-line script gets a schema-valid JSON reply from the chosen model. *(`make llm-check`)*
+  - [x] Cloud models compared too (round 3): **gpt-oss:120b-cloud** 5/5, 1.6 s → main model, qwen2.5:3b → local fallback; 2 cloud models found retired (deviation #6).
 
 ### Exit gate (M0, Oct 8)
 - [ ] P0.1, P0.3, P0.5, P0.6, P0.7 done (P0.4 continues to Oct 12; P0.2 RAM and access by Oct 8)
@@ -330,7 +331,7 @@ Status values: ⬜ Not started · 🟦 In progress · 🟨 At risk · 🟥 Block
 
 | ID | Task | Due | Produces | Done when |
 |---|---|---|---|---|
-| P5.1 | LLM client for Ollama (structured JSON output, timeout, retries) that logs model, tokens, latency and validity | Oct 9 | `genai/llm/client.py` | Schema-valid output on test prompts; every call logged |
+| P5.1 | LLM client for Ollama (structured JSON output, timeout, retries) with **automatic fallback from the cloud model to the local model** on error/timeout; logs model used, tokens, latency and validity | Oct 9 | `genai/llm/client.py` | Schema-valid output on test prompts; every call logged |
 | P5.2 | Tool layer: `get_topology`, `get_metrics`, `get_alerts`, `simulate_in_twin`, `apply_action` (verified IDs only) | Oct 13 (mocks) → Oct 20 (live) | `genai/tools/` | Live data by Oct 20; `apply_action` refuses unverified IDs |
 | P5.3 | Intent engine: prompt + few-shot → `Policy` JSON → validation and repair (≤ 2 retries) → **deterministic compiler** → twin verify → `POST /intents` | Oct 16 | `genai/intent/`, `genai/prompts/` | Compiler at 100% branch coverage; invalid LLM output never reaches it |
 | P5.4 | Intent test set: **30 intents** with expected policies (Claude drafts, Abhishek checks) + eval script | Oct 15 ∥ | `genai/eval/intents.jsonl`, `genai/eval/run_intents.py` | Script reports accuracy |
@@ -340,7 +341,7 @@ Status values: ⬜ Not started · 🟦 In progress · 🟨 At risk · 🟥 Block
 **Exit gate (part of M3, Oct 24):** P5.1–P5.6 done · ≥ 20 of 30 intents correct · 100% of LLM actions have a twin verdict in the audit log.
 
 **Cut list:** (1) drop P5.6 and show anomaly details in the dashboard instead; (2) intents limited to QoS priority + AP steering + channel; (3) copilot answers only, without proposing actions.
-**Do not:** add RAG or a vector DB, call hosted APIs, or let the LLM touch the controller or AP agent directly.
+**Do not:** add RAG or a vector DB, call paid hosted APIs, or let the LLM touch the controller or AP agent directly.
 
 ---
 
@@ -378,7 +379,7 @@ Status values: ⬜ Not started · 🟦 In progress · 🟨 At risk · 🟥 Block
 | P7.1d | Results + discussion + limitations + future work (GNN, RL, RAG, hardware) | ML + all | Oct 28 | Drafted from P6.6 figures only |
 | P7.2 | Full draft reviewed end to end by Abhishek | DOC | **Oct 29** | Every section read and approved |
 | P7.3 | **Backup demo recording** (5–8 min screen capture of the live demo script), used only if the live demo fails | GENAI + DOC | Oct 28 | Stored locally + link in README |
-| P7.4 | **Live demonstration rehearsal** ×2 on the actual demo machine, from a cold start (`make demo`), including the failure fallbacks | all | Oct 29 | Two clean end-to-end runs; talking points rehearsed |
+| P7.4 | **Live demonstration rehearsal** ×2 on the actual demo machine, from a cold start (`make demo`), including the failure fallbacks, **one of them with internet off** (LLM falls back to local) | all | Oct 29 | Two clean end-to-end runs; talking points rehearsed |
 | P7.5 | Repo clean-up: README, setup, runbooks; fresh clone → demo works | DOC | Oct 29 | Verified from a fresh clone |
 | ★ | **Submit** | all | **Oct 30** | Submitted; Oct 31 is spare |
 
@@ -418,3 +419,4 @@ Every change to this plan goes here **before** the work starts.
 | 3 | 2026-10-06 | **v2.1** | Team is **5 people** (new DOC role: report, evaluation and QA lead); deliverables are **report + live demonstration** (no slides; demo video becomes a backup recording only); P0.4 → 5 papers; P7.4 → live demo rehearsals | Team confirmed names; project requirements are a report and a live demo | Load per person drops; DOC frees the engineers from report writing | — | Abhishek (team to confirm) |
 | 4 | 2026-10-06 | v2.1 | P1.1 criterion: "pingall 0% loss" → **100% pair reachability (≤ 3 pings per failed pair) + first-try single-ping loss ≤ 5%** | wmediumd interference mode drops frames like real Wi-Fi. Without interference: 0% loss (2/2 runs). With it: 0.5–2.6% loss over 8 runs, always on 2-radio-hop station↔station pairs, all recovered on retry. A 0% (or 2%) criterion would be flaky (RULEBOOK T-4) | None on schedule; loss is reported in every run and in the report | — | Abhishek |
 | 5 | 2026-10-07 | **v2.2** | **Solo build:** all work by Abhishek with Claude Code; the other 4 members are report authors only. Approvals = Abhishek; tracks run sequentially in due-date order; stand-up → daily note; branch protection/PR review dropped (direct commits to `main`, guarded by pre-commit + CI). Ryu (ADR-002) and Ubuntu 20.04 (ADR-003) confirmed | Decisions Q5, Q6 | Milestone dates unchanged; more work per day, so cut lists are applied earlier if a milestone slips | ADR-002, ADR-003 | Abhishek |
+| 6 | 2026-10-07 | **v2.3** | **LLM: Ollama cloud `gpt-oss:120b-cloud` as main model, automatic fallback to local `qwen2.5:3b`** (was: local only). `qwen2.5:7b` removed | Round 3 of P0.7: all available models 5/5; 120b fastest (1.6 s) and largest; no local RAM. 2 cloud models found retired | Live demo gains an internet dependency → mitigated by automatic local fallback + one offline rehearsal (P7.4); P5.1 must implement the fallback | ADR-001 (revised) | Abhishek |

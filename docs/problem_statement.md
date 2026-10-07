@@ -14,17 +14,17 @@ Two gaps follow:
 
 ## 2. Proposed solution (one paragraph)
 
-A **digital twin** of an emulated wireless SDN network (Mininet-WiFi + Ryu) mirrors live telemetry and **predicts the KPI effect of any candidate action before it is applied**. Candidate actions come from a heuristic optimizer (driven by load forecasts and anomaly detection) and from a **local LLM** (Ollama) that turns operator intents into structured policies. A verifier accepts an action only if the twin predicts no harmful KPI regression and no policy violation. An executor applies accepted actions through the SDN controller, watches live KPIs, and **rolls back automatically** if reality disagrees with the prediction. The LLM also explains anomalies and answers operator questions using live data.
+A **digital twin** of an emulated wireless SDN network (Mininet-WiFi + Ryu) mirrors live telemetry and **predicts the KPI effect of any candidate action before it is applied**. Candidate actions come from a heuristic optimizer (driven by load forecasts and anomaly detection) and from an **LLM served through Ollama** (a cloud model with an automatic local fallback, so it also works offline) that turns operator intents into structured policies. A verifier accepts an action only if the twin predicts no harmful KPI regression and no policy violation. An executor applies accepted actions through the SDN controller, watches live KPIs, and **rolls back automatically** if reality disagrees with the prediction. The LLM also explains anomalies and answers operator questions using live data.
 
 ## 3. Research question and hypotheses
 
-**RQ:** Does verifying actions in a digital twin before applying them make an AI-driven SDN controller for Wi-Fi both *more effective* and *safer* than acting directly, and can a local LLM safely drive it from natural-language intents?
+**RQ:** Does verifying actions in a digital twin before applying them make an AI-driven SDN controller for Wi-Fi both *more effective* and *safer* than acting directly, and can an LLM safely drive it from natural-language intents?
 
 | ID | Hypothesis | Tested by |
 |---|---|---|
 | H1 | The full system (V3) recovers from congestion faster than plain SDN (V1). | flash crowd, AP failure, interference scenarios |
 | H2 | The twin blocks actions that would have hurt KPIs, which an optimizer acting directly (V2) would apply. | twin-blocking analysis (P6.5) |
-| H3 | A local LLM with schema-constrained output + validation + twin check translates most intents correctly, and **no invalid configuration reaches the network**. | 30-intent test set (P5.4) |
+| H3 | An LLM (cloud model, with a local fallback) with schema-constrained output + validation + twin check translates most intents correctly, and **no invalid configuration reaches the network**. | 30-intent test set (P5.4) |
 
 ## 4. Objectives
 
@@ -66,14 +66,15 @@ Targets are what we **aim for and test**. Results are reported honestly whether 
 | Bad actions that slipped past the twin and were rolled back | reported; rollback restores the previous config in 100% of cases | executor log |
 | High-impact actions applied without operator approval | **0** | audit log |
 
-### 5.4 GenAI / LLM (local model)
+### 5.4 GenAI / LLM (cloud main model + local fallback)
 
 | KPI | Target | Source |
 |---|---|---|
 | Intent → policy accuracy (30 intents) | **≥ 20/30** (stretch 25/30) (H3) | `genai/eval` |
 | Invalid LLM outputs reaching the compiler or network | **0** | validation logs |
 | Schema-valid output on first try | reported | LLM call log |
-| Response time per intent (local model) | **< 10 s** (P0.7: `qwen2.5:3b` mean 3.0 s, max 3.7 s) | LLM call log |
+| Response time per intent | **< 10 s** (P0.7: `gpt-oss:120b-cloud` mean 1.6 s; local fallback `qwen2.5:3b` mean 3.0 s) | LLM call log |
+| Intent accuracy on the local fallback alone | reported (30 intents) | `genai/eval` |
 | Copilot diagnostic questions answered with live evidence | 5/5 | P5.5 |
 
 ### 5.5 Testbed sanity (already measured)
@@ -86,9 +87,9 @@ Targets are what we **aim for and test**. Results are reported honestly whether 
 
 ## 6. Scope and assumptions
 
-- **In scope:** see PHASE_PLAN v2.2 §3. Fully virtual (no hardware); local LLM only; analytical twin; heuristic optimizer.
+- **In scope:** see PHASE_PLAN v2.3 §3. Fully virtual (no hardware); Ollama cloud LLM with local fallback; analytical twin; heuristic optimizer.
 - **Assumptions:** wmediumd's log-distance + interference model is a reasonable proxy for 2.4 GHz behaviour; the campus is small (4 APs) but has the features that matter (overlap, channel reuse, crowd movement).
-- **Limitations to state in the report:** emulated radio rather than RF measurements; small topology; heuristics instead of RL; a single local LLM; 3 seeds per configuration.
+- **Limitations to state in the report:** emulated radio rather than RF measurements; small topology; heuristics instead of RL; one LLM family evaluated (cloud + local fallback); 3 seeds per configuration.
 - **Future work:** GNN surrogate twin, RL optimizer, RAG copilot, real hardware, larger topologies, hosted LLM comparison.
 
 ## 7. Success criteria for submission (Oct 30)

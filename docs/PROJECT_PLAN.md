@@ -3,7 +3,7 @@
 **Project report and detailed development plan**
 Source: [project plan doc](https://claude.ai/artifact/QUKWaEwA6aLd2UFbJqY1PH) · Last updated: 2026-10-06
 
-> **⚠ Superseded scope (2026-10-06):** the project now has **25 days (deadline Oct 31), 5 people, fully virtual, Ollama only, and the deliverables are a report + live demonstration**. Execution follows [`PHASE_PLAN.md` v2.0](PHASE_PLAN.md). Out of scope: GNN, cloned-emulation twin, RL, LSTM/TFT, TimeGAN, RAG vector DB, scenario generator, config synthesis, React, hosted LLM APIs. These sections stay as the design reference and future-work list; where they conflict with PHASE_PLAN v2.0, the phase plan wins.
+> **⚠ Superseded scope (2026-10-06):** the project now has **25 days (deadline Oct 31), 5 people, fully virtual, Ollama (cloud model + local fallback), and the deliverables are a report + live demonstration**. Execution follows [`PHASE_PLAN.md` v2.0](PHASE_PLAN.md). Out of scope: GNN, cloned-emulation twin, RL, LSTM/TFT, TimeGAN, RAG vector DB, scenario generator, config synthesis, React, hosted LLM APIs. These sections stay as the design reference and future-work list; where they conflict with PHASE_PLAN v2.0, the phase plan wins.
 
 ---
 

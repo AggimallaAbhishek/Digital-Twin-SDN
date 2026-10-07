@@ -66,5 +66,5 @@ smoke-vm: sync-vm ## P0.2 smoke test on the VM (2 APs, 4 stations)
 campus-vm: sync-vm ## P1.1 campus check on the VM (4 APs, 20 stations, pingall)
 	ssh sdnvm '~/Digital-Twin-SDN/testbed/run_on_vm.sh campus testbed.topologies.campus_v1 --check'
 
-llm-check: ## P0.7: local LLM intent -> Policy check (needs Ollama running)
-	$(RUN) python -m genai.eval.compare_models --models qwen2.5:3b
+llm-check: ## P0.7: main + fallback LLM intent -> Policy check (config/llm.yaml; needs Ollama)
+	$(RUN) python -m genai.eval.compare_models

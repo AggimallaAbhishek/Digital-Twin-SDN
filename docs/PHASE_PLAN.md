@@ -141,11 +141,11 @@ Milestones          M0          M1   |                   M2 |             M3    
 
 | Name | Roll no. | Role | Track |
 |---|---|---|---|
-| Aggimalla Abhishek | 23BDS004 | | |
-| N. Likhith Naik | 23BDS037 | | |
-| Sundaram | 23BDS060 | | |
-| Sambhav Mishra | 23BDS050 | | |
-| Bikram Hawaldar | 23BCS033 | | |
+| Aggimalla Abhishek | 23BDS004 | NET, TWIN, ML, GENAI, DOC (all development and approvals) | all |
+| N. Likhith Naik | 23BDS037 | report author | — |
+| Sundaram | 23BDS060 | report author | — |
+| Sambhav Mishra | 23BDS050 | report author | — |
+| Bikram Hawaldar | 23BCS033 | report author | — |
 
 | Role | Track |
 |---|---|
@@ -186,7 +186,7 @@ Status values: ⬜ Not started · 🟦 In progress · 🟨 At risk · 🟥 Block
   - [x] Q3 LLM: Ollama, no paid API budget; cloud model + local fallback (revised 2026-10-07).
   - [x] Q4 deliverables: **report + live demonstration**.
   - [ ] Q4b report template/format: department template if one exists, otherwise our own (P7.1a).
-  - [ ] Team confirms ADR-002 (Ryu) and ADR-003 (Ubuntu 20.04).
+  - [x] ADR-002 (Ryu) and ADR-003 (Ubuntu 20.04) confirmed. *(2026-10-07: Abhishek, deviation #5; solo build, decisions Q6)*
 
 #### P0.2: Shared testbed VM · NET · **Oct 8**
 - **Produces:** VM, `docs/setup.md`, ADR-002, ADR-003
@@ -230,7 +230,7 @@ Status values: ⬜ Not started · 🟦 In progress · 🟨 At risk · 🟥 Block
 
 ### Exit gate (M0, Oct 8)
 - [ ] P0.1, P0.3, P0.5, P0.6, P0.7 done (P0.4 continues to Oct 12; P0.2 RAM and access by Oct 8)
-- [ ] Status board names filled in
+- [x] Status board names filled in *(2026-10-07)*
 
 **Cut list:** (1) compare only 2 LLMs; (2) literature review becomes 1 combined page.
 **Do not:** start building features before schemas are frozen, except throwaway spikes.

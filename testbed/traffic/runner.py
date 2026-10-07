@@ -18,6 +18,7 @@ record to <log_dir>/kpi.jsonl.
 from __future__ import annotations
 
 import contextlib
+import itertools
 import json
 import random
 import subprocess
@@ -113,7 +114,7 @@ class TrafficProbe:
         self._procs: list[subprocess.Popen[str]] = []  # running tools; guarded by _procs_lock
         self._procs_lock = threading.Lock()  # once stopping, no new tool can start
         self._threads: list[threading.Thread] = []
-        self._next_port = config.iperf_base_port
+        self._ports = itertools.count(config.iperf_base_port)
         self._http_started = False
 
     # ------------------------------------------------------------------ control
@@ -122,13 +123,19 @@ class TrafficProbe:
         self._spawn(self._tick_loop, "kpi-tick")
 
     def start_flow(self, sta: str, app_class: str, rate_mbps: float | None = None) -> str:
-        """Start `app_class` traffic from srv1 to `sta`; return its flow ID."""
+        """Start `app_class` traffic from srv1 to `sta`; return its flow ID.
+
+        `rate_mbps` (a scenario's TrafficItem.rate_mbps) overrides the profile's rate for video
+        and bulk; web has no rate, so passing one is an error rather than silently ignored.
+        """
         fid = flow_id(sta, app_class)
         if fid in self._flows:
             raise ValueError(f"flow {fid} is already running")
         if sta not in self._stations:
             raise ValueError(f"unknown station {sta!r}")
         profile = self._config.profiles[app_class]
+        if rate_mbps is not None and not isinstance(profile, IperfProfile):
+            raise ValueError(f"{app_class} has no rate; rate_mbps applies to video and bulk")
         self._ensure_ping(sta)
         flow = _Flow(fid, sta, app_class)
         if isinstance(profile, IperfProfile):
@@ -158,7 +165,10 @@ class TrafficProbe:
                 proc.wait(timeout=STOP_TIMEOUT_S)
             except subprocess.TimeoutExpired:
                 proc.kill()
-                proc.wait()
+                try:
+                    proc.wait(timeout=STOP_TIMEOUT_S)
+                except subprocess.TimeoutExpired:
+                    info(f"TRAFFIC_STOP_STUCK pid={proc.pid} {proc.args!r}\n")
         for thread in self._threads:
             thread.join(timeout=STOP_TIMEOUT_S)
 
@@ -172,13 +182,14 @@ class TrafficProbe:
         if sta in self._pings:
             return
         window = PingWindow(self._config.ping_interval_s, self._config.ping_timeout_s)
-        self._pings[sta] = window
+        with self._data:  # the tick thread iterates _pings
+            self._pings[sta] = window
         proc = self._popen(self._stations[sta], ping_command(self._config, self._server_ip))
         self._spawn(lambda: self._read_ping(proc, window), f"ping-{sta}")
 
     def _start_iperf(self, flow: _Flow, profile: IperfProfile, rate_mbps: float | None) -> None:
-        port, self._next_port = self._next_port, self._next_port + 1
-        self._popen(self._server, iperf_server_command(port))
+        port = next(self._ports)
+        self._popen(self._server, iperf_server_command(port), read=False)
         time.sleep(SERVER_START_S)
         command = iperf_client_command(profile, self._server_ip, port, RUN_FOREVER_S, rate_mbps)
         proc = self._popen(self._stations[flow.sta], command)
@@ -190,7 +201,8 @@ class TrafficProbe:
             www.mkdir(parents=True, exist_ok=True)
             (www / web_object_name(profile)).write_bytes(b"\0" * profile.object_kb * 1000)
             port = self._config.http_port
-            self._popen(self._server, http_server_command(str(www), self._server_ip, port))
+            command = http_server_command(str(www), self._server_ip, port)
+            self._popen(self._server, command, read=False)
             self._http_started = True
             time.sleep(SERVER_START_S)
         self._spawn(lambda: self._web_loop(flow, profile), f"web-{flow.flow_id}")
@@ -214,7 +226,7 @@ class TrafficProbe:
     def _read_ping(self, proc: subprocess.Popen[str], window: PingWindow) -> None:
         for line in _lines(proc):
             reply = parse_ping_reply(line)
-            unanswered = parse_ping_unanswered(line)
+            unanswered = parse_ping_unanswered(line) if reply is None else None
             with self._data:
                 if reply is not None:
                     window.add_reply(*reply)
@@ -258,15 +270,19 @@ class TrafficProbe:
         return records
 
     # ------------------------------------------------------------------ helpers
-    def _popen(self, node: Any, command: list[str]) -> subprocess.Popen[str]:
-        """Start a tool in `node`'s namespace; refused once stop_all() has begun."""
+    def _popen(self, node: Any, command: list[str], read: bool = True) -> subprocess.Popen[str]:
+        """Start a tool in `node`'s namespace; refused once stop_all() has begun.
+
+        `read=False` discards its output: nothing reads the servers' logs, and an unread pipe
+        fills (64 KB) and blocks the server mid-run.
+        """
         with self._procs_lock:
             if self._stop.is_set():
                 raise _StoppedError(f"probe stopped; not starting {command[0]}")
             with self._lock:
                 proc: subprocess.Popen[str] = node.popen(
                     command,
-                    stdout=subprocess.PIPE,
+                    stdout=subprocess.PIPE if read else subprocess.DEVNULL,
                     stderr=subprocess.STDOUT,
                     universal_newlines=True,
                 )

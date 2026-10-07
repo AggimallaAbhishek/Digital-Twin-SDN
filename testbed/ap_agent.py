@@ -137,6 +137,7 @@ class ApAgent:
         return {"ts": _now(), "stations": records}
 
     def kpi(self) -> Record:
+        """Latest KPI record of every traffic flow (empty when no TrafficProbe is attached)."""
         return {"ts": _now(), "kpis": self.kpi_source()}
 
     # ------------------------------------------------------------------ writes

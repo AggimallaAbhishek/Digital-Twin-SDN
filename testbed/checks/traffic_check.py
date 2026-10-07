@@ -27,11 +27,18 @@ from testbed.checks.ap_agent_check import api
 from testbed.checks.controller_check import Recorder
 from testbed.layout import load_layout
 from testbed.topologies.campus_v1 import DEFAULT_LAYOUT, build_campus, ping_matrix, start_campus
-from testbed.traffic.profiles import APP_CLASSES, load_traffic_config_file
+from testbed.traffic.profiles import (
+    APP_CLASSES,
+    IperfProfile,
+    TrafficConfig,
+    flow_id,
+    load_traffic_config_file,
+)
 from testbed.traffic.runner import TrafficProbe
 
 FLOWS = [("sta1", "video", None), ("sta4", "bulk", None), ("sta9", "web", None)]
 OVERRIDE_FLOW = ("sta16", "video", 1.5)  # scenario rate_mbps overrides the profile's 3 Mbit/s
+CLASS_OF = {flow_id(sta, cls): cls for sta, cls, _ in [*FLOWS, OVERRIDE_FLOW]}
 RUN_S = 30
 SETTLE_S = 3  # iperf3 windows skipped: iperf3 connecting, pings not yet past their timeout
 SEED = 1
@@ -63,10 +70,13 @@ def record_ok(record: dict[str, Any]) -> bool:
 
 
 def median(records: list[dict[str, Any]], key: str) -> float:
+    """Median of `key` over the records (NaN when there are none, which fails every bound)."""
     return statistics.median(r[key] for r in records) if records else float("nan")
 
 
-def check_records(record: Recorder, by_flow: dict[str, list[dict[str, Any]]]) -> None:
+def check_records(
+    record: Recorder, by_flow: dict[str, list[dict[str, Any]]], config: TrafficConfig
+) -> None:
     """Every flow measured, every record valid, values plausible for an idle campus."""
     every = [r for rs in by_flow.values() for r in rs]
     bad = [r for r in every if not record_ok(r)]
@@ -77,17 +87,20 @@ def check_records(record: Recorder, by_flow: dict[str, list[dict[str, Any]]]) ->
     )
     expected_iperf = RUN_S - SETTLE_S - 2
     for fid, records in sorted(by_flow.items()):
-        need = MIN_WEB_RECORDS if fid.endswith("-web") else expected_iperf
+        need = MIN_WEB_RECORDS if CLASS_OF[fid] == "web" else expected_iperf
         record(f"{fid} records", len(records) >= need, f"{len(records)} (need >= {need})")
         latency = median(records, "latency_ms")
         record(f"{fid} median latency", latency < MAX_IDLE_LATENCY_MS, f"{latency:.1f} ms")
         loss = median(records, "loss_pct")
         record(f"{fid} median loss", loss <= MAX_IDLE_LOSS_PCT, f"{loss:.1f}%")
+    video = config.profiles["video"]
+    video_mbps = video.rate_mbps if isinstance(video, IperfProfile) else None
     for sta, cls, rate in [*FLOWS, OVERRIDE_FLOW]:
-        fid, records = f"{sta}-{cls}", by_flow.get(f"{sta}-{cls}", [])
+        fid = flow_id(sta, cls)
+        records = by_flow.get(fid, [])
         mbps = median(records, "throughput_mbps")
         if cls == "video":
-            target = rate or 3.0
+            target = rate or video_mbps or 0.0
             ok = abs(mbps - target) <= RATE_TOLERANCE * target
             record(f"{fid} median throughput ~{target:g} Mbit/s", ok, f"{mbps:.2f}")
         elif cls == "bulk":
@@ -100,8 +113,7 @@ def main() -> int:
     """Run the check; return a process exit code."""
     log_dir = Path(os.environ.get("LOG_DIR", str(Path.home() / "p02")))
     kpi_log = log_dir / "kpi.jsonl"
-    if kpi_log.exists():
-        kpi_log.unlink()  # this run's records only
+    kpi_log.unlink(missing_ok=True)  # this run's records only
     layout = load_layout(DEFAULT_LAYOUT)
     campus = build_campus(layout, "127.0.0.1", 6653)
     record = Recorder()
@@ -113,9 +125,8 @@ def main() -> int:
         ping_matrix(hosts, count=1)  # warm-up: ARP + controller MAC learning
         agent = ap_agent.from_campus(campus)
         server = ap_agent.start_in_background(agent, host="127.0.0.1", port=ap_agent.DEFAULT_PORT)
-        probe = TrafficProbe(
-            campus, load_traffic_config_file(), log_dir, lock=agent.lock, seed=SEED
-        )
+        config = load_traffic_config_file()
+        probe = TrafficProbe(campus, config, log_dir, lock=agent.lock, seed=SEED)
         agent.kpi_source = probe.latest
         status, empty = api("GET", "/kpi")
         record(
@@ -138,8 +149,8 @@ def main() -> int:
         for line in kpi_log.read_text().splitlines():
             r = json.loads(line)
             by_flow.setdefault(r["flow_id"], []).append(r)
-        settled = {f: rs if f.endswith("-web") else rs[SETTLE_S:] for f, rs in by_flow.items()}
-        check_records(record, settled)
+        settled = {f: rs if CLASS_OF[f] == "web" else rs[SETTLE_S:] for f, rs in by_flow.items()}
+        check_records(record, settled, config)
     finally:
         if probe is not None:
             probe.stop_all()

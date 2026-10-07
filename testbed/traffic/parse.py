@@ -88,10 +88,12 @@ class PingStats:
 
     @property
     def loss_pct(self) -> float:
+        """Share of the finalised pings that were never answered (%)."""
         return 100.0 * (self.sent - self.received) / self.sent
 
     @property
     def mean_rtt_ms(self) -> float | None:
+        """Mean round-trip time of the answered pings; None if none were answered."""
         return sum(self.rtts_ms) / len(self.rtts_ms) if self.rtts_ms else None
 
     @property
@@ -113,7 +115,7 @@ class PingWindow:
     """
 
     def __init__(self, interval_s: float, timeout_s: float) -> None:
-        self._lag = math.ceil(timeout_s / interval_s)
+        self._lag_pings = math.ceil(timeout_s / interval_s)
         self._closed_seq = 0
         self._sent_seq = 0
         self._replies: dict[int, float] = {}
@@ -130,7 +132,7 @@ class PingWindow:
 
     def close(self) -> PingStats | None:
         """Finalise every ping older than the timeout; None if there are none yet."""
-        last = self._sent_seq - self._lag
+        last = self._sent_seq - self._lag_pings
         if last <= self._closed_seq:
             return None
         seqs = range(self._closed_seq + 1, last + 1)

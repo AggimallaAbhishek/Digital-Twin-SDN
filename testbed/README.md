@@ -71,13 +71,17 @@ Profiles live in `traffic/profiles.yaml`. All traffic is **downlink**, srv1 → 
 | | throughput | latency | jitter | loss |
 |---|---|---|---|---|
 | video | iperf3 per-second line | ping RTT mean | iperf3 jitter | iperf3 datagram loss (ping loss if iperf3 counted none) |
-| bulk | iperf3 per-second line | ping RTT mean | spread of the ping RTTs | ping loss |
-| web | mean goodput of the fetches that finished in the window | ping RTT mean | spread of the ping RTTs | the higher of ping loss and the failed-fetch % |
+| bulk | iperf3 per-second line | ping RTT mean | ping jitter* | ping loss |
+| web | mean goodput of the fetches that finished in the window | ping RTT mean | ping jitter* | the higher of ping loss and the failed-fetch % |
 
-- **Latency** is a round-trip time from `ping -O -i 0.2` on each active station to srv1. It is stricter than one-way delay. Flows on the same station share it.
+\* Ping jitter is the mean absolute difference between consecutive RTTs (IP delay variation, RFC 3393), not a standard deviation.
+
+- **Decision P1.5-A (2026-10-07): latency comes from ping.** Latency is a round-trip time from `ping -O -i 0.2` on each active station to srv1. It is stricter than one-way delay. Flows on the same station share it.
 - **Lost pings:** a ping counts as lost if no reply arrives within 1 s. Loss is tracked by sequence number, not by clock, because ping's real interval drifts (about 0.207 s on the VM). A dead link therefore reads 100% loss, with latency set to the 1 s timeout, rather than producing no records.
 - **Web records** appear only in windows where a fetch finished. Video and bulk produce one record every window.
 - **Bulk raises its own station's latency.** It fills the radio at about 4.6 Mbit/s, and its RTT rises to roughly 60–80 ms from queueing behind its own traffic. That is expected.
+- **Decision P1.5-B (2026-10-07): records reach the collector through the AP agent's `GET /kpi`.** That is the same polling pattern as `/aps` and `/stations`, and RULEBOOK §4 rules out shared files. `kpi.jsonl` is a local run log for checks and fixtures, not a telemetry path.
+- **`rate_mbps`** applies to video and bulk only. Passing a rate for a web flow is an error.
 - **Process model:** tools start with `node.popen()`, so they run as their own processes, not in the shared node shell, and the agent lock is held only while each one launches. iperf3 3.7 can't stream JSON, so the probe reads its `--forceflush` text output.
 
 ```python

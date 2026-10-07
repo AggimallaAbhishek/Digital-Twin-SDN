@@ -39,6 +39,9 @@ def test_shipped_config_loads() -> None:
     }
 
 
+_DELETE = object()
+
+
 def _with(path: tuple[str, ...], value: Any) -> dict[str, Any]:
     raw = copy.deepcopy(RAW)
     node = raw
@@ -49,9 +52,6 @@ def _with(path: tuple[str, ...], value: Any) -> dict[str, Any]:
     else:
         node[path[-1]] = value
     return raw
-
-
-_DELETE = object()
 
 
 @pytest.mark.parametrize(

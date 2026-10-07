@@ -1,0 +1,45 @@
+{
+ "ts": "2026-10-07T06:35:24.657+00:00",
+ "aps": [
+  {
+   "ap": "ap1",
+   "bssid": "02:00:00:00:14:00",
+   "ssid": "campus-ap1",
+   "channel": 1,
+   "tx_power_dbm": 14.0,
+   "x": 20.0,
+   "y": 50.0,
+   "n_clients": 3
+  },
+  {
+   "ap": "ap2",
+   "bssid": "02:00:00:00:15:00",
+   "ssid": "campus-ap2",
+   "channel": 6,
+   "tx_power_dbm": 14.0,
+   "x": 60.0,
+   "y": 50.0,
+   "n_clients": 5
+  },
+  {
+   "ap": "ap3",
+   "bssid": "02:00:00:00:16:00",
+   "ssid": "campus-ap3",
+   "channel": 11,
+   "tx_power_dbm": 14.0,
+   "x": 20.0,
+   "y": 20.0,
+   "n_clients": 7
+  },
+  {
+   "ap": "ap4",
+   "bssid": "02:00:00:00:17:00",
+   "ssid": "campus-ap4",
+   "channel": 1,
+   "tx_power_dbm": 14.0,
+   "x": 60.0,
+   "y": 20.0,
+   "n_clients": 5
+  }
+ ]
+}

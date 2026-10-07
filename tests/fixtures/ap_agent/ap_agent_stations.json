@@ -1,0 +1,205 @@
+{
+ "ts": "2026-10-07T06:35:24.685+00:00",
+ "stations": [
+  {
+   "sta": "sta1",
+   "ap": "ap1",
+   "rssi_dbm": -56.0,
+   "snr_db": 36.0,
+   "tx_bitrate_mbps": 1.0,
+   "rx_bitrate_mbps": 24.0,
+   "x": 14.0,
+   "y": 41.6
+  },
+  {
+   "sta": "sta2",
+   "ap": "ap1",
+   "rssi_dbm": -58.0,
+   "snr_db": 34.0,
+   "tx_bitrate_mbps": 12.0,
+   "rx_bitrate_mbps": 6.0,
+   "x": 25.1,
+   "y": 39.7
+  },
+  {
+   "sta": "sta3",
+   "ap": "ap1",
+   "rssi_dbm": -37.0,
+   "snr_db": 55.0,
+   "tx_bitrate_mbps": 1.0,
+   "rx_bitrate_mbps": 12.0,
+   "x": 21.2,
+   "y": 46.8
+  },
+  {
+   "sta": "sta4",
+   "ap": "ap2",
+   "rssi_dbm": -63.0,
+   "snr_db": 29.0,
+   "tx_bitrate_mbps": 48.0,
+   "rx_bitrate_mbps": 12.0,
+   "x": 45.0,
+   "y": 50.2
+  },
+  {
+   "sta": "sta5",
+   "ap": "ap2",
+   "rssi_dbm": -64.0,
+   "snr_db": 28.0,
+   "tx_bitrate_mbps": 5.5,
+   "rx_bitrate_mbps": 2.0,
+   "x": 44.3,
+   "y": 48.4
+  },
+  {
+   "sta": "sta6",
+   "ap": "ap2",
+   "rssi_dbm": -65.0,
+   "snr_db": 27.0,
+   "tx_bitrate_mbps": 36.0,
+   "rx_bitrate_mbps": 54.0,
+   "x": 45.4,
+   "y": 40.2
+  },
+  {
+   "sta": "sta7",
+   "ap": "ap2",
+   "rssi_dbm": -52.0,
+   "snr_db": 40.0,
+   "tx_bitrate_mbps": 6.0,
+   "rx_bitrate_mbps": 54.0,
+   "x": 57.4,
+   "y": 57.8
+  },
+  {
+   "sta": "sta8",
+   "ap": "ap2",
+   "rssi_dbm": -62.0,
+   "snr_db": 30.0,
+   "tx_bitrate_mbps": 6.0,
+   "rx_bitrate_mbps": 5.5,
+   "x": 47.2,
+   "y": 43.4
+  },
+  {
+   "sta": "sta9",
+   "ap": "ap3",
+   "rssi_dbm": -58.0,
+   "snr_db": 34.0,
+   "tx_bitrate_mbps": 12.0,
+   "rx_bitrate_mbps": 6.0,
+   "x": 24.3,
+   "y": 30.7
+  },
+  {
+   "sta": "sta10",
+   "ap": "ap3",
+   "rssi_dbm": -38.0,
+   "snr_db": 54.0,
+   "tx_bitrate_mbps": 54.0,
+   "rx_bitrate_mbps": 1.0,
+   "x": 22.6,
+   "y": 17.5
+  },
+  {
+   "sta": "sta11",
+   "ap": "ap3",
+   "rssi_dbm": -67.0,
+   "snr_db": 25.0,
+   "tx_bitrate_mbps": 1.0,
+   "rx_bitrate_mbps": 54.0,
+   "x": 36.2,
+   "y": 9.1
+  },
+  {
+   "sta": "sta12",
+   "ap": "ap3",
+   "rssi_dbm": -61.0,
+   "snr_db": 31.0,
+   "tx_bitrate_mbps": 24.0,
+   "rx_bitrate_mbps": 24.0,
+   "x": 32.2,
+   "y": 15.0
+  },
+  {
+   "sta": "sta13",
+   "ap": "ap3",
+   "rssi_dbm": -63.0,
+   "snr_db": 29.0,
+   "tx_bitrate_mbps": 6.0,
+   "rx_bitrate_mbps": 1.0,
+   "x": 7.9,
+   "y": 10.8
+  },
+  {
+   "sta": "sta14",
+   "ap": "ap3",
+   "rssi_dbm": -56.0,
+   "snr_db": 36.0,
+   "tx_bitrate_mbps": 54.0,
+   "rx_bitrate_mbps": 48.0,
+   "x": 13.5,
+   "y": 27.6
+  },
+  {
+   "sta": "sta15",
+   "ap": "ap3",
+   "rssi_dbm": -58.0,
+   "snr_db": 34.0,
+   "tx_bitrate_mbps": 54.0,
+   "rx_bitrate_mbps": 54.0,
+   "x": 9.1,
+   "y": 22.0
+  },
+  {
+   "sta": "sta16",
+   "ap": "ap4",
+   "rssi_dbm": -46.0,
+   "snr_db": 46.0,
+   "tx_bitrate_mbps": 6.0,
+   "rx_bitrate_mbps": 24.0,
+   "x": 64.7,
+   "y": 16.9
+  },
+  {
+   "sta": "sta17",
+   "ap": "ap4",
+   "rssi_dbm": -57.0,
+   "snr_db": 35.0,
+   "tx_bitrate_mbps": 54.0,
+   "rx_bitrate_mbps": 54.0,
+   "x": 61.6,
+   "y": 9.5
+  },
+  {
+   "sta": "sta18",
+   "ap": "ap4",
+   "rssi_dbm": -64.0,
+   "snr_db": 28.0,
+   "tx_bitrate_mbps": 48.0,
+   "rx_bitrate_mbps": 11.0,
+   "x": 45.0,
+   "y": 12.9
+  },
+  {
+   "sta": "sta19",
+   "ap": "ap4",
+   "rssi_dbm": -48.0,
+   "snr_db": 44.0,
+   "tx_bitrate_mbps": 54.0,
+   "rx_bitrate_mbps": 9.0,
+   "x": 66.1,
+   "y": 18.3
+  },
+  {
+   "sta": "sta20",
+   "ap": "ap4",
+   "rssi_dbm": -48.0,
+   "snr_db": 44.0,
+   "tx_bitrate_mbps": 48.0,
+   "rx_bitrate_mbps": 24.0,
+   "x": 53.7,
+   "y": 22.1
+  }
+ ]
+}

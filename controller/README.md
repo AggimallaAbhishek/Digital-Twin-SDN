@@ -19,6 +19,8 @@
 
 Errors: 400 invalid body (message explains the field), 404 unknown dpid/flow_id, 409 flow_id already installed. Our flows use priority ≥ 100 and a tagged cookie, so they override learned L2 flows (priority 1) and are deletable by `flow_id`.
 
+**Host moves (P1.3):** when a MAC shows up on a different port than learned (a station steered or roamed to another AP), the controller forgets its location on every datapath and deletes the learned flows to and from it (cookie 0 only; REST-installed flows are kept). Otherwise return traffic keeps the stale flows alive and never reaches the new AP (docs/setup.md, Known problems #11).
+
 Run: `make controller-vm` (19 end-to-end checks on the campus). Records omit `scenario_id`/`run_id`; the collector (P2.1) adds them and validates against `common/schemas.py` (see `tests/contract/test_controller_fixtures.py`).
 
 - `executor/` must keep 100% branch coverage on its safety paths (RULEBOOK T-2, T-5).

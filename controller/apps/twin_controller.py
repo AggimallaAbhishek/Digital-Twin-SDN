@@ -34,9 +34,11 @@ from ryu.lib.packet import ether_types, ethernet, packet
 from ryu.ofproto import ofproto_v1_3
 
 from controller.apps.ryu_logic import (
+    OURS_TAG,
     FlowSpec,
     dpid_str,
     is_ours,
+    learn_mac,
     parse_flow_request,
     parse_qos_request,
     rate_bps,
@@ -132,9 +134,9 @@ class TwinController(app_manager.RyuApp):
         eth = packet.Packet(msg.data).get_protocols(ethernet.ethernet)[0]
         if eth.ethertype == ether_types.ETH_TYPE_LLDP:
             return
-        table = self.mac_to_port.setdefault(dp.id, {})
-        table[eth.src] = in_port
-        out_port = table.get(eth.dst, ofp.OFPP_FLOOD)
+        if learn_mac(self.mac_to_port, dp.id, eth.src, in_port):
+            self._forget_host(eth.src)
+        out_port = self.mac_to_port[dp.id].get(eth.dst, ofp.OFPP_FLOOD)
         actions = [parser.OFPActionOutput(out_port)]
         if out_port != ofp.OFPP_FLOOD:
             match = parser.OFPMatch(in_port=in_port, eth_dst=eth.dst, eth_src=eth.src)
@@ -244,6 +246,30 @@ class TwinController(app_manager.RyuApp):
                 hard_timeout=rule.hard,
             )
         )
+
+    def _forget_host(self, mac: str) -> None:
+        """A host moved: delete the learned flows to and from it on every datapath.
+
+        Learned flows have cookie 0; flows installed through REST carry OURS_TAG and are kept.
+        Without this, traffic keeps refreshing the stale flows' idle timer and never reaches
+        the host's new AP.
+        """
+        self.logger.info("host %s moved: deleting its learned flows", mac)
+        for dp in self.datapaths.values():
+            parser, ofp = dp.ofproto_parser, dp.ofproto
+            for match in (parser.OFPMatch(eth_dst=mac), parser.OFPMatch(eth_src=mac)):
+                dp.send_msg(
+                    parser.OFPFlowMod(
+                        datapath=dp,
+                        cookie=0,
+                        cookie_mask=OURS_TAG,
+                        table_id=ofp.OFPTT_ALL,
+                        command=ofp.OFPFC_DELETE,
+                        out_port=ofp.OFPP_ANY,
+                        out_group=ofp.OFPG_ANY,
+                        match=match,
+                    )
+                )
 
     def install(self, spec: FlowSpec) -> None:
         """Install a validated flow; raise KeyError if the datapath is unknown."""

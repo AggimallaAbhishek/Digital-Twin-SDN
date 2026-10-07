@@ -1,0 +1,44 @@
+{
+ "aps": [
+  {
+   "ts": "2026-10-07T06:35:26.759+00:00",
+   "ap": "ap1",
+   "channel": 1,
+   "n_clients": 3,
+   "channel_util": 0.050419076171262456,
+   "tx_power_dbm": 14.0,
+   "retries": 0,
+   "noise_dbm": -92.0
+  },
+  {
+   "ts": "2026-10-07T06:35:26.764+00:00",
+   "ap": "ap2",
+   "channel": 6,
+   "n_clients": 5,
+   "channel_util": 0.0,
+   "tx_power_dbm": 14.0,
+   "retries": 0,
+   "noise_dbm": -92.0
+  },
+  {
+   "ts": "2026-10-07T06:35:26.768+00:00",
+   "ap": "ap3",
+   "channel": 11,
+   "n_clients": 7,
+   "channel_util": 0.0,
+   "tx_power_dbm": 14.0,
+   "retries": 0,
+   "noise_dbm": -92.0
+  },
+  {
+   "ts": "2026-10-07T06:35:26.772+00:00",
+   "ap": "ap4",
+   "channel": 1,
+   "n_clients": 5,
+   "channel_util": 0.0,
+   "tx_power_dbm": 14.0,
+   "retries": 0,
+   "noise_dbm": -92.0
+  }
+ ]
+}

@@ -160,7 +160,7 @@ Milestones          M0          M1   |                   M2 |             M3    
 | Phase | Dates | Status | Exit gate | Notes |
 |---|---|---|---|---|
 | 0 Setup & contracts | Oct 6–8 | 🟦 In progress | | P0.2 ✅, P0.3 ✅, P0.5 ✅, P0.7 ✅ (gpt-oss:120b-cloud + local qwen2.5:3b); open: P0.6 approval (Abhishek), P0.1 Q4b template, P0.4 literature (Oct 12), VM RAM → 6 GB |
-| 1 Testbed | Oct 7–12 | 🟦 In progress | | P1.1 ✅ (2026-10-06) |
+| 1 Testbed | Oct 7–12 | 🟦 In progress | | P1.1 ✅ (Oct 6), P1.2 ✅ (Oct 7) |
 | 2 Telemetry | Oct 8–14 | ⬜ | | |
 | 3 Twin | Oct 13–19 | ⬜ | | critical path |
 | 4 ML + executor | Oct 9–19 | ⬜ | | |
@@ -246,7 +246,7 @@ Status values: ⬜ Not started · 🟦 In progress · 🟨 At risk · 🟥 Block
 | ID | Task | Due | Produces | Done when |
 |---|---|---|---|---|
 | P1.1 ✅ | Campus topology (4 APs, 2 switches, 20 stations, wmediumd), using `ensure_associated()` | Oct 8 | `testbed/topologies/campus_v1.py`, `testbed/layout.py`, `testbed/connectivity.py`, `config/campus_v1.yaml` | All 20 stations associate; **every pair reachable (retry up to 3 pings) and first-try single-ping loss ≤ 5%** (changed from "0% pingall", deviation #4), 3/3 runs. *(2026-10-06: `make campus-vm` 3/3 PASS, 420/420 reachable, loss 1.4–2.6%)* |
-| P1.2 | Ryu app: L2 forwarding, port/flow stats every 1 s, REST `GET /stats/ports`, `/stats/flows`, `/topology`, `POST/DELETE /flows`, `POST /qos/queue` | Oct 9 | `controller/apps/twin_controller.py` | Responses validate against schemas; an installed flow changes the path (`ovs-ofctl dump-flows`) |
+| P1.2 ✅ | Ryu app: L2 forwarding, port/flow stats every 1 s, REST `GET /stats/ports`, `/stats/flows`, `/topology`, `POST/DELETE /flows`, `POST /qos/queue` | Oct 9 | `controller/apps/twin_controller.py`, `controller/apps/ryu_logic.py` | Responses validate against schemas; an installed flow changes forwarding (`ovs-ofctl dump-flows`). *(2026-10-07: `make controller-vm` 19/19 checks, 3/3 runs: drop flow blocks sta1→srv1 and DELETE restores it; 400/404/409 errors; QoS flow installs. Contract test: real responses validate as `PortStats`/`FlowStats`. `ryu_logic` 100% branch coverage)* |
 | P1.3 | AP agent inside the topology process: `GET /aps`, `/aps/{id}/stats`, `/stations`; `POST /aps/{id}/channel`, `/txpower`, `/stations/{id}/associate` | Oct 10 | `testbed/ap_agent.py` | POSTs change state; out-of-bounds values return 422 |
 | P1.4 | Scheduled-crowd mobility (group moves zone A → B over a time window) | Oct 10 ∥ | `testbed/mobility/` | 10 stations move to the lecture hall and re-associate |
 | P1.5 | Traffic profiles (video, web, bulk) + KPI probe (throughput, latency, jitter, loss per flow) | Oct 11 ∥ | `testbed/traffic/` | Probe outputs schema-valid KPI records |

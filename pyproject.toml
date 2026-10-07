@@ -82,7 +82,7 @@ markers = [
 [tool.coverage.run]
 source = ["common", "twin", "ml", "genai", "api", "telemetry", "controller"]
 branch = true
-omit = ["controller/apps/*"]   # Ryu apps run on the VM; covered by emulation tests
+omit = ["controller/apps/twin_controller.py"]  # Ryu adapter runs on the VM; covered by make controller-vm
 
 [tool.coverage.report]
 fail_under = 75

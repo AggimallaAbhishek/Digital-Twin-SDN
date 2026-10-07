@@ -145,3 +145,23 @@ def test_parse_qos_request_rejects_unknown_queue() -> None:
 )
 def test_rate_bps(prev: tuple[int, float] | None, now: tuple[int, float], expected: float) -> None:
     assert rate_bps(prev, now) == expected
+
+
+def test_body_must_be_an_object() -> None:
+    with pytest.raises(ValueError, match="JSON object"):
+        parse_flow_request(["not", "an", "object"])  # type: ignore[arg-type]  # bad input on purpose
+
+
+def test_mac_match_is_normalised_to_lowercase() -> None:
+    spec = parse_flow_request({**FLOW, "match": {"eth_dst": "02:00:00:00:0A:FF"}})
+    assert spec.match == {"eth_dst": "02:00:00:00:0a:ff"}
+
+
+def test_explicit_eth_type_is_kept() -> None:
+    spec = parse_flow_request({**FLOW, "match": {"eth_type": 0x0806}})
+    assert spec.match == {"eth_type": 0x0806}
+
+
+def test_drop_must_be_true() -> None:
+    with pytest.raises(ValueError, match="drop must be true"):
+        parse_flow_request({**FLOW, "actions": [{"drop": False}]})

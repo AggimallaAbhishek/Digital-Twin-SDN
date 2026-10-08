@@ -28,6 +28,8 @@ from pydantic import BaseModel
 from common.schemas import (
     ACTION_ADAPTER,
     CHANNELS_24GHZ,
+    MAX_STEER_FRACTION,
+    MIN_TARGET_RSSI_DBM,
     Action,
     SetApChannelParams,
     SteerClientsParams,
@@ -67,8 +69,10 @@ def load_heuristic_config(raw: Mapping[str, Any]) -> HeuristicConfig:
         raise ValueError("util_high must be within (0, 1]")
     if not 0 <= config.util_target < config.util_high:
         raise ValueError("util_target must be >= 0 and below util_high")
-    if not 0 < config.max_steer_fraction <= 1:
-        raise ValueError("max_steer_fraction must be within (0, 1]")
+    if not 0 < config.max_steer_fraction <= MAX_STEER_FRACTION:
+        raise ValueError(f"max_steer_fraction must be within (0, {MAX_STEER_FRACTION}] (ADR-004)")
+    if config.min_target_rssi_dbm < MIN_TARGET_RSSI_DBM:
+        raise ValueError(f"min_target_rssi_dbm may not be below {MIN_TARGET_RSSI_DBM} (ADR-004)")
     return config
 
 

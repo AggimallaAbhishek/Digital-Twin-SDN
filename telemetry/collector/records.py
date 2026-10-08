@@ -14,6 +14,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from common.influx import RUN_TAGS, TAGS
 from common.schemas import (
     MEASUREMENTS,
     APStats,
@@ -25,14 +26,6 @@ from common.schemas import (
 )
 
 FLOW_FIELDS = ("ts", "dpid", "flow_id", "app_class", "bytes", "pkts", "duration_s", "bps")
-RUN_TAGS = ("run_id", "scenario_id")
-TAGS: dict[type[TelemetryRecord], tuple[str, ...]] = {  # PROJECT_PLAN §7.1
-    PortStats: ("dpid", "port"),
-    FlowStats: ("app_class", "dpid", "flow_id"),
-    APStats: ("ap", "channel"),
-    StationStats: ("ap", "sta"),
-    KPIRecord: ("app_class", "flow_id"),
-}
 _ESCAPE = str.maketrans({",": r"\,", "=": r"\=", " ": r"\ "})
 
 

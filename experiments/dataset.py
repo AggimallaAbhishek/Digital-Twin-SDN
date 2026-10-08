@@ -8,19 +8,16 @@ and `event` (which disruption the run has: flash_crowd, ap_down, force_channel; 
 
 from __future__ import annotations
 
-import csv
-import io
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, get_args
+from typing import Any
 
 import pyarrow as pa
 
+from common.influx import RUN_TAGS, TAGS, is_int_field
 from common.schemas import Scenario, TelemetryRecord
-from telemetry.collector.records import RUN_TAGS, TAGS
 
 LABELS = ("seed", "split", "t_s", "phase", "event")
-_DROP = {"", "result", "table", "_start", "_stop", "_measurement"}
 _LABEL_TYPES = {
     "seed": pa.int64(),
     "split": pa.string(),
@@ -46,37 +43,6 @@ class RunInfo:
     scenario_id: str
     seed: int
     split: str
-
-
-def parse_flux_csv(text: str, model: type[TelemetryRecord]) -> list[dict[str, Any]]:
-    """Rows of a pivoted, ungrouped Flux result (`Accept: application/csv`), typed per `model`.
-
-    `_time` becomes `ts`; tags stay strings; integer schema fields become int, the rest float.
-    """
-    reader = csv.reader(io.StringIO(text))
-    header: list[str] | None = None
-    rows = []
-    tags = {*TAGS[model], *RUN_TAGS}
-    for line in reader:
-        if not any(line):
-            continue
-        if line[1:3] == ["result", "table"]:
-            header = line
-            continue
-        if header is None:
-            raise ValueError("Flux CSV row before its header")
-        row: dict[str, Any] = {}
-        for name, value in zip(header, line, strict=True):
-            if name in _DROP:
-                continue
-            if name == "_time":
-                row["ts"] = datetime.fromisoformat(value.replace("Z", "+00:00"))
-            elif name in tags or value == "":
-                row[name] = value or None
-            else:
-                row[name] = int(value) if _is_int_field(model, name) else float(value)
-        rows.append(row)
-    return rows
 
 
 def disruption(scenario: Scenario) -> Disruption | None:
@@ -124,12 +90,7 @@ def to_table(rows: list[dict[str, Any]], model: type[TelemetryRecord]) -> pa.Tab
             ("scenario_id", pa.string()),
             *((name, _LABEL_TYPES[name]) for name in LABELS),
             *((tag, pa.string()) for tag in tags),
-            *((f, pa.int64() if _is_int_field(model, f) else pa.float64()) for f in fields),
+            *((f, pa.int64() if is_int_field(model, f) else pa.float64()) for f in fields),
         ]
     )
     return pa.Table.from_pylist(rows, schema=schema)
-
-
-def _is_int_field(model: type[TelemetryRecord], name: str) -> bool:
-    annotation = model.model_fields[name].annotation
-    return annotation is int or (int in get_args(annotation) and float not in get_args(annotation))

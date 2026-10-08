@@ -62,6 +62,24 @@ def test_config_loads() -> None:
 
 @pytest.mark.parametrize(
     ("change", "field"),
+    [({"max_steer_fraction": 0.4}, "max_steer_fraction"), ({"min_target_rssi_dbm": -80}, "rssi")],
+)
+def test_config_may_not_be_looser_than_the_schema_bounds(
+    change: dict[str, Any], field: str
+) -> None:  # ADR-004: the safety bounds live in common/schemas.py
+    with pytest.raises(ValueError, match=field):
+        load_heuristic_config({**RAW_CONFIG, **change})
+
+
+def test_a_stricter_config_is_fine() -> None:
+    config = load_heuristic_config(
+        {**RAW_CONFIG, "max_steer_fraction": 0.2, "min_target_rssi_dbm": -70}
+    )
+    assert (config.max_steer_fraction, config.min_target_rssi_dbm) == (0.2, -70.0)
+
+
+@pytest.mark.parametrize(
+    ("change", "field"),
     [
         ({"util_high": 1.5}, "util_high"),
         ({"util_target": 0.9}, "util_target"),  # must be below util_high

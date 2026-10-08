@@ -1,0 +1,5 @@
+# Twin (Phase 3). P3.1 state sync from InfluxDB (twin/state/sync.py).
+sync_window_s: 10      # each refresh reads this much recent telemetry of the run
+ap_stale_s: 5          # an AP with no stats for this long counts as down
+max_lag_s: 3           # PHASE_PLAN P3.1 Done when: lag < 3 s
+query_timeout_s: 10

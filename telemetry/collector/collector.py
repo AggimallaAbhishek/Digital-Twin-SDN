@@ -16,7 +16,6 @@ import argparse
 import contextlib
 import json
 import logging
-import os
 import sys
 import threading
 import time
@@ -33,6 +32,7 @@ from typing import Any
 
 import yaml
 
+from common.influx import InfluxConnection, is_http_url
 from common.schemas import TelemetryRecord
 from telemetry.collector.records import (
     Batch,
@@ -270,11 +270,6 @@ def _ap_names(body: Any) -> list[str]:
     return [ap["ap"] for ap in aps]
 
 
-def is_http_url(url: str) -> bool:
-    """Only http(s) URLs are ever opened (no file:// or custom schemes; bandit B310)."""
-    return urllib.parse.urlsplit(url).scheme in ("http", "https")
-
-
 def http_fetch(url: str, timeout_s: float) -> Any:
     """GET `url` and parse JSON; FetchError on any network, HTTP or JSON problem."""
     if not is_http_url(url):
@@ -286,22 +281,12 @@ def http_fetch(url: str, timeout_s: float) -> Any:
         raise FetchError(f"{url}: {exc}") from exc
 
 
-@dataclass(frozen=True)
-class InfluxTarget:
-    """Where to write: InfluxDB URL, org, bucket and API token (from the environment)."""
-
-    url: str
-    org: str
-    bucket: str
-    token: str = field(repr=False)  # never printed
-
-
 class InfluxWriter:
     """Writes line protocol to InfluxDB 2.x (/api/v2/write), with bounded retries."""
 
     def __init__(
         self,
-        target: InfluxTarget,
+        target: InfluxConnection,
         timeout_s: float,
         retries: int,
         *,
@@ -322,17 +307,10 @@ class InfluxWriter:
     @classmethod
     def from_env(cls, config: CollectorConfig) -> InfluxWriter:
         """Build from INFLUXDB_URL/ORG/BUCKET/TOKEN (the token is never logged)."""
-        missing = [
-            k for k in ("INFLUXDB_URL", "INFLUXDB_ORG", "INFLUXDB_TOKEN") if not os.getenv(k)
-        ]
-        if missing:
-            raise SystemExit(f"collector: set {', '.join(missing)} (run via `make collect`)")
-        target = InfluxTarget(
-            os.environ["INFLUXDB_URL"],
-            os.environ["INFLUXDB_ORG"],
-            os.getenv("INFLUXDB_BUCKET", "telemetry"),
-            os.environ["INFLUXDB_TOKEN"],
-        )
+        try:
+            target = InfluxConnection.from_env()
+        except ValueError as exc:
+            raise SystemExit(f"collector: {exc} (run via `make collect`)") from exc
         return cls(target, config.write_timeout_s, config.write_retries)
 
     def __call__(self, lines: list[str]) -> None:

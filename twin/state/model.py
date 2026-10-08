@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from types import MappingProxyType
 
@@ -35,17 +35,31 @@ class StationState:
 
 
 @dataclass(frozen=True)
+class FlowState:
+    """One traffic flow's latest measured KPIs (P1.5 probe), as the simulator's demand input."""
+
+    flow_id: str
+    sta: str
+    app_class: str
+    throughput_mbps: float
+    latency_ms: float
+    loss_pct: float
+
+
+@dataclass(frozen=True)
 class TwinState:
     """The network at `ts`. A station's AP is stored once, on the station."""
 
     ts: datetime
     aps: Mapping[str, APState]
     stations: Mapping[str, StationState]
+    flows: Mapping[str, FlowState] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         # read-only views of private copies: the state can't change under its users (C-7)
         object.__setattr__(self, "aps", MappingProxyType(dict(self.aps)))
         object.__setattr__(self, "stations", MappingProxyType(dict(self.stations)))
+        object.__setattr__(self, "flows", MappingProxyType(dict(self.flows)))
 
     def clients(self, ap: str) -> tuple[str, ...]:
         """Stations associated with `ap`, in station order (sta2 before sta10)."""

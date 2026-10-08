@@ -13,12 +13,12 @@ from typing import Any
 
 import pytest
 
+from common.influx import InfluxConnection
 from telemetry.collector.collector import (
     Collector,
     CollectorConfig,
     FetchError,
     Health,
-    InfluxTarget,
     InfluxWriter,
     WriteError,
     http_fetch,
@@ -212,7 +212,7 @@ def test_nothing_written_is_not_a_pass() -> None:
 
 
 # ------------------------------------------------------------------ InfluxDB writer
-TARGET = InfluxTarget("http://127.0.0.1:8086/", "org one", "telemetry", "secret-token")
+TARGET = InfluxConnection("http://127.0.0.1:8086/", "org one", "telemetry", "secret-token")
 
 
 class FakeOpener:
@@ -412,4 +412,4 @@ def test_only_http_urls_are_fetched(url: str) -> None:
 
 def test_influx_writer_needs_an_http_url() -> None:
     with pytest.raises(ValueError, match="http"):
-        InfluxWriter(InfluxTarget("file:///tmp/x", "o", "b", "t"), timeout_s=1.0, retries=0)
+        InfluxWriter(InfluxConnection("file:///tmp/x", "o", "b", "t"), timeout_s=1.0, retries=0)

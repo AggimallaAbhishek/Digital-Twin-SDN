@@ -9,8 +9,8 @@ from typing import Any
 
 import pytest
 
+from common.influx import RUN_TAGS, TAGS
 from common.schemas import MEASUREMENTS
-from telemetry.collector.records import RUN_TAGS, TAGS
 
 DASHBOARD = Path(__file__).resolve().parents[2] / "telemetry/grafana/dashboards/raw_kpis.json"
 PANELS = [p for p in json.loads(DASHBOARD.read_text())["panels"] if "targets" in p]

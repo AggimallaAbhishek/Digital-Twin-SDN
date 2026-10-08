@@ -9,6 +9,7 @@ import pyarrow as pa
 import pytest
 import yaml
 
+from common.influx import parse_flux_csv
 from common.schemas import APStats, KPIRecord, Scenario
 from experiments.batch import load_scenario
 from experiments.dataset import (
@@ -16,41 +17,12 @@ from experiments.dataset import (
     RunInfo,
     disruption,
     label_rows,
-    parse_flux_csv,
     to_table,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
 KPI_CSV = (ROOT / "tests/fixtures/influx/kpi_pivot.csv").read_text()
 AP_CSV = (ROOT / "tests/fixtures/influx/ap_stats_pivot.csv").read_text()
-
-
-# ------------------------------------------------------------------ parsing
-def test_kpi_csv_parses_into_typed_rows() -> None:
-    rows = parse_flux_csv(KPI_CSV, KPIRecord)
-    assert len(rows) == 13  # header + 13 rows (verified with csv.reader)
-    first = rows[0]
-    assert first == {
-        "ts": datetime(2026, 10, 8, 7, 32, 40, 812000, tzinfo=UTC),
-        "app_class": "bulk",
-        "flow_id": "sta16-bulk",
-        "run_id": "smoke-util",
-        "scenario_id": "smoke",
-        "jitter_ms": 0.258,
-        "latency_ms": 0.464,
-        "loss_pct": 0.0,
-        "throughput_mbps": 0.594,
-    }
-
-
-def test_integer_fields_stay_integers_and_tags_stay_strings() -> None:
-    row = parse_flux_csv(AP_CSV, APStats)[0]
-    assert (row["n_clients"], row["channel"], row["noise_dbm"]) == (3, "1", -92.0)
-
-
-def test_empty_result_has_no_rows() -> None:
-    assert parse_flux_csv("", KPIRecord) == []
-    assert parse_flux_csv("\r\n", KPIRecord) == []
 
 
 # ------------------------------------------------------------------ disruption (stress onset)
@@ -135,11 +107,6 @@ def test_empty_table_keeps_its_schema() -> None:
     table = to_table([], APStats)
     assert table.num_rows == 0
     assert "n_clients" in table.column_names
-
-
-def test_a_row_before_any_header_is_an_error() -> None:
-    with pytest.raises(ValueError, match="header"):
-        parse_flux_csv(",_result,0,2026-10-08T07:32:40Z\n", KPIRecord)
 
 
 def test_a_crowd_without_later_traffic_is_disrupted_when_it_moves() -> None:

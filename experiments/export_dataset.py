@@ -14,32 +14,27 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
-import urllib.parse
-import urllib.request
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import pyarrow.parquet as pq
-from pydantic import TypeAdapter, ValidationError
 
+from common.influx import InfluxConnection, parse_flux_csv, query_csv, rows_query
 from common.schemas import (
     MEASUREMENTS,
     APStats,
     FlowStats,
-    Identifier,
     KPIRecord,
     PortStats,
     StationStats,
     TelemetryRecord,
 )
 from experiments.batch import SPLITS, load_scenario, run_ok
-from experiments.dataset import RunInfo, disruption, label_rows, parse_flux_csv, to_table
+from experiments.dataset import RunInfo, disruption, label_rows, to_table
 from experiments.shell import git_commit
-from telemetry.collector.collector import is_http_url
 
 ROOT = Path(__file__).resolve().parents[1]
 EXPORTED: tuple[type[TelemetryRecord], ...] = (
@@ -49,46 +44,8 @@ EXPORTED: tuple[type[TelemetryRecord], ...] = (
     StationStats,
     KPIRecord,
 )
-_IDENTIFIER: TypeAdapter[str] = TypeAdapter(Identifier)
 MARGIN = timedelta(seconds=5)  # query window around the scenario clock
 QUERY_TIMEOUT_S = 120
-
-
-def influx_csv(flux: str) -> str:
-    """Run a Flux query against InfluxDB (INFLUXDB_URL/ORG/TOKEN from .env); CSV text."""
-    if not is_http_url(os.environ["INFLUXDB_URL"]):
-        raise SystemExit("export_dataset: INFLUXDB_URL must be an http(s) URL")
-    url = os.environ["INFLUXDB_URL"].rstrip("/") + "/api/v2/query?"
-    url += urllib.parse.urlencode({"org": os.environ["INFLUXDB_ORG"]})
-    request = urllib.request.Request(  # noqa: S310 - URL from INFLUXDB_URL
-        url,
-        data=flux.encode(),
-        method="POST",
-        headers={
-            "Authorization": f"Token {os.environ['INFLUXDB_TOKEN']}",
-            "Accept": "application/csv",
-            "Content-Type": "application/vnd.flux",
-        },
-    )
-    with urllib.request.urlopen(request, timeout=QUERY_TIMEOUT_S) as response:  # noqa: S310  # nosec B310 - scheme checked above
-        return str(response.read().decode())
-
-
-def run_query(measurement: str, run_id: str, start: datetime, stop: datetime) -> str:
-    """Flux for one run's rows of one measurement, one row per series and timestamp."""
-    bucket = os.getenv("INFLUXDB_BUCKET", "telemetry")
-    for value in (measurement, run_id, bucket):  # interpolated into Flux: identifiers only
-        try:
-            _IDENTIFIER.validate_python(value)
-        except ValidationError as exc:
-            raise ValueError(f"not a safe identifier for a Flux query: {value!r}") from exc
-    return (
-        f'from(bucket: "{bucket}")\n'
-        f"  |> range(start: {start.isoformat()}, stop: {stop.isoformat()})\n"
-        f'  |> filter(fn: (r) => r._measurement == "{measurement}" and r.run_id == "{run_id}")\n'
-        '  |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")\n'
-        "  |> group()\n"
-    )
 
 
 def scenario_start(run_dir: Path) -> datetime:
@@ -106,6 +63,7 @@ def export(version: str) -> dict[str, Any]:
     Each run is written as soon as it is queried (one ParquetWriter per measurement), so memory
     holds one run of one measurement at a time, not the whole dataset.
     """
+    conn = InfluxConnection.from_env()
     raw = ROOT / "data" / "raw" / version
     batch = json.loads((raw / "batch.json").read_text())
     runs = [r for r in batch["runs"] if run_ok(r)]
@@ -121,7 +79,7 @@ def export(version: str) -> dict[str, Any]:
     try:
         for r in runs:
             info = RunInfo(r["run_id"], r["scenario"], r["seed"], r["split"])
-            for model, rows in _run_rows(raw, info):
+            for model, rows in _run_rows(conn, raw, info):
                 writers[MEASUREMENTS[model]].write_table(to_table(rows, model))
                 counts[MEASUREMENTS[model]][info.split] += len(rows)
     finally:
@@ -134,7 +92,7 @@ def export(version: str) -> dict[str, Any]:
 
 
 def _run_rows(
-    raw: Path, info: RunInfo
+    conn: InfluxConnection, raw: Path, info: RunInfo
 ) -> Iterator[tuple[type[TelemetryRecord], list[dict[str, Any]]]]:
     """One run's labelled rows, measurement by measurement."""
     scenario = load_scenario(info.scenario_id)
@@ -142,8 +100,9 @@ def _run_rows(
     start, stop = t0 - MARGIN, t0 + timedelta(seconds=scenario.duration_s) + MARGIN
     onset = disruption(scenario)
     for model in EXPORTED:
-        query = run_query(MEASUREMENTS[model], info.run_id, start, stop)
-        yield model, label_rows(parse_flux_csv(influx_csv(query), model), info, t0, onset)
+        flux = rows_query(conn.bucket, MEASUREMENTS[model], start, stop, run_id=info.run_id)
+        csv_text = query_csv(conn, flux, timeout_s=QUERY_TIMEOUT_S)
+        yield model, label_rows(parse_flux_csv(csv_text, model), info, t0, onset)
 
 
 def _manifest(

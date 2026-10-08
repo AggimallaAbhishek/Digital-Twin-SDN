@@ -8,7 +8,8 @@ Bounds split for actions (PROJECT_PLAN §7.3):
 - Static bounds (channel set, tx-power range, min rate, loop-free path, ...) are enforced HERE.
 - State-dependent bounds (<= 30% of an AP's clients per steer, target RSSI >= -75 dBm, tx-power
   step <= 3 dB, never down the last AP covering a zone) need live state and are enforced by the
-  verifier (twin/verify, P3.4).
+  verifier (twin/verify, P3.4). The steering ones are the constants MAX_STEER_FRACTION and
+  MIN_TARGET_RSSI_DBM below (ADR-004).
 """
 
 from __future__ import annotations
@@ -45,6 +46,9 @@ Ratio = Annotated[float, Field(ge=0, le=1)]
 CHANNELS_24GHZ: tuple[int, ...] = (1, 6, 11)
 TX_POWER_DBM_MIN, TX_POWER_DBM_MAX = 5.0, 20.0
 RATE_LIMIT_MIN_MBPS = 1.0
+# steer_clients bounds that need live state (enforced by the verifier, P3.4; ADR-004)
+MAX_STEER_FRACTION = 0.3  # at most this share of the source AP's clients per action
+MIN_TARGET_RSSI_DBM = -75.0  # predicted signal at the target AP
 QOS_QUEUE_IDS: tuple[int, ...] = (0, 1, 2)  # 0 = best effort, 1 = priority, 2 = background
 
 

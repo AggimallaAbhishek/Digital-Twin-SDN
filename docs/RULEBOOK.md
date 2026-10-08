@@ -122,7 +122,7 @@ Enforced by `import-linter` contracts (see [§19](#19-appendix-configuration-fil
 |---|---|
 | **C-1** Type hints everywhere | All public functions are fully typed. `Any` needs a comment explaining why. |
 | **C-2** Validate at the boundary | Data from the network, MQTT, HTTP, files or the LLM is parsed into a Pydantic model on arrival. Inside the code, use the typed objects. |
-| **C-3** No magic numbers | Thresholds, bounds, periods and weights live in `config/*.yaml` and are loaded through `common/config.py`. |
+| **C-3** No magic numbers | Thresholds, bounds, periods and weights live in `config/*.yaml`. Each module loads and validates its own file into a typed config object, rejecting unknown or out-of-range values with an error that names the field. Safety bounds are constants in `common/schemas.py` (ADR-004). *(Changed 2026-10-08, deviation #10: `common/config.py` was never created.)* |
 | **C-4** Logging, not print | Use `structlog` / `logging` with structured fields (`run_id`, `scenario_id`, `action_id`). `print` isn't allowed outside scripts and notebooks. |
 | **C-5** Errors | No bare `except:`. No `except Exception: pass`. Catch specific exceptions, and add context when re-raising. Fail loudly in development. |
 | **C-6** Timeouts and retries | Every network call has a timeout. Retries are bounded, with backoff (`tenacity`). |

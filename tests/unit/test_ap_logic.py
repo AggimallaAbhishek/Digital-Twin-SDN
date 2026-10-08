@@ -13,8 +13,8 @@ from testbed.ap_logic import (
     IwInfo,
     Link,
     StationEntry,
-    airtime_util,
     byte_counters,
+    capacity_util,
     chan_switch_cmd,
     parse_associate_request,
     parse_channel_request,
@@ -163,46 +163,59 @@ def _client(
 A, B = "02:00:00:00:00:00", "02:00:00:00:01:00"
 
 
-def test_airtime_sums_each_direction_at_its_own_bitrate() -> None:
+# channel_util = (bits the AP sent + received) / its current capacity (deviation #8): the emulated
+# AP carries ~4.6 Mbit/s whatever bitrate iw reports, and co-channel caps lower that.
+def test_utilisation_is_traffic_over_capacity() -> None:
     before = [_client(A, rx=0, tx=0, tx_rate=54.0, rx_rate=12.0)]
-    # 10 Mbit down at 54 Mbit/s + 1 Mbit up at 12 Mbit/s, over 1 s
-    after = [_client(A, rx=125_000, tx=1_250_000, tx_rate=54.0, rx_rate=12.0)]
+    # 2 Mbit down + 0.3 Mbit up in 1 s on a 4.6 Mbit/s AP
+    after = [_client(A, rx=37_500, tx=250_000, tx_rate=54.0, rx_rate=12.0)]
+    assert capacity_util(
+        byte_counters(before), after, dt_s=1.0, capacity_mbps=4.6
+    ) == pytest.approx(0.5)
 
-    util = airtime_util(byte_counters(before), after, dt_s=1.0)
 
-    assert util == pytest.approx(10 / 54 + 1 / 12)
+def test_a_lower_cap_means_higher_utilisation_for_the_same_traffic() -> None:
+    before = [_client(A, 0, 0, 54.0, 54.0)]
+    after = [_client(A, 0, 250_000, 54.0, 54.0)]  # 2 Mbit in 1 s
+    nominal = capacity_util(byte_counters(before), after, dt_s=1.0, capacity_mbps=4.0)
+    capped = capacity_util(byte_counters(before), after, dt_s=1.0, capacity_mbps=2.5)
+    assert nominal == pytest.approx(0.5)
+    assert capped == pytest.approx(0.8)
 
 
-def test_slow_client_saturates_the_channel() -> None:
+def test_reported_bitrate_does_not_matter() -> None:
+    before = [_client(A, 0, 0, None, None)]
+    after = [_client(A, 0, 125_000, None, None)]  # 1 Mbit in 1 s, no bitrate reported
+    assert capacity_util(byte_counters(before), after, dt_s=1.0, capacity_mbps=4.0) == 0.25
+
+
+def test_utilisation_is_capped_at_one() -> None:
     before = [_client(A, 0, 0, 1.0, 1.0)]
-    after = [_client(A, 0, 1_250_000, 1.0, 1.0)]  # 10 Mbit at 1 Mbit/s in 2 s -> 5 s of airtime
+    after = [_client(A, 0, 1_250_000, 1.0, 1.0)]  # 10 Mbit in 1 s on a 4.6 Mbit/s AP
+    assert capacity_util(byte_counters(before), after, dt_s=1.0, capacity_mbps=4.6) == 1.0
 
-    assert airtime_util(byte_counters(before), after, dt_s=2.0) == 1.0
 
-
-def test_airtime_adds_clients_and_skips_new_or_reset_ones() -> None:
+def test_utilisation_adds_clients_and_skips_new_or_reset_ones() -> None:
     before = [_client(A, 0, 0, 10.0, 10.0), _client(B, 0, 500_000, 10.0, 10.0)]
     after = [
-        _client(A, 0, 125_000, 10.0, 10.0),  # 1 Mbit at 10 Mbit/s -> 0.1 s
+        _client(A, 0, 125_000, 10.0, 10.0),  # 1 Mbit
         _client(B, 0, 100, 10.0, 10.0),  # counter went backwards (re-associated): ignored
         _client("02:00:00:00:02:00", 0, 9_999_999, 1.0, 1.0),  # new client: no baseline yet
     ]
-
-    assert airtime_util(byte_counters(before), after, dt_s=1.0) == pytest.approx(0.1)
-
-
-def test_airtime_skips_directions_without_a_bitrate() -> None:
-    before = [_client(A, 0, 0, None, 0.0)]
-    after = [_client(A, 125_000, 125_000, None, 0.0)]
-
-    assert airtime_util(byte_counters(before), after, dt_s=1.0) == 0.0
+    assert capacity_util(byte_counters(before), after, dt_s=1.0, capacity_mbps=4.0) == 0.25
 
 
 @pytest.mark.parametrize("dt_s", [0.0, -1.0])
-def test_airtime_without_elapsed_time_is_zero(dt_s: float) -> None:
+def test_utilisation_without_elapsed_time_is_zero(dt_s: float) -> None:
     entries = [_client(A, 0, 1_000, 1.0, 1.0)]
-    assert airtime_util(byte_counters(entries), entries, dt_s=dt_s) == 0.0
+    assert capacity_util(byte_counters(entries), entries, dt_s=dt_s, capacity_mbps=4.6) == 0.0
 
 
-def test_airtime_without_a_previous_sample_is_zero() -> None:
-    assert airtime_util(None, [_client(A, 0, 1_000, 1.0, 1.0)], dt_s=1.0) == 0.0
+def test_utilisation_without_a_previous_sample_is_zero() -> None:
+    entries = [_client(A, 0, 1_000, 1.0, 1.0)]
+    assert capacity_util(None, entries, dt_s=1.0, capacity_mbps=4.6) == 0.0
+
+
+def test_capacity_must_be_positive() -> None:
+    with pytest.raises(ValueError, match="capacity"):
+        capacity_util(None, [], dt_s=1.0, capacity_mbps=0.0)

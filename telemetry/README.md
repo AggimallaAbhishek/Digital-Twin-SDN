@@ -40,7 +40,7 @@ Grafana → *Digital Twin SDN / Raw KPIs (P2.2)*. Pick the run in the **Run** dr
 
 | Row | Panels |
 |---|---|
-| **Access points** | AP downlink throughput (dashed line: 4.6 Mbit/s capacity) · airtime utilisation (dashed line: 80% congestion limit) · clients per AP · channel per AP |
+| **Access points** | AP downlink throughput (dashed line: 4.6 Mbit/s capacity) · AP utilisation as % of current capacity (dashed line: 80% congestion limit) · clients per AP · channel per AP |
 | **Traffic KPIs by class** | mean flow throughput · p95 latency · packet loss |
 | **Wired links** | utilisation of the s1 → s2 core link (% of 100 Mbit/s) · utilisation of srv1's link (% of 1 Gbit/s) |
 | **Flows** | table of every flow's latest KPIs: class, throughput, latency (RTT), jitter, loss |

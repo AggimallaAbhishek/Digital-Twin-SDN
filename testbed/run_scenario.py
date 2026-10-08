@@ -91,6 +91,10 @@ class Radios:
         self.down: set[str] = set()
         self._caps: dict[str, float | None] = {ap.name: None for ap in layout.aps}
 
+    def capacity_of(self, ap: str) -> float:
+        """An AP's current downlink capacity: its co-channel cap, else the nominal capacity."""
+        return self._caps.get(ap) or self._model.ap_capacity_mbps
+
     def apply_caps(self, log: EventLog) -> None:
         """Re-read every AP's channel and update the tc caps that changed."""
         radios = []
@@ -302,6 +306,7 @@ def main(argv: list[str] | None = None) -> int:
         log("started", associated=sum(assoc.values()), stations=len(assoc))
         probe.start()
         run = ScenarioRun(spec, layout, model, campus, agent, probe, walks, log)
+        agent.capacity_of = run.radios.capacity_of  # channel_util against the live cap
         run.play(t0)
         log("finished")
     finally:

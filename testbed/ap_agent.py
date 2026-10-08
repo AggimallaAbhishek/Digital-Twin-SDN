@@ -28,11 +28,14 @@ import time
 from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any, Callable, Dict
 
+import yaml
 from mininet.log import info
 
 from testbed import ap_logic
+from testbed.interference import load_radio_model
 from testbed.wifi_utils import steer
 
 DEFAULT_HOST = "0.0.0.0"  # noqa: S104 - reachable from the Mac over the VM's host-only network
@@ -40,6 +43,7 @@ DEFAULT_PORT = 8081  # Ryu REST is on 8080
 APPLY_TIMEOUT_S = 3.0  # CSA takes CSA_BEACONS x 100 ms beacon interval; tx power is immediate
 APPLY_POLL_S = 0.2
 MAX_BODY_BYTES = 4096
+CAMPUS_CONFIG = Path(__file__).resolve().parents[1] / "config" / "campus_v1.yaml"
 
 Record = Dict[str, Any]  # runtime alias: typing.Dict for Python 3.8
 
@@ -63,7 +67,7 @@ class ApAgent:
     node.cmd() while the agent is serving (the scenario runner, P1.6) must hold `lock` too.
     """
 
-    def __init__(self, aps: dict[str, Any], stations: dict[str, Any]) -> None:
+    def __init__(self, aps: dict[str, Any], stations: dict[str, Any], capacity_mbps: float) -> None:
         self.lock = threading.RLock()
         self._aps = aps
         self._stations = stations
@@ -71,6 +75,9 @@ class ApAgent:
         self._baseline: dict[str, tuple[float, ap_logic.Counters]] = {}
         # Latest KPI records; set to TrafficProbe.latest when traffic runs (testbed/traffic, P1.5)
         self.kpi_source: Callable[[], list[Record]] = list
+        # Current downlink capacity per AP (deviation #8): nominal radio_model capacity unless the
+        # scenario runner's interference controller caps it (run_scenario.Radios.capacity_of)
+        self.capacity_of: Callable[[str], float] = lambda _ap: capacity_mbps
 
     # ------------------------------------------------------------------ reads
     def list_aps(self) -> Record:
@@ -105,7 +112,9 @@ class ApAgent:
             "ap": name,
             "channel": iw.channel,
             "n_clients": len(clients),
-            "channel_util": ap_logic.airtime_util(prev, clients, now - prev_t),
+            "channel_util": ap_logic.capacity_util(
+                prev, clients, now - prev_t, self.capacity_of(name)
+            ),
             "tx_power_dbm": iw.tx_power_dbm,
             "retries": sum(c.tx_retries for c in clients),
             "noise_dbm": ap_logic.NOISE_FLOOR_DBM,
@@ -285,7 +294,8 @@ def start_in_background(
     return server
 
 
-def from_campus(campus: Any) -> ApAgent:
+def from_campus(campus: Any, campus_config: Path = CAMPUS_CONFIG) -> ApAgent:
     """An agent for a started campus (testbed/topologies/campus_v1.py)."""
     stations = {sta.name: sta for sta, _ in campus.stations}
-    return ApAgent(dict(campus.aps), stations)
+    model = load_radio_model(yaml.safe_load(campus_config.read_text()))
+    return ApAgent(dict(campus.aps), stations, model.ap_capacity_mbps)

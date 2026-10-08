@@ -43,7 +43,7 @@ Targets are what we **aim for and test**. Results are reported honestly whether 
 
 | KPI | Definition | Target | Source |
 |---|---|---|---|
-| **Time to recover** | Seconds from congestion onset until the affected AP's channel utilization is back under 80% *and* video flows meet their latency objective | V3 ≥ **30% faster** than V1 (H1) | AP stats + KPI probe |
+| **Time to recover** | Seconds from congestion onset until the affected AP's channel utilization is back under 80% *and* video flows meet their latency objective. Utilization = the AP's traffic ÷ its current capacity, nominal or co-channel-capped (deviation #8) | V3 ≥ **30% faster** than V1 (H1) | AP stats + KPI probe |
 | Throughput | Mean throughput of affected flows during the stress window (Mbps) | V3 ≥ V1 | KPI probe |
 | Latency | p95 latency of video flows during the stress window (ms) | V3 < V1 | KPI probe |
 | Packet loss | Mean loss of affected flows (%) | V3 ≤ V1 | KPI probe |

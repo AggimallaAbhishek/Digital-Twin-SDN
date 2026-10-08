@@ -132,27 +132,31 @@ def parse_link(text: str) -> Link:
 
 
 def byte_counters(entries: list[StationEntry]) -> Counters:
-    """Per-client byte counters, kept by the agent as the baseline for the next airtime estimate."""
+    """Per-client byte counters, kept by the agent as the baseline for the next utilisation."""
     return {e.mac: (e.rx_bytes, e.tx_bytes) for e in entries}
 
 
-def airtime_util(prev: Counters | None, entries: list[StationEntry], dt_s: float) -> float:
-    """Fraction of the last `dt_s` seconds the AP's channel was busy with its clients' traffic.
+def capacity_util(
+    prev: Counters | None, entries: list[StationEntry], dt_s: float, capacity_mbps: float
+) -> float:
+    """Share of the AP's capacity its clients used over the last `dt_s` seconds (0-1).
 
-    Decision P1.3-1: hwsim gives no channel survey for APs, so busy time is estimated as each
-    client's bits in each direction divided by that direction's bitrate. Slow clients therefore
-    use more airtime. Clients without a baseline or whose counters went backwards are skipped.
+    Deviation #8 (replaces the P1.3 bits-per-bitrate estimate): the emulated AP carries about
+    `radio_model.ap_capacity_mbps` whatever bitrate `iw` reports, and a co-channel cap lowers
+    that (testbed/interference.py), so utilisation = (bits sent + received) / dt / capacity.
+    Clients without a baseline or whose counters went backwards (re-associated) are skipped.
     """
+    if capacity_mbps <= 0:
+        raise ValueError(f"capacity must be > 0 Mbit/s, got {capacity_mbps}")
     if prev is None or dt_s <= 0:
         return 0.0
-    busy_s = 0.0
+    moved_bytes = 0
     for e in entries:
         if e.mac not in prev:
             continue
         rx0, tx0 = prev[e.mac]
-        busy_s += _airtime_s(e.rx_bytes - rx0, e.rx_bitrate_mbps)
-        busy_s += _airtime_s(e.tx_bytes - tx0, e.tx_bitrate_mbps)
-    return min(1.0, busy_s / dt_s)
+        moved_bytes += max(0, e.rx_bytes - rx0) + max(0, e.tx_bytes - tx0)
+    return min(1.0, 8.0 * moved_bytes / dt_s / (capacity_mbps * 1e6))
 
 
 def snr_db(rssi_dbm: float | None) -> float | None:
@@ -169,12 +173,6 @@ def _station_entry(block: str) -> StationEntry:
         rx_bitrate_mbps=_float(_first(_RX_BITRATE, block)),
         **counters,
     )
-
-
-def _airtime_s(delta_bytes: int, bitrate_mbps: float | None) -> float:
-    if delta_bytes <= 0 or not bitrate_mbps:
-        return 0.0
-    return 8.0 * delta_bytes / (bitrate_mbps * 1e6)
 
 
 def _first(pattern: re.Pattern[str], text: str) -> str | None:

@@ -197,8 +197,8 @@
   {
    "id": 2,
    "type": "timeseries",
-   "title": "Airtime utilisation (%)",
-   "description": "Estimated share of airtime each AP is busy (AP agent channel_util). Dashed line: 80%, the congestion limit in the time-to-recover KPI (docs/problem_statement.md).",
+   "title": "AP utilisation (% of capacity)",
+   "description": "Share of each AP's current capacity its clients use (AP agent channel_util: traffic / 4.6 Mbit/s, or / the co-channel cap while one applies; deviation #8). Dashed line: 80%, the congestion limit in the time-to-recover KPI (docs/problem_statement.md).",
    "datasource": {
     "type": "influxdb",
     "uid": "influxdb"

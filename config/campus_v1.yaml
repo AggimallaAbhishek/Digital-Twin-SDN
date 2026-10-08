@@ -6,6 +6,7 @@ area_m: [80, 70]
 propagation:
   model: logDistance
   exp: 4          # ~75 m AP range; RSSI >= -75 dBm within ~30 m (steering bound, PROJECT_PLAN §7.3)
+  rssi_at_1m_dbm: -16  # fit to P1.6 measurements (3 m -37, 10 m -56, 15 m -63, 20 m -67 dBm); twin/radio.py predicts RSSI with it
 wmediumd_mode: interference
 
 zones:            # axis-aligned rectangles: x: [min, max], y: [min, max]

@@ -1,0 +1,6 @@
+# P4.3 heuristic optimizer (ml/optimizer/heuristics.py). Proposals only: every action still goes
+# through the twin verifier (P3.4), which enforces the action bounds itself (PROJECT_PLAN §7.3).
+util_high: 0.8            # an AP at or above this share of its capacity is congested (time-to-recover KPI)
+util_target: 0.6          # steer only to APs below this
+max_steer_fraction: 0.3   # PROJECT_PLAN §7.3 bound: at most 30% of an AP's clients per steer
+min_target_rssi_dbm: -75  # PROJECT_PLAN §7.3 bound: predicted signal at the new AP

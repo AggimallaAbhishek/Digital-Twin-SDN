@@ -109,7 +109,8 @@ def _http(base_url: str) -> Transport:
         request = urllib.request.Request(  # noqa: S310 - http(s) only, checked in __init__
             base_url + path, data=data, method=method, headers={"Content-Type": "application/json"}
         )
-        with urllib.request.urlopen(request, timeout=timeout_s) as response:  # noqa: S310 - as above
+        # http(s) only: the scheme is checked in AgentActuator.__init__ (ruff S310, bandit B310)
+        with urllib.request.urlopen(request, timeout=timeout_s) as response:  # noqa: S310  # nosec B310
             return json.loads(response.read() or b"null")
 
     return call

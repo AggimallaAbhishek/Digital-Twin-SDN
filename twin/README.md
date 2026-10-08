@@ -29,3 +29,16 @@ predicted = simulate(apply(state, action), radio, params)
 - **Off by default** (`enabled: false`, RULEBOOK B-5) until the twin's exit gate (M2); the verifier, API and loop must check it.
 - Not modelled: wired links (100 Mbit/s, negligible; deviation #12), the ~4 s reconnection of a steered station. QoS queues are modelled but not yet provisioned in the testbed (deviation #11, task P4.4a).
 - Parameters in `config/sim.yaml` are first estimates from data/v1; P3.5 calibrates them. `tests/contract/test_sim_traffic_parity.py` keeps the video rate and probe timeout equal to the testbed's.
+
+## Verifier (P3.4)
+
+```python
+context = VerifyContext(campus, radio, sim_params, load_verify_config(raw))   # config/verify.yaml
+verdicts = verify(state, actions, context.with_policies(standing))   # one Verdict per action
+```
+
+- A set is checked and simulated **together** (an intent's actions are all or nothing, P3.4-B).
+- **Bounds** (PROJECT_PLAN §7.3, ADR-004), on the state the earlier actions leave: steer ≤ 30% of the source AP's clients, only stations on it, target signal ≥ −75 dBm; tx power step ≤ 3 dB; never the last AP up in a zone; no reroute (deviation #9); unknown targets refused.
+- **KPIs** of the affected flows (P3.4-A): mean throughput, p95 video latency, mean loss; Jain network-wide. **Reject** if a KPI gets > 5% worse while none gets > 5% better (§7.5).
+- **Policies:** a hard constraint may not break (or get worse if already broken); a met objective may not become missed. Jitter isn't predicted, so jitter targets aren't checked.
+- **Impact:** high always needs approval; medium needs it while `config/verify.yaml` says so (until P3.5, P3.4-C). 100% branch coverage.

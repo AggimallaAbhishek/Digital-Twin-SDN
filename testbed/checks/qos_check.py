@@ -5,9 +5,9 @@ PHASE_PLAN P4.4a Done when: "A priority flow keeps its rate while best effort sa
 a rate limit holds within 10%". With the AP agent serving and the QoS hooks attached as in the
 scenario runner:
 
-1. ap1 saturated: one 1 Mbit/s video (the probe flow) + four 1.5 Mbit/s videos, ~7 Mbit/s on a
-   4.6 Mbit/s AP. The probe flow, best effort, gets well under 1 Mbit/s.
-2. POST /flows/<probe>/queue {"queue_id": 1}: the probe flow keeps its 1 Mbit/s (within 10%).
+1. ap1 saturated: one 2 Mbit/s video (the probe flow) + two 2.5 Mbit/s videos, 7 Mbit/s on a
+   4.6 Mbit/s AP. The radio shares max-min fairly, so best effort gives the probe ~1.53 Mbit/s.
+2. POST /flows/<probe>/queue {"queue_id": 1}: the probe flow keeps its 2 Mbit/s (within 10%).
 3. On another AP, a 3 Mbit/s video with POST /flows/<f>/limit {"max_mbps": 1.5} holds 1.5
    Mbit/s within 10%.
 4. Resetting the QoS restores the plain tree (no priority classes).
@@ -35,11 +35,11 @@ from testbed.traffic.runner import TrafficProbe
 SETTLE_S = 6  # a QoS change, then iperf3 / TCP-free UDP rates settle
 MEASURE_S = 20
 TOLERANCE = 0.10
-PROBE_MBPS = 1.0
-LOAD_MBPS = 1.5  # per competing video
+PROBE_MBPS = 2.0  # above the max-min fair share (4.6 / 3 = 1.53), so best effort cuts it
+LOAD_MBPS = 2.5  # per competing video: 2 + 2 x 2.5 = 7 Mbit/s on a 4.6 Mbit/s AP
 LIMITED_MBPS = 3.0
 LIMIT_MBPS = 1.5
-LOADED = 4  # competing videos on ap1
+LOADED = 2  # competing videos on ap1 (campus_v1 has 3 stations there)
 LOG_DIR = Path.home() / "p44a"
 
 

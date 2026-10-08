@@ -10,6 +10,7 @@ Runs **on the testbed VM** (Ubuntu 20.04, **Python 3.8**; see ADR-003). Covers M
 | `mobility/` | P1.4 scheduled-crowd mobility | ✅ `make mobility-vm` |
 | `traffic/` | P1.5 traffic profiles + KPI probe (`GET /kpi` on the agent) | ✅ `make traffic-vm` |
 | `run_scenario.py`, `scenario_plan.py`, `interference.py` | P1.6 scenario runner (+ co-channel interference emulation) | ✅ `make scenario-repro-vm` |
+| `qos.py` | P4.4a QoS on the AP downlink: priority queues + per-flow rate limits (tc) | ✅ `make qos-vm` |
 
 **Rules for this folder**
 - Keep code Python 3.8-compatible. `ruff.toml` here sets `target-version = py38`.
@@ -32,11 +33,16 @@ OpenFlow can't change the radio, so this HTTP server runs inside the topology pr
 | POST | `/aps/{ap}/channel` | `{"channel": 1\|6\|11}` → `{ts, ap, channel}`. hostapd channel switch; clients follow without reconnecting |
 | POST | `/aps/{ap}/txpower` | `{"dbm": 5–20}` → `{ts, ap, tx_power_dbm}`. Rounded to whole dBm (Mininet applies integers) |
 | POST | `/stations/{sta}/associate` | `{"ap": "ap2"}` → `{ts, sta, ap}`. Disconnect + connect to that BSSID (~4 s) |
+| POST | `/aps/{ap}/admin` | `{"state": "down"\|"up"}` → `{ap, state, hostapd}`. hostapd disable/enable; a disabled AP's stations rejoin the nearest AP up after 5 s. Needs the scenario runner (500 without it) |
+| GET | `/qos` | → `{ts, flows: {flow_id: {queue_id, max_mbps}}}`: every flow that isn't plain best effort |
+| POST | `/flows/{flow}/queue` | `{"queue_id": 0\|1\|2}` → `{ts, flow_id, queue_id, max_mbps}`. Strict-priority queue on the AP downlink (P4.4a) |
+| POST | `/flows/{flow}/limit` | `{"max_mbps": ≥ 1 \| null}` → same. Per-flow rate limit; `null` removes it |
 
 - **Errors:** 422 invalid body or out-of-bounds value (nothing applied), 404 unknown AP/station/path, 500 the radio didn't apply the change. A 200 means `iw` confirmed the change.
 - **Measurements (decisions P1.3, deviation #8):** `channel_util` is the share of the AP's *current capacity* its clients used: (bytes sent + received) × 8 ÷ elapsed time ÷ capacity, over the time since the previous `/stats` call for that AP (the first call returns 0). Capacity is `radio_model.ap_capacity_mbps` (4.6 Mbit/s), or the AP's co-channel cap while the scenario runner applies one. The P1.3 estimate (bits ÷ the bitrate `iw` reports) was dropped because those bitrates have no effect on throughput in this emulator. `noise_dbm` is hwsim's fixed −92 dBm floor, so `snr_db = rssi_dbm + 92`. `rx_bitrate_mbps` is the AP's downlink bitrate to that station.
 - **Bounds** (channels, tx power) are copied from `common/schemas.py` into `ap_logic.py`; `tests/unit/test_ap_logic.py` fails if they drift.
 - **Concurrency:** Mininet node shells aren't thread-safe. Anything else in the process that calls `node.cmd()` while the agent serves must hold `agent.lock`.
+- **QoS (P4.4a, deviation #11, decision P4.4a-A):** the agent owns each AP's tc tree (`qos.py`): the interference cap, three strict-priority classes (queue 1 → 0 → 2) and a class per rate-limited flow, matched by station IP + srv1 port. It re-renders the tree when a cap or a flow's QoS changes or new flows start; every AP gets the same filters, so a steered station keeps its treatment. A station's ping replies share its highest-priority flow's queue. Live check (`make qos-vm`, 2026-10-08): best effort gave a 2 Mbit/s video 1.62 Mbit/s on a saturated AP, queue 1 gave it **1.99**; a 3 Mbit/s video limited to 1.5 held **1.46** (10/10 checks).
 - **Safety:** the agent applies what it is told. Only the action executor (P4.4) calls the POST endpoints, and only for actions with an accepted twin `Verdict`.
 - **Steering:** use `wifi_utils.steer()`, which checks the target BSSID. `ensure_associated()` accepts a link to *any* AP and is only for start-up. Pass the agent's lock (`steer(..., lock=agent.lock)`): it is held per command, not for the ~4 s wait.
 

@@ -4,7 +4,7 @@
 |---|---|---|---|
 | `apps/twin_controller.py` | VM, **Python 3.8**, `~/ryu-venv` (ADR-002) | Ryu app: L2 learning, stats polling (1 s), northbound REST | P1.2 ✅ |
 | `apps/ryu_logic.py` | VM + Mac (pure Python 3.8) | REST body validation, flow cookies, rate maths (100% branch coverage) | P1.2 ✅ |
-| `executor/` | Mac, Python 3.11 | Applies **verified** actions only, watches KPIs, rolls back, rate-limits, writes the audit log | P4.4 |
+| `executor/` | Mac, Python 3.11 | Applies **verified** actions only, watches KPIs, rolls back, rate-limits, writes the audit log | P4.4 ✅ |
 
 ## REST API (`http://<vm>:8080`)
 
@@ -25,3 +25,20 @@ Run: `make controller-vm` (19 end-to-end checks on the campus). Records omit `sc
 
 - `executor/` must keep 100% branch coverage on its safety paths (RULEBOOK T-2, T-5).
 - Must not import `ml`, `genai`, `api`, `testbed` or `telemetry` (import-linter contract).
+
+## Executor (P4.4)
+
+```python
+executor = Executor(Ledger(path), AgentActuator(agent_url), InfluxKpis(conn, run_id), load_executor_config(raw))
+executor.record(actions, verdicts)      # the verifier's joint verdicts
+executor.approve(action_id, by="...")   # operator, when the verdict needs it
+executor.apply(executor.group_of(action_id), state)   # the whole set, or nothing
+executor.check()                         # every loop: keep or roll back what was watched
+```
+
+- **Refuses:** no verdict, a rejected verdict, an action already applied, part of a verified set, missing approval.
+- **Rate limits (always on, N-6):** 1 high-impact action per AP per 120 s, 3 actions per 5 s loop. The config loader refuses values that would switch them off.
+- **Watch and rollback:** after 30 s the live KPIs of the watch window are compared with the 30 s before. A KPI worse by > 10% **and** past its noise floor rolls the whole set back, last action first (P4.4-B). No live KPIs → roll back. A revert that fails marks the action `rollback_failed` for an operator.
+- **Ledger:** SQLite (`logs/actions.db`, gitignored), one row per action plus an append-only event log of every status change (P4.4-A).
+- **Actuator:** AP agent REST: steer, channel, tx power, AP admin state, QoS queue, rate limit (QoS matches resolved with the twin's `qos_flow_ids`). Reroute is refused (deviation #9).
+- 100% branch coverage on every module. Live check: `uv run python -m experiments.check_rollback --run-id <run>` during a scenario.

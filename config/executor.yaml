@@ -1,0 +1,12 @@
+# P4.4 action executor (controller/executor/). Rate limits and rollback are always on (RULEBOOK N-6):
+# the loader refuses values that would switch them off in practice.
+watch_s: 30                 # PROJECT_PLAN §8: watch live KPIs this long after applying
+regression_pct: 10          # PROJECT_PLAN §8: roll back if a watched KPI gets this much worse
+noise_floor:                # ... and worse by at least this much in absolute terms (decision P4.4-B)
+  throughput_mbps: 0.05
+  latency_ms: 1.0
+  loss_pct: 0.5
+  jain: 0.02
+high_impact_per_ap_s: 120   # PROJECT_PLAN §8: at most 1 high-impact action per AP per 2 minutes
+max_actions_per_loop: 3     # PROJECT_PLAN §8: at most N actions per loop ...
+loop_s: 5                   # ... of this length (the P4.5 control loop period)

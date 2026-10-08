@@ -1,0 +1,5 @@
+# P3.6 API (api/main.py). Secrets (InfluxDB token, OPERATOR_TOKEN) come from .env, never from here.
+run_id: live                # the run the twin mirrors: the collector's --run-id
+ledger: logs/actions.db     # the executor's audit ledger (gitignored)
+host: 127.0.0.1             # RULEBOOK §14: localhost only
+port: 8000

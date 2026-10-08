@@ -1,6 +1,6 @@
 """P5.3 intent engine: operator text -> Policy -> actions -> twin verdicts (PROJECT_PLAN §5.1).
 
-    engine = IntentEngine(LLMClient.from_config(), ToolLayer(backend))
+    engine = IntentEngine(LLMClient.from_config(), simulator)
     result = engine.handle("Give video calls in the lab priority.", flows, now)
 
 1. `parse_intent`: the LLM client turns the text into a `Policy` (prompt genai/prompts/
@@ -8,8 +8,10 @@
    policy -> stop here, so invalid LLM output never reaches the compiler. The intent eval
    (genai/eval/run_intents.py) measures this same function.
 2. The deterministic compiler (compiler.py) turns the policy into actions, or refuses it.
-3. Each action goes to the twin through the `simulate_in_twin` tool (P5.2). Nothing is applied:
-   the executor (P4.4) applies accepted actions, after operator approval where needed (L-1).
+3. The actions go to the twin **together** (decision P3.4-B: an intent is all or nothing) through
+   a `Simulator`: the API passes the twin's joint verifier; `ToolSimulator` asks the P5.2
+   `simulate_in_twin` tool one action at a time (offline / mock use). Nothing is applied: the
+   executor (P4.4) applies accepted actions, after operator approval where needed (L-1).
 
 Off by default (config/intent.yaml, RULEBOOK B-5); `POST /intents` arrives with the API (P3.6,
 decision P5.3-B), which checks the flag.
@@ -56,10 +58,31 @@ class PolicyClient(Protocol):
     ) -> LLMResult[Policy]: ...
 
 
+class Simulator(Protocol):
+    """Verdicts (as JSON) for a set of actions, one per action, in order."""
+
+    def simulate(self, actions: Sequence[Action]) -> list[dict[str, Any]]: ...  # Any: JSON
+
+
 class Tools(Protocol):
-    """What the engine needs from genai/tools/tools.py ToolLayer."""
+    """What ToolSimulator needs from genai/tools/tools.py ToolLayer."""
 
     def call(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]: ...  # Any: JSON
+
+
+class ToolSimulator:
+    """A Simulator over the P5.2 tool layer: one `simulate_in_twin` call per action (not joint)."""
+
+    def __init__(self, tools: Tools) -> None:
+        self._tools = tools
+
+    def simulate(self, actions: Sequence[Action]) -> list[dict[str, Any]]:  # Any: JSON
+        return [
+            self._tools.call(
+                "simulate_in_twin", {"action": a.model_dump(mode="json", by_alias=True)}
+            )
+            for a in actions
+        ]
 
 
 def parse_intent(client: PolicyClient, text: str, system: str) -> LLMResult[Policy]:
@@ -91,8 +114,8 @@ class IntentResult:
 class IntentEngine:
     """Turns operator intents into twin-verified actions. It never applies anything."""
 
-    def __init__(self, client: PolicyClient, tools: Tools, prompt: Path = PROMPT) -> None:
-        self._client, self._tools = client, tools
+    def __init__(self, client: PolicyClient, simulator: Simulator, prompt: Path = PROMPT) -> None:
+        self._client, self._simulator = client, simulator
         self._system = prompt.read_text()
 
     def handle(self, text: str, flows: Sequence[FlowRef], now: datetime) -> IntentResult:
@@ -108,12 +131,9 @@ class IntentEngine:
             compiled = compile_policy(policy, flows, now)
         except CompileError as exc:
             return IntentResult(policy=policy, model=reply.model, error=f"not compiled: {exc}")
-        verdicts = {
-            a.action_id: self._tools.call(
-                "simulate_in_twin", {"action": a.model_dump(mode="json", by_alias=True)}
-            )
-            for a in compiled.actions
-        }
+        actions = compiled.actions
+        results = self._simulator.simulate(actions) if actions else []
+        verdicts = {a.action_id: v for a, v in zip(actions, results, strict=True)}
         return IntentResult(
             policy=policy,
             actions=compiled.actions,

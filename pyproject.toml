@@ -5,11 +5,13 @@ description = "GenAI-driven digital twin for intelligent SDN-based wireless netw
 readme = "README.md"
 requires-python = ">=3.11,<3.12"
 dependencies = [
+    "fastapi==0.143.0",
     "numpy==2.4.6",
     "pyarrow==23.0.1",
     "pydantic>=2.8,<3",
     "pyyaml>=6.0,<7",
     "scikit-learn==1.9.1",
+    "uvicorn==0.54.0",
 ]
 
 [dependency-groups]
@@ -26,6 +28,7 @@ dev = [
     "pre-commit>=3.8",
     "bandit>=1.7",
     "pip-audit>=2.7",
+    "httpx==0.28.1",
 ]
 
 [tool.uv]

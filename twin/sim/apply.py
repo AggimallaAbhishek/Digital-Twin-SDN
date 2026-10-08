@@ -26,6 +26,7 @@ from typing import Any, TypeVar
 from common.schemas import (
     Action,
     ApAdminState,
+    QosMatch,
     RateLimitFlow,
     RerouteFlow,
     SetApChannel,
@@ -80,8 +81,9 @@ def _admin_state(state: TwinState, action: ApAdminState) -> TwinState:
     return dataclasses.replace(down, stations=stations)
 
 
-def _qos(state: TwinState, action: SetQosQueue) -> TwinState:
-    match, queue = action.params.match, action.params.queue_id
+def qos_flow_ids(state: TwinState, match: QosMatch) -> list[str]:
+    """The flows a QoS match selects (by flow id, app class and the zone of the station), sorted.
+    The executor's actuator uses this too, so the network gets what the twin simulated."""
 
     def matches(flow: FlowState) -> bool:
         station = state.stations.get(flow.sta)
@@ -92,8 +94,14 @@ def _qos(state: TwinState, action: SetQosQueue) -> TwinState:
             and (match.zone is None or zone == match.zone)
         )
 
+    return sorted(fid for fid, f in state.flows.items() if matches(f))
+
+
+def _qos(state: TwinState, action: SetQosQueue) -> TwinState:
+    selected = set(qos_flow_ids(state, action.params.match))
+    queue = action.params.queue_id
     flows = {
-        fid: dataclasses.replace(f, queue_id=queue) if matches(f) else f
+        fid: dataclasses.replace(f, queue_id=queue) if fid in selected else f
         for fid, f in state.flows.items()
     }
     return dataclasses.replace(state, flows=flows)

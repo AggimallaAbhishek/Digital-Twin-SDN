@@ -10,6 +10,10 @@ drives Mininet-WiFi directly (PROJECT_PLAN §5 design note). Runs on the testbed
     POST /aps/{ap}/channel           {"channel": 6}     hostapd channel switch, clients follow
     POST /aps/{ap}/txpower           {"dbm": 12}        rounded to whole dBm
     POST /stations/{sta}/associate   {"ap": "ap2"}      steer the station to that AP
+    POST /aps/{ap}/admin             {"state": "down"}  hostapd disable/enable; orphans rejoin
+    GET  /qos                        every flow's queue and rate limit (P4.4a)
+    POST /flows/{flow}/queue         {"queue_id": 1}    strict-priority queue on the AP downlink
+    POST /flows/{flow}/limit         {"max_mbps": 2}    rate limit (null removes it)
 
 Errors: 422 invalid body or out-of-bounds value, 404 unknown AP/station/path, 500 the radio did
 not apply the change. Records carry `ts`; the collector adds scenario_id and run_id (P2.1).
@@ -34,7 +38,7 @@ from typing import Any, Callable, Dict
 import yaml
 from mininet.log import info
 
-from testbed import ap_logic
+from testbed import ap_logic, qos
 from testbed.interference import load_radio_model
 from testbed.wifi_utils import steer
 
@@ -79,6 +83,11 @@ class ApAgent:
         # the scenario runner's interference controller sets a cap (set_capacity). Guarded by lock.
         self._nominal_mbps = capacity_mbps
         self._capacity_mbps: dict[str, float] = {}
+        # P4.4a: per-flow QoS, enforced by the tc tree on every AP's downlink (testbed/qos.py)
+        self._flow_qos: dict[str, qos.FlowQos] = {}
+        self.flow_endpoints: Callable[[], dict[str, tuple[str, int]]] = dict  # TrafficProbe
+        # P4.4: AP admin state goes through the scenario runner (hostapd + orphan rejoin)
+        self.admin_handler: Callable[[str, str], Record] | None = None
 
     # ------------------------------------------------------------------ reads
     def list_aps(self) -> Record:
@@ -150,12 +159,77 @@ class ApAgent:
         return {"ts": _now(), "kpis": self.kpi_source()}
 
     def set_capacity(self, name: str, cap_mbps: float | None) -> None:
-        """Record an AP's co-channel cap (None: back to nominal) for its channel_util."""
+        """Set an AP's co-channel cap (None: back to nominal): its tc tree and channel_util."""
         with self.lock:
             if cap_mbps is None:
                 self._capacity_mbps.pop(name, None)
             else:
                 self._capacity_mbps[name] = cap_mbps
+            self._render(name)
+
+    def qos_state(self) -> Record:
+        """Every flow's QoS that differs from best effort without a limit."""
+        with self.lock:
+            flows = {
+                f: {"queue_id": q.queue_id, "max_mbps": q.limit_mbps}
+                for f, q in self._flow_qos.items()
+            }
+        return {"ts": _now(), "flows": flows}
+
+    def set_flow_queue(self, flow_id: str, body: Any) -> Record:
+        queue = ap_logic.parse_queue_request(body)
+        return self._set_flow_qos(ap_logic.check_flow_id(flow_id), queue=queue)
+
+    def set_flow_limit(self, flow_id: str, body: Any) -> Record:
+        limit = ap_logic.parse_limit_request(body)
+        return self._set_flow_qos(ap_logic.check_flow_id(flow_id), limit=limit, set_limit=True)
+
+    def set_admin(self, name: str, body: Any) -> Record:
+        self._ap(name)
+        state = ap_logic.parse_admin_request(body)
+        if self.admin_handler is None:
+            raise RadioError("AP admin state needs the scenario runner (not attached)")
+        return self.admin_handler(name, state)
+
+    def refresh_qos(self) -> None:
+        """Re-render every AP's tc tree (new flows started, so new filters can match)."""
+        with self.lock:
+            for name in self._aps:
+                self._render(name)
+
+    def _set_flow_qos(
+        self,
+        flow_id: str,
+        queue: int | None = None,
+        limit: float | None = None,
+        set_limit: bool = False,
+    ) -> Record:
+        with self.lock:
+            old = self._flow_qos.get(flow_id, qos.FlowQos(queue_id=0))
+            new = qos.FlowQos(
+                queue_id=old.queue_id if queue is None else queue,
+                limit_mbps=limit if set_limit else old.limit_mbps,
+            )
+            if new == qos.FlowQos(queue_id=0):
+                self._flow_qos.pop(flow_id, None)
+            else:
+                self._flow_qos[flow_id] = new
+            for name in self._aps:
+                self._render(name)
+        return {
+            "ts": _now(),
+            "flow_id": flow_id,
+            "queue_id": new.queue_id,
+            "max_mbps": new.limit_mbps,
+        }
+
+    def _render(self, name: str) -> None:
+        """Rebuild one AP's egress tc tree from its cap and the flow QoS; caller holds `lock`."""
+        ap = self._aps[name]
+        rules = qos.flow_rules(self._flow_qos, self.flow_endpoints())
+        cap = self._capacity_mbps.get(name)
+        for command in qos.tc_tree(ap.wintfs[0].name, cap, self._nominal_mbps, rules):
+            ap.cmd(command)
 
     # ------------------------------------------------------------------ writes
     def set_channel(self, name: str, body: Any) -> Record:
@@ -229,6 +303,10 @@ _ROUTES: list[tuple[str, re.Pattern[str], str]] = [
     ("POST", re.compile(r"^/aps/([^/]+)/channel$"), "set_channel"),
     ("POST", re.compile(r"^/aps/([^/]+)/txpower$"), "set_txpower"),
     ("POST", re.compile(r"^/stations/([^/]+)/associate$"), "associate"),
+    ("POST", re.compile(r"^/aps/([^/]+)/admin$"), "set_admin"),
+    ("GET", re.compile(r"^/qos$"), "qos_state"),
+    ("POST", re.compile(r"^/flows/([^/]+)/queue$"), "set_flow_queue"),
+    ("POST", re.compile(r"^/flows/([^/]+)/limit$"), "set_flow_limit"),
 ]
 
 

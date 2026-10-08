@@ -213,3 +213,15 @@ def test_network_throughput_counts_traffic_on_the_air_not_fetch_rates() -> None:
     result = simulate(_state([_ap("ap1")], clients, flows), RADIO, PARAMS)
     assert result.flows["sta0-web"].throughput_mbps == pytest.approx(3.68)
     assert result.kpis.throughput_mbps == pytest.approx(0.8)
+
+
+def test_a_stations_flows_all_get_the_latency_of_its_ping_queue() -> None:
+    # the probe pings once per station and its replies follow the station's highest-priority
+    # flow (decision P4.4a-A): sta1's bulk flow, in queue 0, reports queue 1's latency
+    clients, flows = _videos(6)
+    flows = [_flow("sta1", queue=1), *flows[1:], _flow("sta1", "bulk")]
+    result = simulate(_state([_ap("ap1")], clients, flows), RADIO, PARAMS)
+    # queue 1 holds 1 Mbit/s: rho 1/4.6 -> 1.4940 ms (see the network KPI test)
+    assert result.flows["sta1-video"].latency_ms == pytest.approx(1.4940, abs=1e-4)
+    assert result.flows["sta1-bulk"].latency_ms == pytest.approx(1.4940, abs=1e-4)
+    assert result.flows["sta2-video"].latency_ms > 10  # best effort is saturated

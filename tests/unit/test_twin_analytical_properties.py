@@ -102,7 +102,13 @@ def test_a_higher_priority_queue_never_hurts_a_flow(state: TwinState, data: st.D
     before = simulate(state, RADIO, PARAMS).flows[fid]
     after = simulate(raised, RADIO, PARAMS).flows[fid]
     assert after.throughput_mbps >= before.throughput_mbps - 1e-9
-    assert after.latency_ms <= before.latency_ms + 1e-9
+    # latency is the station's ping queue (decision P4.4a-A): it can only drop when the raise
+    # moves that ping to a better queue; joining a queue the ping already uses adds load to it
+    station_best = max(
+        (order.index(f.queue_id) for f in state.flows.values() if f.sta == flow.sta), default=0
+    )
+    if order.index(better) > station_best:
+        assert after.latency_ms <= before.latency_ms + 1e-9
 
 
 @settings(max_examples=100, deadline=None)

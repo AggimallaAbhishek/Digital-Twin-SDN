@@ -16,10 +16,14 @@ from testbed.ap_logic import (
     byte_counters,
     capacity_util,
     chan_switch_cmd,
+    check_flow_id,
+    parse_admin_request,
     parse_associate_request,
     parse_channel_request,
     parse_iw_info,
+    parse_limit_request,
     parse_link,
+    parse_queue_request,
     parse_station_dump,
     parse_txpower_request,
     snr_db,
@@ -219,3 +223,45 @@ def test_utilisation_without_a_previous_sample_is_zero() -> None:
 def test_capacity_must_be_positive() -> None:
     with pytest.raises(ValueError, match="capacity"):
         capacity_util(None, [], dt_s=1.0, capacity_mbps=0.0)
+
+
+def test_queue_request_returns_the_queue() -> None:
+    assert parse_queue_request({"queue_id": 1}) == 1
+
+
+@pytest.mark.parametrize("body", [{"queue_id": 3}, {"queue_id": True}, {"queue_id": "1"}, {}])
+def test_bad_queue_requests_are_refused(body: Any) -> None:
+    with pytest.raises(ValueError, match="queue_id"):
+        parse_queue_request(body)
+
+
+@pytest.mark.parametrize(("body", "limit"), [({"max_mbps": 2}, 2.0), ({"max_mbps": None}, None)])
+def test_limit_request_returns_the_limit_or_none(body: Any, limit: float | None) -> None:
+    assert parse_limit_request(body) == limit
+
+
+@pytest.mark.parametrize("body", [{"max_mbps": 0.5}, {"max_mbps": "2"}, {"max_mbps": True}])
+def test_bad_limit_requests_are_refused(body: Any) -> None:
+    with pytest.raises(ValueError, match="max_mbps"):
+        parse_limit_request(body)
+
+
+@pytest.mark.parametrize("state", ["up", "down"])
+def test_admin_request_returns_the_state(state: str) -> None:
+    assert parse_admin_request({"state": state}) == state
+
+
+def test_bad_admin_request_is_refused() -> None:
+    with pytest.raises(ValueError, match="state"):
+        parse_admin_request({"state": "off"})
+
+
+@pytest.mark.parametrize("flow_id", ["sta1-video", "sta20-bulk", "sta3-web"])
+def test_known_flow_ids_are_accepted(flow_id: str) -> None:
+    assert check_flow_id(flow_id) == flow_id
+
+
+@pytest.mark.parametrize("flow_id", ["sta1-voip", "ap1-video", "sta1video", "sta1-video;rm"])
+def test_other_flow_ids_are_refused(flow_id: str) -> None:
+    with pytest.raises(ValueError, match="flow"):
+        check_flow_id(flow_id)

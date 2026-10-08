@@ -3,7 +3,7 @@
 RUN := uv run
 FAST_TESTS := -m "not vm and not llm and not integration"
 
-.PHONY: help setup env hooks fmt lint types imports test test-all check security up down ps logs sync-vm smoke-vm campus-vm controller-vm vm-clock ap-agent-vm mobility-vm traffic-vm scenario-vm scenario-repro-vm collect batch dataset llm-check llm-client-check
+.PHONY: api qos-vm help setup env hooks fmt lint types imports test test-all check security up down ps logs sync-vm smoke-vm campus-vm controller-vm vm-clock ap-agent-vm mobility-vm traffic-vm scenario-vm scenario-repro-vm collect batch dataset llm-check llm-client-check
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -85,6 +85,9 @@ mobility-vm: sync-vm ## P1.4 crowd mobility check on the VM (10 stations walk to
 traffic-vm: sync-vm ## P1.5 traffic + KPI probe check on the VM (video, bulk, web flows; GET /kpi)
 	ssh sdnvm 'RYU_APP=controller.apps.twin_controller RYU_STARTUP_S=5 ~/Digital-Twin-SDN/testbed/run_on_vm.sh traffic testbed.checks.traffic_check'
 
+qos-vm: sync-vm ## P4.4a QoS check on the VM (priority queue under saturation, rate limit, reset)
+	ssh sdnvm 'RYU_APP=controller.apps.twin_controller RYU_STARTUP_S=5 ~/Digital-Twin-SDN/testbed/run_on_vm.sh qos testbed.checks.qos_check'
+
 SCENARIO ?= lecture_flash_crowd
 GIT_COMMIT = $(shell git rev-parse --short HEAD)$(shell git diff --quiet HEAD -- || echo -dirty)
 # caffeinate -i: the Mac must not idle-sleep during long runs (it pauses the VM; setup.md #13)
@@ -100,6 +103,9 @@ scenario-repro-vm: sync-vm ## P1.6 run SCENARIO 3x with its seed and compare thr
 
 SCENARIO_ID ?= $(SCENARIO)
 RUN_ID ?= $(SCENARIO_ID)-manual
+
+api: ## P3.6 API on 127.0.0.1:8000 (config/api.yaml; needs `make up`, OPERATOR_TOKEN in .env for approvals)
+	@set -a; . ./.env; set +a; $(RUN) uvicorn api.main:app --factory --host 127.0.0.1 --port 8000
 
 collect: ## P2.1 collector: VM -> InfluxDB (SCENARIO_ID=, RUN_ID=, optional DURATION_S=; needs `make up`)
 	@set -a; . ./.env; set +a; $(KEEP_AWAKE) $(RUN) python -m telemetry.collector.collector --scenario-id $(SCENARIO_ID) --run-id $(RUN_ID) $(if $(DURATION_S),--duration-s $(DURATION_S))

@@ -39,7 +39,7 @@ import yaml
 from mininet.log import info, setLogLevel
 
 from testbed import ap_agent
-from testbed.interference import ApRadio, RadioModel, capacity_caps, load_radio_model, tc_commands
+from testbed.interference import ApRadio, RadioModel, capacity_caps, load_radio_model
 from testbed.layout import CampusLayout, StationSpec, load_layout, place_stations
 from testbed.mobility.crowd import Walk, nearest_ap, plan_crowd
 from testbed.mobility.runner import CrowdRunner
@@ -103,12 +103,9 @@ class Radios:
                 radios.append(ApRadio(spec.name, spec.position, channel or 0, up))
         for name, cap in capacity_caps(radios, self._model).items():
             if cap != self._caps[name]:
-                ap = self._campus.aps[name]
-                with self._agent.lock:
-                    for command in tc_commands(ap.wintfs[0].name, cap):
-                        ap.cmd(command)
                 self._caps[name] = cap
-                self._agent.set_capacity(name, cap)  # its channel_util follows the live cap
+                # the agent owns the AP's tc tree: cap + QoS (testbed/qos.py), and channel_util
+                self._agent.set_capacity(name, cap)
                 log("interference_cap", ap=name, cap_mbps=cap)
 
     def run(self, stop: threading.Event, log: EventLog) -> None:
@@ -190,16 +187,23 @@ class ScenarioRun:
         if event.type == "force_channel":
             self.agent.set_channel(event.ap, {"channel": event.channel})
             self.log("force_channel", ap=event.ap, channel=event.channel)
-        elif event.type == "ap_down":
-            orphans = [s["sta"] for s in self.agent.stations()["stations"] if s["ap"] == event.ap]
-            out = self._hostapd(event.ap, "disable")
-            self.radios.down.add(event.ap)
-            self.log("ap_down", ap=event.ap, hostapd=out, orphans=orphans)
-            self._thread(lambda: self._rejoin(orphans), f"rejoin-{event.ap}")
-        else:  # ap_up (parse_scenario allows only the three types)
-            out = self._hostapd(event.ap, "enable")
-            self.radios.down.discard(event.ap)
-            self.log("ap_up", ap=event.ap, hostapd=out)
+        else:  # ap_down / ap_up (parse_scenario allows only the three types)
+            self.set_admin(event.ap, "down" if event.type == "ap_down" else "up")
+
+    def set_admin(self, ap: str, state: str) -> dict[str, Any]:
+        """Disable or enable an AP; a disabled AP's stations rejoin the nearest AP still up.
+        Used by scenario events and by the AP agent's POST /aps/{ap}/admin (P4.4 executor)."""
+        if state == "down":
+            orphans = [s["sta"] for s in self.agent.stations()["stations"] if s["ap"] == ap]
+            out = self._hostapd(ap, "disable")
+            self.radios.down.add(ap)
+            self.log("ap_down", ap=ap, hostapd=out, orphans=orphans)
+            self._thread(lambda: self._rejoin(orphans), f"rejoin-{ap}")
+        else:
+            out = self._hostapd(ap, "enable")
+            self.radios.down.discard(ap)
+            self.log("ap_up", ap=ap, hostapd=out)
+        return {"ap": ap, "state": state, "hostapd": out}
 
     def _hostapd(self, ap_name: str, verb: str) -> str:
         """`hostapd_cli disable|enable` on an AP (disable drops all its clients)."""
@@ -311,12 +315,15 @@ def main(argv: list[str] | None = None) -> int:
             campus, load_traffic_config_file(), run_dir, lock=agent.lock, seed=spec.seed
         )
         agent.kpi_source = probe.latest
+        agent.flow_endpoints = probe.endpoints
+        probe.on_flows_started = agent.refresh_qos
         t0 = time.monotonic()
         log = EventLog(run_dir / "events.jsonl", t0)
         utc0 = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
         log("started", utc=utc0, associated=sum(assoc.values()), stations=len(assoc))
         probe.start()
         run = ScenarioRun(spec, layout, model, campus, agent, probe, walks, log)
+        agent.admin_handler = run.set_admin
         run.play(t0)
         log("finished")
     finally:

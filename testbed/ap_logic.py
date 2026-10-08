@@ -11,6 +11,9 @@ import re
 from dataclasses import dataclass
 from typing import Any, Dict, Mapping, Tuple
 
+from testbed.qos import QOS_QUEUE_IDS, RATE_LIMIT_MIN_MBPS
+from testbed.traffic.profiles import APP_CLASSES
+
 # Static action bounds: must match common/schemas.py (tests/unit/test_ap_logic.py checks this).
 CHANNELS = (1, 6, 11)
 TX_POWER_DBM_MIN, TX_POWER_DBM_MAX = 5.0, 20.0
@@ -22,6 +25,7 @@ CSA_BEACONS = 5  # channel switch announced this many beacons ahead; clients fol
 Counters = Dict[str, Tuple[int, int]]  # mac -> (rx_bytes, tx_bytes); typing.Dict for Python 3.8
 
 AP_NAME = re.compile(r"^ap[0-9]+$")  # = common/schemas.py APName
+FLOW_ID = re.compile(r"^sta[0-9]+-(" + "|".join(APP_CLASSES) + r")$")  # traffic/profiles.flow_id
 _MAC = r"([0-9a-f]{2}(?::[0-9a-f]{2}){5})"
 _IW_ADDR = re.compile(r"^\s*addr " + _MAC, re.M)
 _IW_CHANNEL = re.compile(r"^\s*channel (\d+) ", re.M)
@@ -93,6 +97,41 @@ def parse_associate_request(body: Any) -> str:
     if not isinstance(value, str) or not AP_NAME.match(value):
         raise ValueError(f"ap must be an AP name like 'ap2', got {value!r}")
     return value
+
+
+def parse_queue_request(body: Any) -> int:
+    """Validate a POST /flows/{id}/queue body; return the QoS queue (testbed/qos.py)."""
+    value = _single_field(body, "queue_id")
+    if not isinstance(value, int) or isinstance(value, bool) or value not in QOS_QUEUE_IDS:
+        raise ValueError(f"queue_id must be one of {QOS_QUEUE_IDS}, got {value!r}")
+    return value
+
+
+def parse_limit_request(body: Any) -> float | None:
+    """Validate a POST /flows/{id}/limit body; return the cap in Mbit/s, or None to remove it."""
+    value = _single_field(body, "max_mbps")
+    if value is None:
+        return None
+    if not _is_number(value) or value < RATE_LIMIT_MIN_MBPS:
+        raise ValueError(
+            f"max_mbps must be null or a number >= {RATE_LIMIT_MIN_MBPS}, got {value!r}"
+        )
+    return float(value)
+
+
+def parse_admin_request(body: Any) -> str:
+    """Validate a POST /aps/{id}/admin body; return "up" or "down"."""
+    value = _single_field(body, "state")
+    if value not in ("up", "down"):
+        raise ValueError(f"state must be 'up' or 'down', got {value!r}")
+    return str(value)
+
+
+def check_flow_id(flow_id: str) -> str:
+    """A flow id the traffic runner can have (staN-<app class>), or ValueError."""
+    if not FLOW_ID.match(flow_id):
+        raise ValueError(f"unknown flow id {flow_id!r} (expected staN-{'|'.join(APP_CLASSES)})")
+    return flow_id
 
 
 def chan_switch_cmd(intf: str, channel: int) -> str:

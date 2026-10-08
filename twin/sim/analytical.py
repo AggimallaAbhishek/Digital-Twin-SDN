@@ -14,8 +14,10 @@ against 4.6 at the AP, so they are not modelled, deviation #12):
 - **Loss:** inelastic classes lose what they cannot send; elastic (TCP) classes adapt and only
   see base loss.
 - **Latency:** base + service_ms * L, with L the mean number in an M/M/1/K queue at load rho =
-  offered demand of the flow's queue and the queues served before it, / C. The bounded queue
-  levels latency off at saturation, as measured (data/v1).
+  offered demand of the queue and the queues served before it, / C. The bounded queue levels
+  latency off at saturation, as measured (data/v1). The KPI probe pings once per station, and
+  its replies share the station's highest-priority queue (testbed/qos.py, decision P4.4a-A), so
+  every flow of a station reports that queue's latency.
 - **Fetch classes** (web): the probe reports the rate of one fetch, fetch_efficiency times the
   capacity not used by other (non-fetch) traffic in the same or a higher-priority queue. The
   traffic they put on the air is their small served rate (`carried_mbps`).
@@ -154,6 +156,8 @@ def _serve_ap(
 ) -> float:
     """Serve one AP's flows queue by queue into `out`; the total rate served."""
     left, offered_so_far, busy = capacity, 0.0, 0.0  # busy: non-fetch traffic served so far
+    latency: dict[int, float] = {}  # per queue
+    rates: dict[str, tuple[float, float, float]] = {}  # flow -> (probe rate, loss, carried)
     for queue in SERVICE_ORDER:
         level = [f for f in flows if f.queue_id == queue]
         demand = {f.flow_id: _capped(params.apps[f.app_class].offered_mbps, f) for f in level}
@@ -161,14 +165,23 @@ def _serve_ap(
         left -= math.fsum(served.values())
         offered_so_far += math.fsum(demand.values())
         busy += math.fsum(served[f.flow_id] for f in level if not params.apps[f.app_class].fetch)
-        latency = params.base_latency_ms + params.service_ms * _mm1k_mean_number(
+        latency[queue] = params.base_latency_ms + params.service_ms * _mm1k_mean_number(
             offered_so_far / capacity, params.queue_slots
         )
         for f in level:
             app, carried = params.apps[f.app_class], served[f.flow_id]
             fetch_rate = params.fetch_efficiency * max(0.0, capacity - busy)
             rate = _capped(fetch_rate, f) if app.fetch else carried
-            out[f.flow_id] = FlowResult(rate, latency, _loss(app, carried, params), carried)
+            rates[f.flow_id] = (rate, _loss(app, carried, params), carried)
+    # the probe pings once per station; its replies share the station's highest-priority queue
+    # (testbed/qos.py, decision P4.4a-A), so all the station's flows report that queue's latency
+    ping_queue: dict[str, int] = {}
+    for f in flows:
+        best = ping_queue.get(f.sta, f.queue_id)
+        ping_queue[f.sta] = min(best, f.queue_id, key=SERVICE_ORDER.index)
+    for f in flows:
+        rate, loss, carried = rates[f.flow_id]
+        out[f.flow_id] = FlowResult(rate, latency[ping_queue[f.sta]], loss, carried)
     return capacity - left
 
 

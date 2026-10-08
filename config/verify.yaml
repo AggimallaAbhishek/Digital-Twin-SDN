@@ -1,0 +1,2 @@
+# P3.4 verifier (twin/verify/verifier.py).
+medium_needs_approval: true   # PROJECT_PLAN §8: until P3.5 measures the twin's error per action type

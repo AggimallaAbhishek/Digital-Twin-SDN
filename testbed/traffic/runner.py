@@ -117,6 +117,9 @@ class TrafficProbe:
         self._threads: list[threading.Thread] = []
         self._ports = itertools.count(config.iperf_base_port)
         self._http_started = False
+        # flow_id -> (station IP, srv1 port its downlink comes from), for QoS filters (P4.4a)
+        self._endpoints: dict[str, tuple[str, int]] = {}
+        self.on_flows_started: Callable[[], None] = lambda: None  # the AP agent re-renders QoS
 
     # ------------------------------------------------------------------ control
     def start(self) -> None:
@@ -155,10 +158,18 @@ class TrafficProbe:
                 self._start_iperf_client(flow, profile, ports[flow.flow_id], rate)
             else:
                 self._start_web_loop(flow, profile)
+            port = ports.get(flow.flow_id, self._config.http_port)
             with self._data:
                 self._flows[flow.flow_id] = flow
+                self._endpoints[flow.flow_id] = (self._stations[flow.sta].IP(), port)
             info(f"TRAFFIC_FLOW_STARTED {flow.flow_id}\n")
+        self.on_flows_started()
         return [flow.flow_id for flow, _, _ in flows]
+
+    def endpoints(self) -> dict[str, tuple[str, int]]:
+        """flow_id -> (station IP, srv1 source port) of every started flow."""
+        with self._data:
+            return dict(self._endpoints)
 
     def has_flow(self, sta: str, app_class: str) -> bool:
         """True if `app_class` traffic already runs to `sta`."""

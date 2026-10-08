@@ -12,4 +12,12 @@
 
 **Submitted:** October 2026
 
-<!-- Fill in when known (P7.1a): course name and code, department, institute, guide/supervisor. Switch to the department template if one exists (decisions Q4). -->
+**Course / department / institute:** _to be filled in_
+
+**Guide / supervisor:** _to be filled in_
+
+<!-- Not yet known (P7.1a): course name and code, department, institute, guide/supervisor. Switch to the department template if one exists (decisions Q4b). -->
+
+## Abstract
+
+_Written last, from the final results (P7.1d)._

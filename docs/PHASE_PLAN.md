@@ -166,9 +166,9 @@ Milestones          M0          M1   |                   M2 |             M3    
 | 2 Telemetry | Oct 8–14 | ✅ Done (Oct 8) | met | P2.1 ✅, P2.2 ✅, P2.3 ✅ (all Oct 8); dataset `data/v1/` (2 h) |
 | 3 Twin | Oct 13–19 | 🟦 In progress | | critical path; P3.1 ✅, P3.2 ✅ (Oct 8) |
 | 4 ML + executor | Oct 9–19 | 🟦 In progress | | P4.1 ✅ (honest negative), P4.2 ✅, P4.3 ✅ (Oct 8) |
-| 5 GenAI | Oct 8–22 | 🟦 In progress | | P5.1 ✅ (Oct 7); P5.2 mock part done (Oct 8), live by Oct 20 |
+| 5 GenAI | Oct 8–22 | 🟦 In progress | | P5.1 ✅ (Oct 7); P5.2 mock part done (Oct 8), live by Oct 20; P5.4 drafted (Oct 8): cloud 29/30, local 20/30, awaiting Abhishek's check |
 | 6 Integration + eval | Oct 20–28 | ⬜ | | |
-| 7 Report + live demo prep | Oct 13–30 | ⬜ | | DOC leads |
+| 7 Report + live demo prep | Oct 13–30 | 🟦 In progress | | P7.1a ✅ (Oct 8) |
 
 Status values: ⬜ Not started · 🟦 In progress · 🟨 At risk · 🟥 Blocked · ✅ Done
 
@@ -336,7 +336,7 @@ Status values: ⬜ Not started · 🟦 In progress · 🟨 At risk · 🟥 Block
 | P5.1 ✅ | LLM client for Ollama (structured JSON output, timeout, retries) with **automatic fallback from the cloud model to the local model** on error/timeout; logs model used, tokens, latency and validity | Oct 9 | `genai/llm/client.py` | Schema-valid output on test prompts; every call logged *(2026-10-07: `make llm-client-check` 6/6: 5 test prompts schema-valid on `gpt-oss:120b-cloud` first try; unknown main model → HTTP 404 → `qwen2.5:3b` answers. Every attempt logged to `logs/llm_calls.jsonl` (no prompt text). Invalid output repaired ≤ 2× on the same model, then `LLMOutputError`; only unreachable models trigger fallback. `client.py` 100% branch coverage)* |
 | P5.2 🟦 | Tool layer: `get_topology`, `get_metrics`, `get_alerts`, `simulate_in_twin`, `apply_action` (verified IDs only) | Oct 13 (mocks) → Oct 20 (live) | `genai/tools/` | Live data by Oct 20; `apply_action` refuses unverified IDs *(2026-10-08, mock part done: 5 tools with LLM tool specs over a `Backend` interface; `MockBackend` serves the recorded fixtures. `apply_action` refuses unverified, rejected and already-applied IDs, and high-impact ones until an operator approves (approval is not a tool), and the backend re-checks the verdict (tested, T-5a/c). Pydantic-validated arguments, errors returned as data. 100% branch coverage. **Left for Oct 20:** an HTTP backend over the P3.6 API)* |
 | P5.3 | Intent engine: prompt + few-shot → `Policy` JSON → validation and repair (≤ 2 retries) → **deterministic compiler** → twin verify → `POST /intents` | Oct 16 | `genai/intent/`, `genai/prompts/` | Compiler at 100% branch coverage; invalid LLM output never reaches it |
-| P5.4 | Intent test set: **30 intents** with expected policies (Claude drafts, Abhishek checks) + eval script | Oct 15 ∥ | `genai/eval/intents.jsonl`, `genai/eval/run_intents.py` | Script reports accuracy |
+| P5.4 🟦 | Intent test set: **30 intents** with expected policies (Claude drafts, Abhishek checks) + eval script | Oct 15 ∥ | `genai/eval/intents.jsonl`, `genai/eval/run_intents.py` | Script reports accuracy *(2026-10-08: 30 intents drafted (4 zones + campus-wide, all 3 app classes and 4 KPIs, 3 priority levels, 7 with hard constraints of both scopes, 6 in looser wording). Correct = schema-valid and scope, objectives and constraints all equal as sets (decisions P5.4-A). Prompt `genai/prompts/intent_v1.md`. **gpt-oss:120b-cloud 29/30 (96.7%)**, the miss: "cap … at 2 Mbps" read as a constraint; **local qwen2.5:3b 20/30 (66.7%)**, misses: constraints and a dropped priority. Scoring at 100% branch coverage. **Awaiting Abhishek's check of the 30 expected policies**, then tick)* |
 | P5.5 | Copilot: tool-using agent, `POST /chat` | Oct 20 | `genai/agent/` | Answers 5 diagnostic questions with live evidence; proposed actions go through `simulate_in_twin` |
 | P5.6 | Root-cause explainer on anomaly alerts | Oct 22 | `genai/rca/` | Correct diagnosis for `ap_failure` and `cochannel_interference` runs |
 
@@ -375,7 +375,7 @@ Status values: ⬜ Not started · 🟦 In progress · 🟨 At risk · 🟥 Block
 
 | ID | Task | Owner | Due | Done when |
 |---|---|---|---|---|
-| P7.1a | Report skeleton + title page + Introduction + Related Work (from P0.4) | **DOC** | Oct 15 | Sections drafted in `docs/report/` |
+| P7.1a ✅ | Report skeleton + title page + Introduction + Related Work (from P0.4) | **DOC** | Oct 15 | Sections drafted in `docs/report/` *(2026-10-08: chapters 00–08 + references as Markdown, `docs/report/README.md` maps each to its task. Title page (course, institute, guide still to fill), Introduction (motivation, problem, approach, RQ + H1–H3, contributions, organisation), Related Work (5 papers + positioning table), 5 IEEE references. 4 claims marked `[check]` wait on the P0.4 full-text check; none may remain at submission)* |
 | P7.1b | System architecture + design sections | TWIN + NET | Oct 20 | Drafted with diagrams |
 | P7.1c | Method: twin model, heuristics, intent pipeline, safety model | ML + GENAI | Oct 25 | Drafted |
 | P7.1d | Results + discussion + limitations + future work (GNN, RL, RAG, hardware) | ML + all | Oct 28 | Drafted from P6.6 figures only |

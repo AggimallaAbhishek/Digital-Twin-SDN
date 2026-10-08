@@ -210,7 +210,7 @@ def test_a_backend_refusal_reaches_the_llm_and_nothing_is_marked_applied() -> No
     assert tools.call("apply_action", {"action_id": "act_test_steer"}) == {
         "error": "executor refused: rate limit"
     }
-    assert (
-        "already applied"
-        not in tools.call("apply_action", {"action_id": "act_test_steer"})["error"]
-    )
+    # not marked applied: a retry reaches the backend again (and is refused again)
+    assert tools.call("apply_action", {"action_id": "act_test_steer"}) == {
+        "error": "executor refused: rate limit"
+    }

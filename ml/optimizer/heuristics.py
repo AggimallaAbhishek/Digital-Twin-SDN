@@ -5,16 +5,18 @@ Pure functions of a TwinState (no I/O). Two heuristics (deviation #9: no reroute
 - **Steering:** an AP at or above `util_high` sheds up to `max_steer_fraction` of its clients
   (rounded down) to APs below `util_target`, least-loaded first. A station is only moved to an AP
   where its predicted signal is at least `min_target_rssi_dbm` (twin/radio.py), strongest first.
-- **Channel:** an AP that shares its channel with nearby APs that are up moves to the channel
-  with the least co-channel load (twin/radio.py), if that is strictly better. APs are handled in
-  order of decreasing load, each decision seeing the earlier ones, so two APs never jump onto the
-  same channel together.
+- **Channel:** a congested AP (at or above `util_high`) that shares its channel with nearby APs
+  that are up moves to the channel with the least co-channel load (twin/radio.py), if that is
+  strictly better. Idle APs keep their channel: a channel change is high-impact (approval).
+  APs are handled in order of decreasing load, each decision seeing the earlier ones, so two APs
+  never jump onto the same channel together.
 
 These are proposals: the twin verifier (P3.4) still checks every action and its bounds.
 """
 
 from __future__ import annotations
 
+import hashlib
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -68,13 +70,15 @@ def propose(state: TwinState, config: HeuristicConfig, radio: RadioParams) -> li
     """Steering then channel proposals, with deterministic ids (act_<ts>_<n>)."""
     drafts: list[tuple[str, Any, str]] = [
         *_steering(state, config, radio),
-        *_channel_changes(state, radio),
+        *_channel_changes(state, config, radio),
     ]
     stamp = state.ts.strftime("%Y%m%d_%H%M%S")
     actions: list[Action] = []
     for n, (kind, params, reason) in enumerate(drafts, start=1):
+        # the content hash keeps ids distinct across propose() calls within the same second
+        digest = hashlib.sha256(f"{kind}{params.model_dump_json()}".encode()).hexdigest()[:8]
         base = {
-            "action_id": f"act_{stamp}_{n:03d}",
+            "action_id": f"act_{stamp}_{n:03d}_{digest}",
             "source": SOURCE,
             "reason": reason,
             "created_at": state.ts,
@@ -134,7 +138,7 @@ def _movable(
 
 
 def _channel_changes(
-    state: TwinState, radio: RadioParams
+    state: TwinState, config: HeuristicConfig, radio: RadioParams
 ) -> list[tuple[str, SetApChannelParams, str]]:
     up = state.up_aps()
     channels = {ap.name: ap.channel for ap in up}
@@ -146,7 +150,7 @@ def _channel_changes(
     drafts = []
     for ap in sorted(up, key=lambda a: (-load(a, channels[a.name]), a.name)):
         current = load(ap, channels[ap.name])
-        if current == 0:
+        if current == 0 or ap.util < config.util_high:
             continue
         best = min(CHANNELS_24GHZ, key=lambda ch: (load(ap, ch), ch != channels[ap.name], ch))
         if load(ap, best) < current:

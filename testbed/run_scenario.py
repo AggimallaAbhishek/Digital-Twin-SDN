@@ -94,7 +94,8 @@ class Radios:
 
     def capacity_of(self, ap: str) -> float:
         """An AP's current downlink capacity: its co-channel cap, else the nominal capacity."""
-        return self._caps.get(ap) or self._model.ap_capacity_mbps
+        cap = self._caps.get(ap)
+        return self._model.ap_capacity_mbps if cap is None else cap
 
     def apply_caps(self, log: EventLog) -> None:
         """Re-read every AP's channel and update the tc caps that changed."""

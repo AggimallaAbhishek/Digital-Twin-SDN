@@ -59,3 +59,9 @@ def cochannel_load(neighbour_distances_m: Iterable[float], params: RadioParams) 
     return sum(
         min(1.0, max(0.0, (params.cochannel_zero_m - d) / span)) for d in neighbour_distances_m
     )
+
+
+def capped_capacity_mbps(load: float, params: RadioParams) -> float | None:
+    """An AP's downlink capacity under co-channel `load` (2 decimals, as the testbed applies it);
+    None when nothing interferes (the AP keeps its nominal capacity)."""
+    return round(params.ap_capacity_mbps / (1 + load), 2) if load > 0 else None

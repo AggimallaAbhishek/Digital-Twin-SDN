@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import urllib.parse
 import urllib.request
@@ -35,8 +36,9 @@ from common.schemas import (
     StationStats,
     TelemetryRecord,
 )
+from experiments.batch import SPLITS
 from experiments.dataset import RunInfo, disruption, label_rows, parse_flux_csv, to_table
-from experiments.run_batch import git_commit
+from experiments.shell import git_commit
 from telemetry.collector.collector import is_http_url
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -47,6 +49,7 @@ EXPORTED: tuple[type[TelemetryRecord], ...] = (
     StationStats,
     KPIRecord,
 )
+_IDENTIFIER = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")  # = common/schemas.py Identifier
 MARGIN = timedelta(seconds=5)  # query window around the scenario clock
 QUERY_TIMEOUT_S = 120
 
@@ -74,6 +77,9 @@ def influx_csv(flux: str) -> str:
 def run_query(measurement: str, run_id: str, start: datetime, stop: datetime) -> str:
     """Flux for one run's rows of one measurement, one row per series and timestamp."""
     bucket = os.getenv("INFLUXDB_BUCKET", "telemetry")
+    for value in (measurement, run_id, bucket):  # interpolated into Flux: identifiers only
+        if not _IDENTIFIER.match(value):
+            raise ValueError(f"not a safe identifier for a Flux query: {value!r}")
     return (
         f'from(bucket: "{bucket}")\n'
         f"  |> range(start: {start.isoformat()}, stop: {stop.isoformat()})\n"
@@ -118,14 +124,16 @@ def export(version: str) -> dict[str, Any]:
         name = MEASUREMENTS[model]
         pq.write_table(to_table(tables[name], model), out / f"{name}.parquet")
         counts[name] = {
-            split: sum(1 for row in tables[name] if row["split"] == split)
-            for split in ("train", "val", "test")
+            split: sum(1 for row in tables[name] if row["split"] == split) for split in SPLITS
         }
     manifest = {
         "dataset_version": version,
         "created": datetime.now(UTC).isoformat(timespec="seconds"),
         "git_commit": git_commit(),
         "batch_commit": batch.get("git_commit"),
+        "config_hash": batch.get("config_hash"),
+        "scenarios": sorted({r["scenario"] for r in runs}),
+        "seeds": {str(r["seed"]): r["split"] for r in runs},
         "telemetry_hours": round(seconds / 3600, 2),
         "runs": [{k: r[k] for k in ("run_id", "scenario", "seed", "split")} for r in runs],
         "skipped_runs": [r["run_id"] for r in batch["runs"] if r not in runs],

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import pytest
+
 from twin.state.model import APState, StationState, TwinState
 
 TS = datetime(2026, 10, 8, 10, 0, tzinfo=UTC)
@@ -31,3 +33,11 @@ def test_clients_are_derived_from_the_stations_in_station_order() -> None:
 
 def test_up_aps_excludes_failed_ones() -> None:
     assert [ap.name for ap in _state().up_aps()] == ["ap1"]
+
+
+def test_state_mappings_are_read_only() -> None:
+    state = _state()
+    with pytest.raises(TypeError):
+        state.aps["ap9"] = state.aps["ap1"]  # type: ignore[index]  # proving it is read-only
+    with pytest.raises(TypeError):
+        del state.stations["sta2"]  # type: ignore[attr-defined]  # proving it is read-only

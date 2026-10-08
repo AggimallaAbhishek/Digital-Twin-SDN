@@ -39,3 +39,22 @@ All work, decisions and approvals: **Aggimalla Abhishek** (with Claude Code). Th
 - Every GenAI feature must still work, possibly degraded, on the **local fallback** (`qwen2.5:3b`, 2.2 GB) on the 16 GB Mac alongside Docker and the VM (RULEBOOK L-8).
 - Structured JSON output (schema-constrained) plus the validation/repair loop and the deterministic policy compiler (RULEBOOK L-2) make up for a weaker model.
 - `genai/llm/client.py` stays provider-agnostic (RULEBOOK L-4), so a hosted model could be added later without code changes elsewhere.
+
+## Task-level decisions
+
+Smaller design choices made while building a task, cited in code and docs by these IDs. All decided by Abhishek, with Claude Code proposing.
+
+| ID | Date | Decision | Why |
+|---|---|---|---|
+| P1.4-A | 2026-10-07 | A walker joins the **nearest AP** on arrival (no RSSI-threshold roaming) | Emulated stations never roam on their own (sticky clients) |
+| P1.5-A | 2026-10-07 | Flow latency = **ping RTT** to srv1 (`ping -O`, lost pings tracked by sequence number) | iperf3 gives no latency; RTT is stricter than one-way delay |
+| P1.5-B | 2026-10-07 | KPI records reach the collector through the AP agent's **`GET /kpi`** | Same pattern as `/aps` and `/stations`; RULEBOOK §4 forbids shared files |
+| P1.6-A | 2026-10-07 | Stations of a failed AP **rejoin the nearest AP that is up** after 5 s | Normal client behaviour; otherwise V1 never recovers |
+| P1.6-B | 2026-10-08 | **Emulated co-channel interference** + traffic sized to 4.6 Mbit/s per AP | Deviation #7 |
+| P2.3-A | 2026-10-08 | Parquet with **pyarrow** only (pinned) | One dependency; P4 reads Arrow tables directly |
+| P2.3-B | 2026-10-08 | Dataset v1 = 4 scenarios × seeds 42/43/44 → **train/val/test by seed** | Split by run (E-2), every scenario in every split; 2 h of data |
+| P2.3-C | 2026-10-08 | Rows labelled with **`phase`** (normal/stress from the scenario's disruption) and **`event`** | Exact onset times for anomaly precision/recall and time to recover |
+| P4.3-A | 2026-10-08 | **`TwinState` defined early** in `twin/state/` for the heuristics; P3.1 builds and extends it | One shared type, no adapter |
+| P5.2-A | 2026-10-08 | Tools run over a **`Backend` interface** (`MockBackend` now, HTTP over the P3.6 API by Oct 20); **approval is not a tool** | genai only talks to the system through tools/API; the LLM can't approve its own actions |
+| P5.2-B | 2026-10-08 | `simulate_in_twin` takes an **action**, not a policy (PROJECT_PLAN §5.6 says "action \| policy") | A policy becomes actions through the deterministic compiler (P5.3), and each action is then simulated |
+| P5.2-C | 2026-10-08 | `get_alerts` takes **`since_s`** (look-back in seconds), `get_metrics` **`window_s`** | Simple for the LLM to fill; no clock or time-zone handling |

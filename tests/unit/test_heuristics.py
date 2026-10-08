@@ -141,6 +141,11 @@ def test_ap3_forced_onto_channel_1_is_moved_back_to_11() -> None:
     assert change.type == "set_ap_channel"
 
 
+def test_an_idle_ap_keeps_its_channel_even_when_it_shares_it() -> None:
+    # a channel change is high-impact (needs approval): only worth it for a congested AP
+    assert _channels(_state({"ap3": 0.2}, _hall_crowd(2), channels={"ap3": 1})) == []
+
+
 def test_a_down_ap_does_not_count_as_interference() -> None:
     # ap1 and ap4 both on channel 1, but ap4 is down: nothing to fix
     assert _channels(_state({}, _hall_crowd(2), down=("ap4",))) == []
@@ -149,10 +154,18 @@ def test_a_down_ap_does_not_count_as_interference() -> None:
 # ------------------------------------------------------------------ ids
 def test_action_ids_are_unique_and_deterministic() -> None:
     state = _state(
-        {"ap1": 1.0, "ap3": 0.1}, _hall_crowd(10), channels={"ap3": 1}
-    )  # one steer and one channel change
+        {"ap1": 1.0, "ap3": 0.1, "ap4": 0.9}, _hall_crowd(10), channels={"ap4": 6}
+    )  # ap1 -> ap3 steer, and congested ap4 (sharing ch 6 with ap2, 30 m) changes channel
     first = [a.action_id for a in propose(state, CONFIG, RADIO)]
     again = [a.action_id for a in propose(state, CONFIG, RADIO)]
     assert first == again
     assert len(set(first)) == len(first) == 2
     assert first[0].startswith("act_20261008_100330_")
+
+
+def test_different_proposals_in_the_same_second_get_different_ids() -> None:
+    steer_only = _state({"ap1": 1.0, "ap3": 0.1}, _hall_crowd(10))
+    channel_only = _state({"ap3": 0.95}, _hall_crowd(2), channels={"ap3": 1})
+    (a,) = propose(steer_only, CONFIG, RADIO)
+    (b,) = propose(channel_only, CONFIG, RADIO)
+    assert a.action_id != b.action_id

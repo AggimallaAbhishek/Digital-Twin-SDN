@@ -8,7 +8,13 @@ from typing import Any
 import pytest
 import yaml
 
-from twin.radio import RadioParams, cochannel_load, load_radio_params, predicted_rssi_dbm
+from twin.radio import (
+    RadioParams,
+    capped_capacity_mbps,
+    cochannel_load,
+    load_radio_params,
+    predicted_rssi_dbm,
+)
 
 CAMPUS: dict[str, Any] = yaml.safe_load(
     (Path(__file__).resolve().parents[2] / "config" / "campus_v1.yaml").read_text()
@@ -57,3 +63,8 @@ def test_cochannel_neighbour_weight_falls_off_linearly(distance_m: float, weight
 
 def test_cochannel_load_adds_neighbours() -> None:
     assert cochannel_load([30.0, 50.0], PARAMS) == pytest.approx(1 + 1 / 3)
+
+
+@pytest.mark.parametrize(("load", "cap"), [(0.0, None), (1 / 3, 3.45), (1.0, 2.3)])
+def test_capacity_under_interference(load: float, cap: float | None) -> None:
+    assert capped_capacity_mbps(load, PARAMS) == cap

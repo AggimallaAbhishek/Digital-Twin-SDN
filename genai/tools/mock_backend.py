@@ -16,6 +16,7 @@ from typing import Any
 from common.schemas import Action, KPIValues, Verdict, impact_of
 
 FIXTURES = Path(__file__).resolve().parents[2] / "tests" / "fixtures"
+# Made-up KPI values: the mock twin only needs to return a schema-valid verdict.
 _BASELINE = KPIValues(throughput_mbps=20.0, latency_ms=30.0, loss_pct=1.0, jain=0.8)
 _PREDICTED = KPIValues(throughput_mbps=20.4, latency_ms=29.0, loss_pct=0.9, jain=0.82)
 

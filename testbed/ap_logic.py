@@ -144,6 +144,8 @@ def capacity_util(
     Deviation #8 (replaces the P1.3 bits-per-bitrate estimate): the emulated AP carries about
     `radio_model.ap_capacity_mbps` whatever bitrate `iw` reports, and a co-channel cap lowers
     that (testbed/interference.py), so utilisation = (bits sent + received) / dt / capacity.
+    The cap shapes downlink only; uplink bytes are counted too because they also use airtime
+    (they are small next to the downlink here: ACKs and requests).
     Clients without a baseline or whose counters went backwards (re-associated) are skipped.
     """
     if capacity_mbps <= 0:

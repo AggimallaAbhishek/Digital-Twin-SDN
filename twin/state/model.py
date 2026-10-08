@@ -11,6 +11,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
+from types import MappingProxyType
 
 
 @dataclass(frozen=True)
@@ -40,6 +41,11 @@ class TwinState:
     ts: datetime
     aps: Mapping[str, APState]
     stations: Mapping[str, StationState]
+
+    def __post_init__(self) -> None:
+        # read-only views of private copies: the state can't change under its users (C-7)
+        object.__setattr__(self, "aps", MappingProxyType(dict(self.aps)))
+        object.__setattr__(self, "stations", MappingProxyType(dict(self.stations)))
 
     def clients(self, ap: str) -> tuple[str, ...]:
         """Stations associated with `ap`, in station order (sta2 before sta10)."""

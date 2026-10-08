@@ -1,0 +1,1135 @@
+{
+ "uid": "raw-kpis",
+ "title": "Raw KPIs (P2.2)",
+ "description": "Live testbed telemetry from the P2.1 collector: AP load, traffic KPIs and wired links for one run.",
+ "tags": [
+  "digital-twin-sdn",
+  "telemetry"
+ ],
+ "editable": false,
+ "schemaVersion": 39,
+ "time": {
+  "from": "now-15m",
+  "to": "now"
+ },
+ "refresh": "5s",
+ "liveNow": false,
+ "timezone": "browser",
+ "templating": {
+  "list": [
+   {
+    "name": "bucket",
+    "type": "constant",
+    "query": "telemetry",
+    "hide": 2
+   },
+   {
+    "name": "run_id",
+    "label": "Run",
+    "type": "query",
+    "datasource": {
+     "type": "influxdb",
+     "uid": "influxdb"
+    },
+    "refresh": 2,
+    "sort": 0,
+    "query": "import \"influxdata/influxdb/schema\"\nschema.tagValues(bucket: \"${bucket}\", tag: \"run_id\", predicate: (r) => r._measurement == \"ap_stats\", start: -30d)",
+    "current": {},
+    "includeAll": false,
+    "multi": false
+   }
+  ]
+ },
+ "panels": [
+  {
+   "id": 100,
+   "type": "row",
+   "title": "Access points",
+   "collapsed": false,
+   "panels": [],
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "id": 1,
+   "type": "timeseries",
+   "title": "AP downlink throughput (Mbit/s)",
+   "description": "Bytes each AP sends over its radio (OpenFlow port 1), from Ryu port stats. Dashed line: measured AP capacity, 4.6 Mbit/s (config/campus_v1.yaml radio_model).",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "influxdb"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 1
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "influxdb"
+     },
+     "query": "import \"strings\"\nfrom(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"port_stats\" and r._field == \"tx_bps\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> filter(fn: (r) => strings.hasPrefix(v: r.dpid, prefix: \"1\") and r.port == \"1\")\n  |> map(fn: (r) => ({r with _value: r._value / 1000000.0}))\n  |> map(fn: (r) => ({_time: r._time, _value: r._value, ap: \"ap\" + strings.substring(v: r.dpid, start: 15, end: 16)}))\n  |> group(columns: [\"ap\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "Mbits",
+     "custom": {
+      "lineWidth": 2,
+      "fillOpacity": 0,
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "linear",
+      "axisSoftMin": 0,
+      "gradientMode": "none",
+      "thresholdsStyle": {
+       "mode": "dashed"
+      }
+     },
+     "color": {
+      "mode": "palette-classic"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "transparent",
+        "value": null
+       },
+       {
+        "color": "#8e8e8e",
+        "value": 4.6
+       }
+      ]
+     },
+     "displayName": "${__field.labels.ap}",
+     "decimals": 2
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "ap1"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#3987e5"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "ap2"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#d95926"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "ap3"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#199e70"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "ap4"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#c98500"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "legend": {
+     "showLegend": true,
+     "displayMode": "table",
+     "placement": "right",
+     "calcs": [
+      "lastNotNull",
+      "max"
+     ]
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "none"
+    }
+   }
+  },
+  {
+   "id": 2,
+   "type": "timeseries",
+   "title": "Airtime utilisation (%)",
+   "description": "Estimated share of airtime each AP is busy (AP agent channel_util). Dashed line: 80%, the congestion limit in the time-to-recover KPI (docs/problem_statement.md).",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "influxdb"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 12,
+    "y": 1
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "influxdb"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ap_stats\" and r._field == \"channel_util\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> map(fn: (r) => ({r with _value: r._value * 100.0}))\n  |> group(columns: [\"ap\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percent",
+     "custom": {
+      "lineWidth": 2,
+      "fillOpacity": 0,
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "linear",
+      "axisSoftMin": 0,
+      "gradientMode": "none",
+      "thresholdsStyle": {
+       "mode": "dashed"
+      }
+     },
+     "color": {
+      "mode": "palette-classic"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "transparent",
+        "value": null
+       },
+       {
+        "color": "#8e8e8e",
+        "value": 80
+       }
+      ]
+     },
+     "displayName": "${__field.labels.ap}",
+     "min": 0,
+     "decimals": 0
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "ap1"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#3987e5"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "ap2"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#d95926"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "ap3"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#199e70"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "ap4"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#c98500"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "legend": {
+     "showLegend": true,
+     "displayMode": "table",
+     "placement": "right",
+     "calcs": [
+      "lastNotNull",
+      "max"
+     ]
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "none"
+    }
+   }
+  },
+  {
+   "id": 3,
+   "type": "timeseries",
+   "title": "Clients per AP",
+   "description": "Associated stations per AP (AP agent n_clients). A flash crowd shows as a step up on ap1.",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "influxdb"
+   },
+   "gridPos": {
+    "h": 7,
+    "w": 12,
+    "x": 0,
+    "y": 9
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "influxdb"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ap_stats\" and r._field == \"n_clients\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> group(columns: [\"ap\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "custom": {
+      "lineWidth": 2,
+      "fillOpacity": 0,
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "stepAfter",
+      "axisSoftMin": 0,
+      "gradientMode": "none",
+      "thresholdsStyle": {
+       "mode": "off"
+      }
+     },
+     "color": {
+      "mode": "palette-classic"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "transparent",
+        "value": null
+       }
+      ]
+     },
+     "displayName": "${__field.labels.ap}",
+     "decimals": 0
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "ap1"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#3987e5"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "ap2"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#d95926"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "ap3"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#199e70"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "ap4"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#c98500"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "legend": {
+     "showLegend": true,
+     "displayMode": "table",
+     "placement": "right",
+     "calcs": [
+      "lastNotNull",
+      "max"
+     ]
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "none"
+    }
+   }
+  },
+  {
+   "id": 4,
+   "type": "timeseries",
+   "title": "Channel per AP",
+   "description": "2.4 GHz channel of each AP. APs drawn on the same level share a channel and interfere (co-channel cap, radio_model).",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "influxdb"
+   },
+   "gridPos": {
+    "h": 7,
+    "w": 12,
+    "x": 12,
+    "y": 9
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "influxdb"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ap_stats\" and r._field == \"tx_power_dbm\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> map(fn: (r) => ({r with _value: float(v: r.channel)}))\n  |> group(columns: [\"ap\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "custom": {
+      "lineWidth": 2,
+      "fillOpacity": 0,
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "stepAfter",
+      "axisSoftMin": 0,
+      "gradientMode": "none",
+      "thresholdsStyle": {
+       "mode": "off"
+      }
+     },
+     "color": {
+      "mode": "palette-classic"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "transparent",
+        "value": null
+       }
+      ]
+     },
+     "displayName": "${__field.labels.ap}",
+     "min": 0,
+     "max": 12,
+     "decimals": 0
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "ap1"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#3987e5"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "ap2"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#d95926"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "ap3"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#199e70"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "ap4"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#c98500"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "legend": {
+     "showLegend": true,
+     "displayMode": "table",
+     "placement": "right",
+     "calcs": [
+      "lastNotNull",
+      "max"
+     ]
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "none"
+    }
+   }
+  },
+  {
+   "id": 101,
+   "type": "row",
+   "title": "Traffic KPIs by class",
+   "collapsed": false,
+   "panels": [],
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 16
+   }
+  },
+  {
+   "id": 5,
+   "type": "timeseries",
+   "title": "Mean flow throughput (Mbit/s)",
+   "description": "Mean throughput per flow, by traffic class (KPI probe). Web is the goodput of each finished fetch.",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "influxdb"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 8,
+    "x": 0,
+    "y": 17
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "influxdb"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"kpi\" and r._field == \"throughput_mbps\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> group(columns: [\"app_class\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "Mbits",
+     "custom": {
+      "lineWidth": 2,
+      "fillOpacity": 0,
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "linear",
+      "axisSoftMin": 0,
+      "gradientMode": "none",
+      "thresholdsStyle": {
+       "mode": "off"
+      }
+     },
+     "color": {
+      "mode": "palette-classic"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "transparent",
+        "value": null
+       }
+      ]
+     },
+     "displayName": "${__field.labels.app_class}",
+     "decimals": 2
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "video"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#d55181"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "web"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#008300"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "bulk"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#9085e9"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "legend": {
+     "showLegend": true,
+     "displayMode": "table",
+     "placement": "right",
+     "calcs": [
+      "lastNotNull",
+      "max"
+     ]
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "none"
+    }
+   }
+  },
+  {
+   "id": 6,
+   "type": "timeseries",
+   "title": "p95 latency (ms)",
+   "description": "95th-percentile round-trip time to srv1 across the flows of each class (KPI probe, ping).",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "influxdb"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 8,
+    "x": 8,
+    "y": 17
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "influxdb"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"kpi\" and r._field == \"latency_ms\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> group(columns: [\"app_class\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: (column, tables=<-) => tables |> quantile(q: 0.95, column: column), createEmpty: false)\n"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "ms",
+     "custom": {
+      "lineWidth": 2,
+      "fillOpacity": 0,
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "linear",
+      "axisSoftMin": 0,
+      "gradientMode": "none",
+      "thresholdsStyle": {
+       "mode": "off"
+      }
+     },
+     "color": {
+      "mode": "palette-classic"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "transparent",
+        "value": null
+       }
+      ]
+     },
+     "displayName": "${__field.labels.app_class}",
+     "decimals": 0
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "video"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#d55181"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "web"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#008300"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "bulk"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#9085e9"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "legend": {
+     "showLegend": true,
+     "displayMode": "table",
+     "placement": "right",
+     "calcs": [
+      "lastNotNull",
+      "max"
+     ]
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "none"
+    }
+   }
+  },
+  {
+   "id": 7,
+   "type": "timeseries",
+   "title": "Packet loss (%)",
+   "description": "Mean loss across the flows of each class (video: iperf3 datagrams; bulk and web: ping and failed fetches).",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "influxdb"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 8,
+    "x": 16,
+    "y": 17
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "influxdb"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"kpi\" and r._field == \"loss_pct\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> group(columns: [\"app_class\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percent",
+     "custom": {
+      "lineWidth": 2,
+      "fillOpacity": 0,
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "linear",
+      "axisSoftMin": 0,
+      "gradientMode": "none",
+      "thresholdsStyle": {
+       "mode": "off"
+      }
+     },
+     "color": {
+      "mode": "palette-classic"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "transparent",
+        "value": null
+       }
+      ]
+     },
+     "displayName": "${__field.labels.app_class}",
+     "min": 0,
+     "decimals": 1
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "video"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#d55181"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "web"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#008300"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "bulk"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#9085e9"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "legend": {
+     "showLegend": true,
+     "displayMode": "table",
+     "placement": "right",
+     "calcs": [
+      "lastNotNull",
+      "max"
+     ]
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "none"
+    }
+   }
+  },
+  {
+   "id": 102,
+   "type": "row",
+   "title": "Wired links",
+   "collapsed": false,
+   "panels": [],
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 25
+   }
+  },
+  {
+   "id": 8,
+   "type": "timeseries",
+   "title": "Core link s1-s2 (Mbit/s)",
+   "description": "Traffic on s1 port 3, the 100 Mbit/s link between the two switches (both directions).",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "influxdb"
+   },
+   "gridPos": {
+    "h": 7,
+    "w": 12,
+    "x": 0,
+    "y": 26
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "influxdb"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"port_stats\" and r._field == \"tx_bps\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> filter(fn: (r) => r.dpid == \"0000000000000001\" and r.port == \"3\")\n  |> map(fn: (r) => ({r with _value: r._value / 1000000.0}))\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "Mbits",
+     "custom": {
+      "lineWidth": 2,
+      "fillOpacity": 0,
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "linear",
+      "axisSoftMin": 0,
+      "gradientMode": "none",
+      "thresholdsStyle": {
+       "mode": "off"
+      }
+     },
+     "color": {
+      "mode": "fixed",
+      "fixedColor": "text"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "transparent",
+        "value": null
+       }
+      ]
+     },
+     "decimals": 2
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "showLegend": false,
+     "displayMode": "table",
+     "placement": "right",
+     "calcs": [
+      "lastNotNull",
+      "max"
+     ]
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "none"
+    }
+   }
+  },
+  {
+   "id": 9,
+   "type": "timeseries",
+   "title": "Server link srv1 (Mbit/s)",
+   "description": "Traffic from srv1 into s1 (s1 port 4, 1 Gbit/s): all downlink video, web and bulk traffic starts here.",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "influxdb"
+   },
+   "gridPos": {
+    "h": 7,
+    "w": 12,
+    "x": 12,
+    "y": 26
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "influxdb"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"port_stats\" and r._field == \"rx_bps\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> filter(fn: (r) => r.dpid == \"0000000000000001\" and r.port == \"4\")\n  |> map(fn: (r) => ({r with _value: r._value / 1000000.0}))\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "Mbits",
+     "custom": {
+      "lineWidth": 2,
+      "fillOpacity": 0,
+      "showPoints": "never",
+      "spanNulls": false,
+      "lineInterpolation": "linear",
+      "axisSoftMin": 0,
+      "gradientMode": "none",
+      "thresholdsStyle": {
+       "mode": "off"
+      }
+     },
+     "color": {
+      "mode": "fixed",
+      "fixedColor": "text"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "transparent",
+        "value": null
+       }
+      ]
+     },
+     "decimals": 2
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "showLegend": false,
+     "displayMode": "table",
+     "placement": "right",
+     "calcs": [
+      "lastNotNull",
+      "max"
+     ]
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "none"
+    }
+   }
+  }
+ ]
+}

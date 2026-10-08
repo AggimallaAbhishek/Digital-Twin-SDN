@@ -9,7 +9,7 @@ Runs **on the testbed VM** (Ubuntu 20.04, **Python 3.8**; see ADR-003). Covers M
 | `ap_agent.py`, `ap_logic.py` | P1.3 AP agent (REST, port 8081) | ✅ `make ap-agent-vm` |
 | `mobility/` | P1.4 scheduled-crowd mobility | ✅ `make mobility-vm` |
 | `traffic/` | P1.5 traffic profiles + KPI probe (`GET /kpi` on the agent) | ✅ `make traffic-vm` |
-| `run_scenario.py` | P1.6 | — |
+| `run_scenario.py`, `scenario_plan.py`, `interference.py` | P1.6 scenario runner (+ co-channel interference emulation) | ✅ `make scenario-repro-vm` |
 
 **Rules for this folder**
 - Keep code Python 3.8-compatible. `ruff.toml` here sets `target-version = py38`.
@@ -93,3 +93,31 @@ probe.stop_all()
 ```
 
 `parse.py` and `profiles.py` are pure: unit-tested on the Mac with 100% branch coverage. `runner.py` drives Mininet-WiFi on the VM. Every record is also appended to `<LOG_DIR>/kpi.jsonl`.
+
+## Scenario runner (`run_scenario.py`, P1.6)
+
+```bash
+make scenario-vm SCENARIO=lecture_flash_crowd        # one unattended run (~11 min)
+make scenario-repro-vm SCENARIO=lecture_flash_crowd  # 3 runs, same seed, throughput within ±5%
+```
+
+It plays `experiments/scenarios/<id>.yaml` on campus_v1 with the AP agent serving on port 8081 (reachable from the Mac for the collector, P2.1) and the traffic probe behind `GET /kpi`:
+
+- **Crowd walks** (`mobility/`) run on the scenario clock.
+- **Traffic** starts at each item's `start_s`. Selectors (`*`, `<zone>:*`, `staN`) are resolved at that moment from the planned positions, so `lecture_hall:*` includes the walkers who have arrived. All flows of a step start together, with one 0.5 s server wait.
+- **Events** are the *environment* changing, so they don't go through the twin:
+  - `force_channel` uses the agent's channel switch;
+  - `ap_down` / `ap_up` run `hostapd_cli disable` / `enable`.
+
+  After an `ap_down`, the stations it dropped rejoin the nearest AP that is still up after `radio_model.orphan_rejoin_s` (5 s), all at once, like real clients. After an `ap_up`, nobody moves back: stations are sticky.
+- **Interference** (`interference.py`, deviation #7): every second the runner re-reads every AP's channel and caps each one's downlink with an htb qdisc at `4.6 / (1 + Σ w)`. Here `w` is 1 for a same-channel AP that is up and within 30 m, falling to 0 at 60 m. Caps are removed as soon as the channels change. See docs/scenario.md "Radio model" for why.
+
+**Artefacts** in `<LOG_DIR>/runs/<run_id>/`:
+- `manifest.json`: seed, git commit, config hash and host;
+- `events.jsonl`: scenario time of every traffic start, event, cap change, arrival and rejoin;
+- `kpi.jsonl`: every KPI record;
+- `summary.json`: per class, record count, mean throughput, p50/p95 latency and mean loss.
+
+**Pure and Mac-tested:** `scenario_plan.py` and `interference.py` (100% branch coverage). `tests/contract/test_scenario_files.py` checks every scenario file against `common/schemas.py` `Scenario`.
+
+**Clock:** `make sync-vm` also sets the VM clock from the Mac (`make vm-clock`; setup.md Known problems #12). Telemetry timestamps come from the VM.

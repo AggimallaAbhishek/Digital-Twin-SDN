@@ -25,11 +25,13 @@ import urllib.request
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+from common.schemas import TelemetryRecord
 from telemetry.collector.records import (
     Batch,
     Meta,
@@ -39,6 +41,7 @@ from telemetry.collector.records import (
     from_ryu_ports,
     from_stations,
     line_protocol,
+    series_key,
 )
 
 log = logging.getLogger("telemetry.collector")
@@ -148,6 +151,8 @@ class Collector:
         self._ryu = f"http://{config.vm_host}:{config.ryu_port}"
         self._agent = f"http://{config.vm_host}:{config.agent_port}"
         self._aps: list[str] | None = None
+        # newest ts written per series: /kpi returns each flow's *latest* record every poll
+        self._written: dict[tuple[Any, ...], datetime] = {}
         self._pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="collector")
 
     def poll_once(self, now: float) -> PollReport:
@@ -162,14 +167,16 @@ class Collector:
             except FetchError as exc:
                 report.failed_sources.append(name)
                 self.health.poll(name, now, ok=False)
-                log.warning("poll failed", extra={"source": name, "error": str(exc)})
-        records = [r for b in batches for r in b.records]
+                log.warning("poll of %s failed: %s", name, exc)
+        records = [r for b in batches for r in b.records if self._is_new(r)]
         report.invalid = [e for b in batches for e in b.errors]
         for error in report.invalid:
-            log.warning("invalid record dropped", extra={"error": error})
+            log.warning("invalid record dropped: %s", error)
         if records:
             self._write([line_protocol(r) for r in records])
             self.health.written([r.ts.timestamp() for r in records], self._clock())
+            for record in records:
+                self._written[series_key(record)] = record.ts
         report.records = len(records)
         return report
 
@@ -182,9 +189,13 @@ class Collector:
             try:
                 self.poll_once(now)
             except WriteError as exc:
-                log.error("write failed", extra={"error": str(exc)})
+                log.error("write failed: %s", exc)
             next_poll += self.config.period_s
             time.sleep(max(0.0, next_poll - self._clock()))
+
+    def _is_new(self, record: TelemetryRecord) -> bool:
+        last = self._written.get(series_key(record))
+        return last is None or record.ts > last
 
     def _jobs(self) -> dict[str, Callable[[], Batch]]:
         get = self._get

@@ -80,6 +80,12 @@ def from_kpis(body: Any, meta: Meta) -> Batch:
     return _map(body, "kpis", KPIRecord, meta)
 
 
+def series_key(record: TelemetryRecord) -> tuple[Any, ...]:
+    """Identifies a time series: measurement plus its tag values (one point per ts)."""
+    values = record.model_dump(include={*TAGS[type(record)], *RUN_TAGS})
+    return (MEASUREMENTS[type(record)], *sorted(values.items()))
+
+
 def line_protocol(record: TelemetryRecord) -> str:
     """One InfluxDB line: `measurement,tags fields ts_ns` (sorted; None values left out)."""
     values = record.model_dump(exclude={"ts"})

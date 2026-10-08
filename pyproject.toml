@@ -83,6 +83,8 @@ markers = [
 source = ["common", "twin", "ml", "genai", "api", "telemetry", "controller"]
 source_pkgs = [
     "testbed.ap_logic",
+    "testbed.interference",
+    "testbed.scenario_plan",
     "testbed.mobility.crowd",
     "testbed.traffic.parse",
     "testbed.traffic.profiles",

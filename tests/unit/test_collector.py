@@ -113,6 +113,16 @@ def test_one_poll_writes_every_measurement() -> None:
     assert len(writer.lines) == report.records == expected
 
 
+def test_records_already_written_are_not_written_again() -> None:
+    vm, writer = FakeVM(), FakeWriter()
+    collector = _collector(vm, writer)
+    first = collector.poll_once(now=0.0)
+    second = collector.poll_once(now=1.0)  # the fake VM answers with the same records
+    assert first.records > 0
+    assert second.records == 0
+    assert len(writer.lines) == first.records
+
+
 def test_ap_list_is_fetched_once() -> None:
     vm, writer = FakeVM(), FakeWriter()
     collector = _collector(vm, writer)

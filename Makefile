@@ -87,20 +87,22 @@ traffic-vm: sync-vm ## P1.5 traffic + KPI probe check on the VM (video, bulk, we
 
 SCENARIO ?= lecture_flash_crowd
 GIT_COMMIT = $(shell git rev-parse --short HEAD)$(shell git diff --quiet HEAD -- || echo -dirty)
+# caffeinate -i: the Mac must not idle-sleep during long runs (it pauses the VM; setup.md #13)
+KEEP_AWAKE = $(shell command -v caffeinate >/dev/null && echo caffeinate -i)
 RUN_SCENARIO = RYU_APP=controller.apps.twin_controller RYU_STARTUP_S=5 TIMEOUT_S=1200 ~/Digital-Twin-SDN/testbed/run_on_vm.sh
 
 scenario-vm: sync-vm ## P1.6 run one scenario on the VM (SCENARIO=lecture_flash_crowd, ~11 min)
-	ssh sdnvm '$(RUN_SCENARIO) scenario-$(SCENARIO) testbed.run_scenario experiments/scenarios/$(SCENARIO).yaml --git-commit $(GIT_COMMIT)'
+	$(KEEP_AWAKE) ssh sdnvm '$(RUN_SCENARIO) scenario-$(SCENARIO) testbed.run_scenario experiments/scenarios/$(SCENARIO).yaml --git-commit $(GIT_COMMIT)'
 
 scenario-repro-vm: sync-vm ## P1.6 run SCENARIO 3x with its seed and compare throughput (±5%, ~35 min)
-	for i in 1 2 3; do ssh sdnvm '$(RUN_SCENARIO) repro-$(SCENARIO)-'$$i' testbed.run_scenario experiments/scenarios/$(SCENARIO).yaml --run-id repro-$(SCENARIO)-'$$i' --git-commit $(GIT_COMMIT)' || exit 1; done
+	for i in 1 2 3; do $(KEEP_AWAKE) ssh sdnvm '$(RUN_SCENARIO) repro-$(SCENARIO)-'$$i' testbed.run_scenario experiments/scenarios/$(SCENARIO).yaml --run-id repro-$(SCENARIO)-'$$i' --git-commit $(GIT_COMMIT)' || exit 1; done
 	ssh sdnvm 'cd ~/Digital-Twin-SDN && python3 -B -m testbed.checks.repro_check ~/p02/runs/repro-$(SCENARIO)-1 ~/p02/runs/repro-$(SCENARIO)-2 ~/p02/runs/repro-$(SCENARIO)-3'
 
 SCENARIO_ID ?= $(SCENARIO)
 RUN_ID ?= $(SCENARIO_ID)-manual
 
 collect: ## P2.1 collector: VM -> InfluxDB (SCENARIO_ID=, RUN_ID=, optional DURATION_S=; needs `make up`)
-	@set -a; . ./.env; set +a; $(RUN) python -m telemetry.collector.collector --scenario-id $(SCENARIO_ID) --run-id $(RUN_ID) $(if $(DURATION_S),--duration-s $(DURATION_S))
+	@set -a; . ./.env; set +a; $(KEEP_AWAKE) $(RUN) python -m telemetry.collector.collector --scenario-id $(SCENARIO_ID) --run-id $(RUN_ID) $(if $(DURATION_S),--duration-s $(DURATION_S))
 
 llm-check: ## P0.7: main + fallback LLM intent -> Policy check (config/llm.yaml; needs Ollama)
 	$(RUN) python -m genai.eval.compare_models

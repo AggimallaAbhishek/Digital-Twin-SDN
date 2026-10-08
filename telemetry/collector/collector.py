@@ -104,6 +104,7 @@ class Health:
 
     records: int = 0
     max_lag_s: float = 0.0
+    max_lag_by_measurement: dict[str, float] = field(default_factory=dict)
     failures: dict[str, int] = field(default_factory=dict)
     max_gap_s: dict[str, float] = field(default_factory=dict)
     _last_ok: dict[str, float] = field(default_factory=dict)
@@ -117,11 +118,16 @@ class Health:
         self.max_gap_s[source] = max(self.max_gap_s.get(source, 0.0), gap)
         self._last_ok[source] = t
 
-    def written(self, record_times: list[float], written_at: float) -> None:
-        """Record a successful write of records stamped `record_times` (epoch seconds)."""
-        self.records += len(record_times)
-        if record_times:
-            self.max_lag_s = max(self.max_lag_s, written_at - min(record_times))
+    def written(self, record_times: dict[str, list[float]], written_at: float) -> None:
+        """Record a successful write; `record_times` maps measurement -> record ts (epoch s)."""
+        for measurement, times in record_times.items():
+            if not times:
+                continue
+            self.records += len(times)
+            lag = written_at - min(times)
+            self.max_lag_s = max(self.max_lag_s, lag)
+            worst = self.max_lag_by_measurement.get(measurement, 0.0)
+            self.max_lag_by_measurement[measurement] = max(worst, lag)
 
     def finish(self, at: float) -> None:
         """End of run: time since each source's last success counts as a gap too."""
@@ -199,7 +205,10 @@ class Collector:
         except WriteError as exc:
             log.error("write failed: %s", exc)
             return False
-        self.health.written([r.ts.timestamp() for _, r in new], self._clock())
+        times: dict[str, list[float]] = {}
+        for key, record in new:
+            times.setdefault(key[0], []).append(record.ts.timestamp())  # key[0] = measurement
+        self.health.written(times, self._clock())
         for key, record in new:
             self._written[key] = record.ts
         return True
@@ -209,7 +218,11 @@ class Collector:
         start = self._clock()
         next_poll = start
         while duration_s is None or self._clock() - start < duration_s:
-            self.poll_once(self._clock())
+            started = self._clock()
+            self.poll_once(started)
+            took = self._clock() - started
+            if took > self.config.period_s:
+                log.warning("poll took %.2f s (period %.1f s)", took, self.config.period_s)
             next_poll += self.config.period_s
             time.sleep(max(0.0, next_poll - self._clock()))
 

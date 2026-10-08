@@ -188,9 +188,10 @@ def test_a_source_that_never_answered_has_no_gap() -> None:
 
 def test_lag_is_write_time_minus_record_time() -> None:
     health = Health()
-    health.written(record_times=[10.0, 10.4, 9.7], written_at=11.0)
-    health.written(record_times=[11.2], written_at=12.0)
+    health.written({"kpi": [10.0, 10.4], "port_stats": [9.7]}, written_at=11.0)
+    health.written({"kpi": [11.2]}, written_at=12.0)
     assert health.max_lag_s == pytest.approx(1.3)
+    assert health.max_lag_by_measurement == pytest.approx({"kpi": 1.0, "port_stats": 1.3})
     assert health.records == 4
 
 
@@ -198,7 +199,7 @@ def test_verdict_against_the_done_when_limits() -> None:
     health = Health()
     health.poll("kpi", 0.0, True)
     health.poll("kpi", 1.0, True)
-    health.written(record_times=[0.5], written_at=1.0)
+    health.written({"kpi": [0.5]}, written_at=1.0)
     assert health.passed(max_lag_s=2.0, max_gap_s=5.0)
     health.poll("kpi", 7.0, True)
     assert not health.passed(max_lag_s=2.0, max_gap_s=5.0)

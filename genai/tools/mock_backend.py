@@ -27,6 +27,12 @@ class MockBackend:
     def __init__(self, fixtures: Path = FIXTURES) -> None:
         self._fixtures = fixtures
         self._verdicts: dict[str, Verdict] = {}
+        kpis = (fixtures / "traffic/kpi_records.jsonl").read_text().splitlines()
+        rows = [json.loads(line) for line in kpis] + self._json("ap_agent/ap_agent_ap_stats.json")[
+            "aps"
+        ]
+        # (time, record) once, so metrics() does no file I/O or date parsing per call
+        self._series = [(datetime.fromisoformat(r["ts"]), r) for r in rows]
 
     def topology(self) -> dict[str, Any]:
         aps = self._json("ap_agent/ap_agent_aps.json")["aps"]
@@ -35,21 +41,16 @@ class MockBackend:
         return {"aps": aps, "stations": stations, "switches": switches, "links": []}
 
     def metrics(self, entity: str, metric: str, window_s: int) -> list[dict[str, Any]]:
-        rows = [
-            json.loads(line)
-            for line in (self._fixtures / "traffic/kpi_records.jsonl").read_text().splitlines()
+        mine = [
+            (t, r)
+            for t, r in self._series
+            if entity in (r.get("flow_id"), r.get("ap")) and metric in r
         ]
-        rows += self._json("ap_agent/ap_agent_ap_stats.json")["aps"]
-        mine = [r for r in rows if entity in (r.get("flow_id"), r.get("ap")) and metric in r]
         if not mine:
             return []
-        latest = max(datetime.fromisoformat(r["ts"]) for r in mine)
-        since = latest - timedelta(seconds=window_s)
-        return [
-            {"ts": r["ts"], "value": r[metric]}
-            for r in mine
-            if datetime.fromisoformat(r["ts"]) >= since
-        ]
+        # recorded data: the window ends at the newest sample, not now (the live backend: now)
+        since = max(t for t, _ in mine) - timedelta(seconds=window_s)
+        return [{"ts": r["ts"], "value": r[metric]} for t, r in mine if t >= since]
 
     def alerts(self, since_s: int) -> list[dict[str, Any]]:
         return []

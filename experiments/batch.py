@@ -1,7 +1,8 @@
 """P2.3 batch planning: which runs make up a dataset, and the VM command for each.
 
-Pure (no I/O): experiments/run_batch.py executes the plan. Split by run (RULEBOOK E-2): the
-config maps each seed to one split, so a run's rows all land in the same split.
+Pure apart from `load_scenario` (reads one YAML file); experiments/run_batch.py executes the
+plan. Split by run (RULEBOOK E-2): the config maps each seed to one split, so a run's rows all
+land in the same split.
 """
 
 from __future__ import annotations
@@ -9,9 +10,15 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
+import yaml
+
+from common.schemas import Scenario
+
 SPLITS = ("train", "val", "test")
+SCENARIOS_DIR = Path(__file__).resolve().parent / "scenarios"
 _KEYS = {"dataset_version", "scenarios", "seeds", "agent_wait_s"}
 _NAME = re.compile(r"^[a-z0-9_]+$")
 _VERSION = re.compile(r"^v[0-9]+$")
@@ -96,3 +103,13 @@ def host_slept(wall_elapsed_s: float, monotonic_elapsed_s: float) -> bool:
     wall clock does not. A sleeping Mac pauses the VM too, so such a run is not usable data
     (docs/setup.md Known problems #13)."""
     return wall_elapsed_s - monotonic_elapsed_s > SLEEP_TOLERANCE_S
+
+
+def load_scenario(name: str) -> Scenario:
+    """experiments/scenarios/<name>.yaml, validated against common/schemas.py."""
+    return Scenario.model_validate(yaml.safe_load((SCENARIOS_DIR / f"{name}.yaml").read_text()))
+
+
+def run_ok(report: Mapping[str, Any]) -> bool:
+    """A batch run is usable data: the scenario finished and the collector's checks passed."""
+    return bool(report.get("passed")) and bool(report.get("scenario_ok"))

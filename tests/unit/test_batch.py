@@ -13,8 +13,10 @@ from experiments.batch import (
     RunPlan,
     host_slept,
     load_batch_config,
+    load_scenario,
     plan_runs,
     remote_command,
+    run_ok,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -79,3 +81,23 @@ def test_host_sleep_shows_as_wall_time_running_ahead(
 ) -> None:
     # macOS: time.monotonic() stops while the Mac sleeps, time.time() does not
     assert host_slept(wall_s, monotonic_s) is slept
+
+
+def test_scenarios_load_from_the_scenario_folder() -> None:
+    scenario = load_scenario("ap_failure")
+    assert (scenario.scenario_id, scenario.duration_s) == ("ap_failure", 600.0)
+
+
+@pytest.mark.parametrize(
+    ("report", "ok"),
+    [
+        ({"passed": True, "scenario_ok": True}, True),
+        ({"passed": True, "scenario_ok": False}, False),
+        ({"passed": False, "scenario_ok": True}, False),
+        ({"run_id": "x"}, False),
+    ],
+)
+def test_a_run_is_usable_only_if_scenario_and_collector_passed(
+    report: dict[str, Any], ok: bool
+) -> None:
+    assert run_ok(report) is ok

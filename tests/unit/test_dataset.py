@@ -10,6 +10,7 @@ import pytest
 import yaml
 
 from common.schemas import APStats, KPIRecord, Scenario
+from experiments.batch import load_scenario
 from experiments.dataset import (
     Disruption,
     RunInfo,
@@ -22,11 +23,6 @@ from experiments.dataset import (
 ROOT = Path(__file__).resolve().parents[2]
 KPI_CSV = (ROOT / "tests/fixtures/influx/kpi_pivot.csv").read_text()
 AP_CSV = (ROOT / "tests/fixtures/influx/ap_stats_pivot.csv").read_text()
-
-
-def _scenario(name: str) -> Scenario:
-    raw = yaml.safe_load((ROOT / "experiments" / "scenarios" / f"{name}.yaml").read_text())
-    return Scenario.model_validate(raw)
 
 
 # ------------------------------------------------------------------ parsing
@@ -68,7 +64,7 @@ def test_empty_result_has_no_rows() -> None:
     ],
 )
 def test_each_scenario_has_its_disruption(name: str, expected: Disruption | None) -> None:
-    assert disruption(_scenario(name)) == expected
+    assert disruption(load_scenario(name)) == expected
 
 
 # ------------------------------------------------------------------ labels

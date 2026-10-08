@@ -106,7 +106,6 @@ class Health:
     started_at: float = 0.0  # records stamped earlier are backlog: written, but not lag
     records: int = 0
     backlog_records: int = 0
-    max_lag_s: float = 0.0
     max_lag_by_measurement: dict[str, float] = field(default_factory=dict)
     failures: dict[str, int] = field(default_factory=dict)
     max_gap_s: dict[str, float] = field(default_factory=dict)
@@ -130,9 +129,13 @@ class Health:
             if not times:
                 continue
             lag = written_at - min(times)
-            self.max_lag_s = max(self.max_lag_s, lag)
             worst = self.max_lag_by_measurement.get(measurement, 0.0)
             self.max_lag_by_measurement[measurement] = max(worst, lag)
+
+    @property
+    def max_lag_s(self) -> float:
+        """Worst lag over all measurements."""
+        return max(self.max_lag_by_measurement.values(), default=0.0)
 
     def finish(self, at: float) -> None:
         """End of run: time since each source's last success counts as a gap too."""
@@ -369,6 +372,7 @@ def main(argv: list[str] | None = None) -> int:
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     summary = {"scenario_id": args.scenario_id, "run_id": args.run_id, "passed": ok}
     summary |= {k: v for k, v in asdict(health).items() if not k.startswith("_")}
+    summary["max_lag_s"] = health.max_lag_s
     (LOG_DIR / f"{args.run_id}.json").write_text(json.dumps(summary, indent=1))
     worst_gap = max(health.max_gap_s.values(), default=0.0)
     print(

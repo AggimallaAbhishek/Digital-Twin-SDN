@@ -16,25 +16,26 @@ These are proposals: the twin verifier (P3.4) still checks every action and its 
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from pydantic import BaseModel
+
 from common.schemas import (
+    ACTION_ADAPTER,
     CHANNELS_24GHZ,
     Action,
-    SetApChannel,
     SetApChannelParams,
-    SteerClients,
     SteerClientsParams,
 )
 from twin.radio import RadioParams, cochannel_load, predicted_rssi_dbm
 from twin.state.model import APState, TwinState
 
 SOURCE = "optimizer.heuristic"
-_KEYS = ("util_high", "util_target", "max_steer_fraction", "min_target_rssi_dbm")
 
 
 @dataclass(frozen=True)
@@ -45,6 +46,11 @@ class HeuristicConfig:
     util_target: float
     max_steer_fraction: float
     min_target_rssi_dbm: float
+
+
+_KEYS = tuple(f.name for f in dataclasses.fields(HeuristicConfig))
+# A proposal before it gets an id: the action type, its params, and why
+Draft = tuple[str, BaseModel, str]
 
 
 def load_heuristic_config(raw: Mapping[str, Any]) -> HeuristicConfig:
@@ -67,8 +73,8 @@ def load_heuristic_config(raw: Mapping[str, Any]) -> HeuristicConfig:
 
 
 def propose(state: TwinState, config: HeuristicConfig, radio: RadioParams) -> list[Action]:
-    """Steering then channel proposals, with deterministic ids (act_<ts>_<n>)."""
-    drafts: list[tuple[str, Any, str]] = [
+    """Steering then channel proposals, with deterministic ids (act_<ts>_<n>_<content hash>)."""
+    drafts: list[Draft] = [
         *_steering(state, config, radio),
         *_channel_changes(state, config, radio),
     ]
@@ -77,24 +83,20 @@ def propose(state: TwinState, config: HeuristicConfig, radio: RadioParams) -> li
     for n, (kind, params, reason) in enumerate(drafts, start=1):
         # the content hash keeps ids distinct across propose() calls within the same second
         digest = hashlib.sha256(f"{kind}{params.model_dump_json()}".encode()).hexdigest()[:8]
-        base = {
+        action = {
             "action_id": f"act_{stamp}_{n:03d}_{digest}",
+            "type": kind,  # selects the Action class (common/schemas.py discriminator)
             "source": SOURCE,
             "reason": reason,
             "created_at": state.ts,
             "params": params,
         }
-        if kind == "steer_clients":
-            actions.append(SteerClients(type="steer_clients", **base))
-        else:
-            actions.append(SetApChannel(type="set_ap_channel", **base))
+        actions.append(ACTION_ADAPTER.validate_python(action))
     return actions
 
 
-def _steering(
-    state: TwinState, config: HeuristicConfig, radio: RadioParams
-) -> list[tuple[str, SteerClientsParams, str]]:
-    drafts = []
+def _steering(state: TwinState, config: HeuristicConfig, radio: RadioParams) -> list[Draft]:
+    drafts: list[Draft] = []
     up = state.up_aps()
     for ap in sorted((a for a in up if a.util >= config.util_high), key=lambda a: -a.util):
         clients = state.clients(ap.name)
@@ -137,9 +139,7 @@ def _movable(
     return sorted(usable, key=lambda s: -signal[s])
 
 
-def _channel_changes(
-    state: TwinState, config: HeuristicConfig, radio: RadioParams
-) -> list[tuple[str, SetApChannelParams, str]]:
+def _channel_changes(state: TwinState, config: HeuristicConfig, radio: RadioParams) -> list[Draft]:
     up = state.up_aps()
     channels = {ap.name: ap.channel for ap in up}
 
@@ -147,16 +147,17 @@ def _channel_changes(
         others = [o for o in up if o.name != ap.name and channels[o.name] == channel]
         return cochannel_load((math.dist(ap.position, o.position) for o in others), radio)
 
-    drafts = []
+    drafts: list[Draft] = []
     for ap in sorted(up, key=lambda a: (-load(a, channels[a.name]), a.name)):
         current = load(ap, channels[ap.name])
         if current == 0 or ap.util < config.util_high:
             continue
         best = min(CHANNELS_24GHZ, key=lambda ch: (load(ap, ch), ch != channels[ap.name], ch))
-        if load(ap, best) < current:
+        best_load = load(ap, best)
+        if best_load < current:
             reason = (
                 f"{ap.name} on channel {channels[ap.name]} has co-channel load {current:.2f}; "
-                f"channel {best} has {load(ap, best):.2f}"
+                f"channel {best} has {best_load:.2f}"
             )
             drafts.append(("set_ap_channel", SetApChannelParams(ap=ap.name, channel=best), reason))
             channels[ap.name] = best  # later decisions see this move

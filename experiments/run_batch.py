@@ -25,11 +25,19 @@ from typing import Any
 
 import yaml
 
-from common.schemas import Scenario
-from experiments.batch import RunPlan, host_slept, load_batch_config, plan_runs, remote_command
+from experiments.batch import (
+    RunPlan,
+    host_slept,
+    load_batch_config,
+    load_scenario,
+    plan_runs,
+    remote_command,
+    run_ok,
+)
 from experiments.shell import git_commit, run, tool
 from telemetry.collector.collector import (
     Collector,
+    CollectorConfig,
     FetchError,
     InfluxWriter,
     http_fetch,
@@ -83,18 +91,11 @@ def inputs_hash(batch_config: Path, scenarios: tuple[str, ...]) -> str:
     return digest.hexdigest()[:16]
 
 
-def scenario_duration_s(scenario: str) -> float:
-    """duration_s of experiments/scenarios/<scenario>.yaml (validated as a Scenario)."""
-    path = ROOT / "experiments" / "scenarios" / f"{scenario}.yaml"
-    return Scenario.model_validate(yaml.safe_load(path.read_text())).duration_s
-
-
 def is_done(run_dir: Path) -> bool:
     """The run's files are all here and both the scenario and the collector passed."""
     if not all((run_dir / name).exists() for name in (*VM_FILES, "collector.json")):
         return False
-    collector = json.loads((run_dir / "collector.json").read_text())
-    return bool(collector.get("passed")) and bool(collector.get("scenario_ok"))
+    return run_ok(json.loads((run_dir / "collector.json").read_text()))
 
 
 def wait_for_agent(url: str, timeout_s: float, scenario: subprocess.Popen[bytes]) -> bool:
@@ -119,44 +120,54 @@ def play(plan: RunPlan, run_dir: Path, agent_wait_s: float, commit: str) -> dict
     agent = f"http://{config.vm_host}:{config.agent_port}/aps"
     report: dict[str, Any] = {"run_id": plan.run_id, "split": plan.split, "passed": False}
     if wait_for_agent(agent, agent_wait_s, scenario):
-        collector = Collector(
-            config, Meta(plan.scenario, plan.run_id), http_fetch, InfluxWriter.from_env(config)
-        )
-        stop = threading.Event()
-        thread = threading.Thread(target=collector.run, args=(None, stop), daemon=True)
-        thread.start()
-        # The scenario clock starts just after the agent answers: stop collecting before the
-        # VM tears the network down, so teardown is not counted as a gap.
-        end = time.monotonic() + scenario_duration_s(plan.scenario) - END_MARGIN_S
-        while scenario.poll() is None and time.monotonic() < end:
-            time.sleep(POLL_S / 4)
-        stop.set()
-        thread.join(timeout=JOIN_TIMEOUT_S)
-        _wait(scenario, plan)
-        health = collector.health
-        health.finish(at=time.time())
-        report |= {
-            "passed": health.passed(config.max_lag_s, config.max_gap_s),
-            "records": health.records,
-            "backlog_records": health.backlog_records,
-            "max_lag_s": health.max_lag_s,
-            "max_gap_s": max(health.max_gap_s.values(), default=0.0),
-            "failures": health.failures,
-        }
+        report |= _collect(plan, scenario, config)
     else:
         log.error("%s: AP agent never answered", plan.run_id)
-        _wait(scenario, plan)
+    _wait(scenario, plan)
     report["scenario_ok"] = scenario.returncode == 0
     skew = vm_skew_s()
     report["vm_skew_after_s"] = round(skew, 2)
     if host_slept(time.time() - wall0, time.monotonic() - mono0) or abs(skew) > MAX_VM_SKEW_S:
         log.error("%s: the Mac slept during the run (VM skew %.1f s); re-run it", plan.run_id, skew)
         report |= {"passed": False, "host_slept": True}
+    _fetch_vm_files(plan, run_dir)
+    (run_dir / "collector.json").write_text(json.dumps(report, indent=1))
+    return report
+
+
+def _collect(
+    plan: RunPlan, scenario: subprocess.Popen[bytes], config: CollectorConfig
+) -> dict[str, Any]:
+    """Run the collector for the scenario's clock; return its health as report fields."""
+    meta = Meta(plan.scenario, plan.run_id)
+    collector = Collector(config, meta, http_fetch, InfluxWriter.from_env(config))
+    stop = threading.Event()
+    thread = threading.Thread(target=collector.run, args=(None, stop), daemon=True)
+    thread.start()
+    # The scenario clock starts just after the agent answers: stop collecting before the VM
+    # tears the network down, so teardown is not counted as a gap.
+    end = time.monotonic() + load_scenario(plan.scenario).duration_s - END_MARGIN_S
+    while scenario.poll() is None and time.monotonic() < end:
+        time.sleep(POLL_S / 4)
+    stop.set()
+    thread.join(timeout=JOIN_TIMEOUT_S)
+    health = collector.health
+    health.finish(at=time.time())
+    return {
+        "passed": health.passed(config.max_lag_s, config.max_gap_s),
+        "records": health.records,
+        "backlog_records": health.backlog_records,
+        "max_lag_s": health.max_lag_s,
+        "max_gap_s": max(health.max_gap_s.values(), default=0.0),
+        "failures": health.failures,
+    }
+
+
+def _fetch_vm_files(plan: RunPlan, run_dir: Path) -> None:
+    """Copy the run's manifest, events and summary from the VM (missing ones stay missing)."""
     for name in VM_FILES:
         source = f"{VM}:{VM_RUNS}/{plan.run_id}/{name}"
         run(["scp", "-q", source, str(run_dir / name)], check=False, timeout=SSH_TIMEOUT_S)
-    (run_dir / "collector.json").write_text(json.dumps(report, indent=1))
-    return report
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -180,7 +191,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             log.info("%s: starting (seed %d, %s)", plan.run_id, plan.seed, plan.split)
             report = play(plan, run_dir, config.agent_wait_s, commit)
-        ok = report["passed"] and report["scenario_ok"]
+        ok = run_ok(report)
         print(
             f"BATCH_RUN {plan.run_id} split={plan.split} -> {'PASS' if ok else 'FAIL'}", flush=True
         )
@@ -192,7 +203,7 @@ def main(argv: list[str] | None = None) -> int:
         "runs": results,
     }
     (out / "batch.json").write_text(json.dumps(batch, indent=1))
-    passed = sum(r["passed"] and r["scenario_ok"] for r in results)
+    passed = sum(run_ok(r) for r in results)
     verdict = "PASS" if passed == len(results) else "FAIL"
     print(f"BATCH_RESULT runs={passed}/{len(results)} -> {verdict}")
     return 0 if passed == len(results) else 1

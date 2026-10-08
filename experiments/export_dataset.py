@@ -15,28 +15,28 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import sys
 import urllib.parse
 import urllib.request
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import pyarrow.parquet as pq
-import yaml
+from pydantic import TypeAdapter, ValidationError
 
 from common.schemas import (
     MEASUREMENTS,
     APStats,
     FlowStats,
+    Identifier,
     KPIRecord,
     PortStats,
-    Scenario,
     StationStats,
     TelemetryRecord,
 )
-from experiments.batch import SPLITS
+from experiments.batch import SPLITS, load_scenario, run_ok
 from experiments.dataset import RunInfo, disruption, label_rows, parse_flux_csv, to_table
 from experiments.shell import git_commit
 from telemetry.collector.collector import is_http_url
@@ -49,7 +49,7 @@ EXPORTED: tuple[type[TelemetryRecord], ...] = (
     StationStats,
     KPIRecord,
 )
-_IDENTIFIER = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")  # = common/schemas.py Identifier
+_IDENTIFIER: TypeAdapter[str] = TypeAdapter(Identifier)
 MARGIN = timedelta(seconds=5)  # query window around the scenario clock
 QUERY_TIMEOUT_S = 120
 
@@ -78,8 +78,10 @@ def run_query(measurement: str, run_id: str, start: datetime, stop: datetime) ->
     """Flux for one run's rows of one measurement, one row per series and timestamp."""
     bucket = os.getenv("INFLUXDB_BUCKET", "telemetry")
     for value in (measurement, run_id, bucket):  # interpolated into Flux: identifiers only
-        if not _IDENTIFIER.match(value):
-            raise ValueError(f"not a safe identifier for a Flux query: {value!r}")
+        try:
+            _IDENTIFIER.validate_python(value)
+        except ValidationError as exc:
+            raise ValueError(f"not a safe identifier for a Flux query: {value!r}") from exc
     return (
         f'from(bucket: "{bucket}")\n'
         f"  |> range(start: {start.isoformat()}, stop: {stop.isoformat()})\n"
@@ -99,34 +101,60 @@ def scenario_start(run_dir: Path) -> datetime:
 
 
 def export(version: str) -> dict[str, Any]:
-    """Export every passed run of data/raw/<version>/ to data/<version>/; return the manifest."""
+    """Export every passed run of data/raw/<version>/ to data/<version>/; return the manifest.
+
+    Each run is written as soon as it is queried (one ParquetWriter per measurement), so memory
+    holds one run of one measurement at a time, not the whole dataset.
+    """
     raw = ROOT / "data" / "raw" / version
     batch = json.loads((raw / "batch.json").read_text())
-    runs = [r for r in batch["runs"] if r.get("passed") and r.get("scenario_ok")]
-    tables: dict[str, list[dict[str, Any]]] = {MEASUREMENTS[m]: [] for m in EXPORTED}
-    seconds = 0.0
-    for r in runs:
-        path = ROOT / "experiments" / "scenarios" / f"{r['scenario']}.yaml"
-        scenario = Scenario.model_validate(yaml.safe_load(path.read_text()))
-        info = RunInfo(r["run_id"], r["scenario"], r["seed"], r["split"])
-        t0 = scenario_start(raw / r["run_id"])
-        start, stop = t0 - MARGIN, t0 + timedelta(seconds=scenario.duration_s) + MARGIN
-        onset = disruption(scenario)
-        for model in EXPORTED:
-            name = MEASUREMENTS[model]
-            rows = parse_flux_csv(influx_csv(run_query(name, info.run_id, start, stop)), model)
-            tables[name] += label_rows(rows, info, t0, onset)
-        seconds += scenario.duration_s
+    runs = [r for r in batch["runs"] if run_ok(r)]
     out = ROOT / "data" / version
     out.mkdir(parents=True, exist_ok=True)
-    counts: dict[str, dict[str, int]] = {}
+    counts = {MEASUREMENTS[m]: dict.fromkeys(SPLITS, 0) for m in EXPORTED}
+    writers = {
+        MEASUREMENTS[m]: pq.ParquetWriter(
+            out / f"{MEASUREMENTS[m]}.parquet", to_table([], m).schema
+        )
+        for m in EXPORTED
+    }
+    try:
+        for r in runs:
+            info = RunInfo(r["run_id"], r["scenario"], r["seed"], r["split"])
+            for model, rows in _run_rows(raw, info):
+                writers[MEASUREMENTS[model]].write_table(to_table(rows, model))
+                counts[MEASUREMENTS[model]][info.split] += len(rows)
+    finally:
+        for writer in writers.values():
+            writer.close()
+    seconds = sum(load_scenario(r["scenario"]).duration_s for r in runs)
+    manifest = _manifest(version, batch, runs, seconds, counts)
+    (out / "manifest.json").write_text(json.dumps(manifest, indent=1))
+    return manifest
+
+
+def _run_rows(
+    raw: Path, info: RunInfo
+) -> Iterator[tuple[type[TelemetryRecord], list[dict[str, Any]]]]:
+    """One run's labelled rows, measurement by measurement."""
+    scenario = load_scenario(info.scenario_id)
+    t0 = scenario_start(raw / info.run_id)
+    start, stop = t0 - MARGIN, t0 + timedelta(seconds=scenario.duration_s) + MARGIN
+    onset = disruption(scenario)
     for model in EXPORTED:
-        name = MEASUREMENTS[model]
-        pq.write_table(to_table(tables[name], model), out / f"{name}.parquet")
-        counts[name] = {
-            split: sum(1 for row in tables[name] if row["split"] == split) for split in SPLITS
-        }
-    manifest = {
+        query = run_query(MEASUREMENTS[model], info.run_id, start, stop)
+        yield model, label_rows(parse_flux_csv(influx_csv(query), model), info, t0, onset)
+
+
+def _manifest(
+    version: str,
+    batch: dict[str, Any],
+    runs: list[dict[str, Any]],
+    seconds: float,
+    counts: dict[str, dict[str, int]],
+) -> dict[str, Any]:
+    """What the dataset is and how it was made (RULEBOOK E-3)."""
+    return {
         "dataset_version": version,
         "created": datetime.now(UTC).isoformat(timespec="seconds"),
         "git_commit": git_commit(),
@@ -139,8 +167,6 @@ def export(version: str) -> dict[str, Any]:
         "skipped_runs": [r["run_id"] for r in batch["runs"] if r not in runs],
         "rows": counts,
     }
-    (out / "manifest.json").write_text(json.dumps(manifest, indent=1))
-    return manifest
 
 
 def main(argv: list[str] | None = None) -> int:

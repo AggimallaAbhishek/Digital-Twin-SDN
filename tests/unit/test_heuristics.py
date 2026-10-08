@@ -16,12 +16,14 @@ from twin.radio import load_radio_params, predicted_rssi_dbm
 from twin.state.model import APState, StationState, TwinState
 
 ROOT = Path(__file__).resolve().parents[2]
-RADIO = load_radio_params(yaml.safe_load((ROOT / "config/campus_v1.yaml").read_text()))
+CAMPUS = yaml.safe_load((ROOT / "config/campus_v1.yaml").read_text())
+RADIO = load_radio_params(CAMPUS)
 RAW_CONFIG: dict[str, Any] = yaml.safe_load((ROOT / "config/optimizer.yaml").read_text())
 CONFIG = load_heuristic_config(RAW_CONFIG)
 TS = datetime(2026, 10, 8, 10, 3, 30, tzinfo=UTC)
-AP_POS = {"ap1": (20.0, 50.0), "ap2": (60.0, 50.0), "ap3": (20.0, 20.0), "ap4": (60.0, 20.0)}
-DEFAULT_CHANNELS = {"ap1": 1, "ap2": 6, "ap3": 11, "ap4": 1}
+# from the campus config: ap1 (20,50) ch1, ap2 (60,50) ch6, ap3 (20,20) ch11, ap4 (60,20) ch1
+AP_POS = {ap["name"]: (float(ap["position"][0]), float(ap["position"][1])) for ap in CAMPUS["aps"]}
+DEFAULT_CHANNELS = {ap["name"]: int(ap["channel"]) for ap in CAMPUS["aps"]}
 NEAR_AP3 = {"sta1": (20.0, 36.0), "sta2": (23.0, 37.0), "sta3": (17.0, 38.0)}  # 14-18 m from ap3
 
 

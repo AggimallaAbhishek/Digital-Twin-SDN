@@ -75,9 +75,10 @@ class ApAgent:
         self._baseline: dict[str, tuple[float, ap_logic.Counters]] = {}
         # Latest KPI records; set to TrafficProbe.latest when traffic runs (testbed/traffic, P1.5)
         self.kpi_source: Callable[[], list[Record]] = list
-        # Current downlink capacity per AP (deviation #8): nominal radio_model capacity unless the
-        # scenario runner's interference controller caps it (run_scenario.Radios.capacity_of)
-        self.capacity_of: Callable[[str], float] = lambda _ap: capacity_mbps
+        # Current downlink capacity per AP (deviation #8): the nominal radio_model capacity unless
+        # the scenario runner's interference controller sets a cap (set_capacity). Guarded by lock.
+        self._nominal_mbps = capacity_mbps
+        self._capacity_mbps: dict[str, float] = {}
 
     # ------------------------------------------------------------------ reads
     def list_aps(self) -> Record:
@@ -107,14 +108,13 @@ class ApAgent:
             now = time.monotonic()
             prev_t, prev = self._baseline.get(name, (now, None))
             self._baseline[name] = (now, ap_logic.byte_counters(clients))
+            capacity = self._capacity_mbps.get(name, self._nominal_mbps)
         return {
             "ts": _now(),
             "ap": name,
             "channel": iw.channel,
             "n_clients": len(clients),
-            "channel_util": ap_logic.capacity_util(
-                prev, clients, now - prev_t, self.capacity_of(name)
-            ),
+            "channel_util": ap_logic.capacity_util(prev, clients, now - prev_t, capacity),
             "tx_power_dbm": iw.tx_power_dbm,
             "retries": sum(c.tx_retries for c in clients),
             "noise_dbm": ap_logic.NOISE_FLOOR_DBM,
@@ -148,6 +148,14 @@ class ApAgent:
     def kpi(self) -> Record:
         """Latest KPI record of every traffic flow (empty when no TrafficProbe is attached)."""
         return {"ts": _now(), "kpis": self.kpi_source()}
+
+    def set_capacity(self, name: str, cap_mbps: float | None) -> None:
+        """Record an AP's co-channel cap (None: back to nominal) for its channel_util."""
+        with self.lock:
+            if cap_mbps is None:
+                self._capacity_mbps.pop(name, None)
+            else:
+                self._capacity_mbps[name] = cap_mbps
 
     # ------------------------------------------------------------------ writes
     def set_channel(self, name: str, body: Any) -> Record:

@@ -10,7 +10,7 @@ import pytest
 import yaml
 
 from common.influx import InfluxConnection
-from twin.state.builder import load_campus_aps
+from twin.state.builder import lag_s, load_campus_aps
 from twin.state.sync import SyncConfig, TwinSync, load_sync_config
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -57,7 +57,7 @@ def test_refresh_reads_the_recent_window_of_one_run() -> None:
         "range(start: 2026-10-08T09:44:20+00:00, stop: 2026-10-08T09:44:30+00:00)" in q
         for q in influx.queries
     )
-    assert sync.lag_s == pytest.approx(0.317)
+    assert lag_s(state, NOW) == pytest.approx(0.827)  # stalest measurement: sta_stats 29.173
 
 
 def test_no_telemetry_yet_is_an_error() -> None:

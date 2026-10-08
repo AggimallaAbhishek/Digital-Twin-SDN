@@ -61,10 +61,11 @@ def test_flows_carry_their_latest_kpis() -> None:
     assert (bulk.sta, bulk.app_class, bulk.throughput_mbps) == ("sta16", "bulk", 0.614)
 
 
-def test_state_time_and_lag_come_from_the_newest_record() -> None:
+def test_state_time_and_lag_come_from_the_stalest_measurement() -> None:
+    # newest per measurement: ap_stats 29.179, sta_stats 29.173, kpi 29.683 -> 29.173
     state = build_state(SNAPSHOT, CAMPUS, NOW, STALE_S)
-    assert state.ts == datetime(2026, 10, 8, 9, 44, 29, 683000, tzinfo=UTC)
-    assert lag_s(state, NOW) == pytest.approx(0.317)
+    assert state.ts == datetime(2026, 10, 8, 9, 44, 29, 173000, tzinfo=UTC)
+    assert lag_s(state, NOW) == pytest.approx(0.827)
 
 
 def test_aps_without_recent_stats_are_down() -> None:

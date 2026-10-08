@@ -1,7 +1,8 @@
 """P3.1 incremental state sync: the last few seconds of a run in InfluxDB -> TwinState.
 
     sync = TwinSync(InfluxConnection.from_env(), campus, run_id, load_sync_config(raw))
-    state = sync.refresh()          # sync.lag_s: age of the newest telemetry in the state
+    state = sync.refresh()
+    lag_s(state, datetime.now(UTC)) # measured when the state is used, so it includes the queries
 
 Each refresh reads only the last `sync_window_s` of the run (ap_stats, sta_stats, kpi), not the
 whole history, and rebuilds the state from the latest record of each series (builder.py).
@@ -16,7 +17,7 @@ from typing import Any
 
 from common.influx import InfluxConnection, parse_flux_csv, query_csv, rows_query
 from common.schemas import MEASUREMENTS, APStats, KPIRecord, StationStats, TelemetryRecord
-from twin.state.builder import CampusAPs, Snapshot, build_state, lag_s
+from twin.state.builder import CampusAPs, Snapshot, build_state
 from twin.state.model import TwinState
 
 Query = Callable[[InfluxConnection, str, float], str]
@@ -58,20 +59,20 @@ class TwinSync:
     ) -> None:
         self._conn, self._campus, self._run_id, self._config = conn, campus, run_id, config
         self._query = query
-        self.lag_s: float | None = None
 
     def refresh(self, now: datetime | None = None) -> TwinState:
-        """The state as of `now` (default: the current time); ValueError if no telemetry yet."""
-        now = now or datetime.now(UTC)
-        start = now - timedelta(seconds=self._config.sync_window_s)
+        """The state as of `now` (default: the current time); ValueError if no telemetry yet.
+
+        Its lag is `builder.lag_s(state, t)` at the time t the state is used, which includes the
+        time these queries took."""
+        at = now or datetime.now(UTC)
+        start = at - timedelta(seconds=self._config.sync_window_s)
         snapshot = Snapshot(
-            ap_rows=self._rows(APStats, start, now),
-            sta_rows=self._rows(StationStats, start, now),
-            kpi_rows=self._rows(KPIRecord, start, now),
+            ap_rows=self._rows(APStats, start, at),
+            sta_rows=self._rows(StationStats, start, at),
+            kpi_rows=self._rows(KPIRecord, start, at),
         )
-        state = build_state(snapshot, self._campus, now, self._config.ap_stale_s)
-        self.lag_s = lag_s(state, now)
-        return state
+        return build_state(snapshot, self._campus, at, self._config.ap_stale_s)
 
     def _rows(
         self, model: type[TelemetryRecord], start: datetime, stop: datetime

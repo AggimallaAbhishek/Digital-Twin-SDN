@@ -7,7 +7,9 @@ twin/state/sync.py feeds it the last few seconds of a run from InfluxDB. Rules:
   (its channel would be null, which the schema rejects). Otherwise it is down, on its last
   known channel (or the configured one) with zero utilisation.
 - AP positions come from config/campus_v1.yaml; station positions from their own telemetry.
-- `ts` is the newest record's time, so lag = now - ts.
+- `ts` is the time up to which every measurement is known: the oldest of the newest ap_stats,
+  sta_stats and kpi records (measurements without rows in the snapshot don't count). So
+  lag = now - ts grows when any measurement stops arriving, even if the others keep flowing.
 """
 
 from __future__ import annotations
@@ -63,9 +65,12 @@ def load_campus_aps(campus: Mapping[str, Any]) -> CampusAPs:
 
 def build_state(snapshot: Snapshot, campus: CampusAPs, now: datetime, stale_s: float) -> TwinState:
     """The network as the latest telemetry describes it; ValueError if there is none."""
-    every = (*snapshot.ap_rows, *snapshot.sta_rows, *snapshot.kpi_rows)
-    newest = max((r["ts"] for r in every), default=None)
-    if newest is None:
+    newest = [
+        max(r["ts"] for r in rows)
+        for rows in (snapshot.ap_rows, snapshot.sta_rows, snapshot.kpi_rows)
+        if rows
+    ]
+    if not newest:
         raise ValueError("no telemetry in the snapshot")
     ap_rows = _latest(snapshot.ap_rows, "ap")
     aps = {}
@@ -74,7 +79,8 @@ def build_state(snapshot: Snapshot, campus: CampusAPs, now: datetime, stale_s: f
         up = row is not None and (now - row["ts"]).total_seconds() <= stale_s
         channel = int(row["channel"]) if row is not None else campus.channels[name]
         util = float(row["channel_util"]) if row is not None and up else 0.0
-        power = float(row["tx_power_dbm"]) if row is not None and "tx_power_dbm" in row else None
+        power = row.get("tx_power_dbm") if row is not None else None  # None: empty Flux cell
+        power = float(power) if power is not None else None
         aps[name] = APState(name, position, channel, up, util, power)
     stations = {}
     for name, r in _latest(snapshot.sta_rows, "sta").items():
@@ -91,11 +97,11 @@ def build_state(snapshot: Snapshot, campus: CampusAPs, now: datetime, stale_s: f
         )
         for fid, r in _latest(snapshot.kpi_rows, "flow_id").items()
     }
-    return TwinState(newest, aps, stations, flows)
+    return TwinState(min(newest), aps, stations, flows)
 
 
 def lag_s(state: TwinState, now: datetime) -> float:
-    """How old the newest telemetry in `state` is at `now` (seconds)."""
+    """How old the state is at `now` (seconds): the stalest measurement's newest record."""
     return (now - state.ts).total_seconds()
 
 

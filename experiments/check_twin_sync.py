@@ -15,13 +15,14 @@ from __future__ import annotations
 import argparse
 import sys
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
 
 from common.influx import InfluxConnection
 from telemetry.collector.collector import http_fetch, load_collector_config
-from twin.state.builder import load_campus_aps
+from twin.state.builder import lag_s, load_campus_aps
 from twin.state.sync import TwinSync, load_sync_config
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -46,7 +47,7 @@ def main(argv: list[str] | None = None) -> int:
     end = time.monotonic() + args.duration_s
     while time.monotonic() < end:
         state = sync.refresh()
-        lags.append(sync.lag_s or 0.0)
+        lags.append(lag_s(state, datetime.now(UTC)))  # after the queries: they count too
         stations = {s["sta"]: s["ap"] for s in http_fetch(f"{base}/stations", 2.0)["stations"]}
         channels = {a["ap"]: a["channel"] for a in http_fetch(f"{base}/aps", 2.0)["aps"]}
         pairs: list[tuple[object, object]] = [

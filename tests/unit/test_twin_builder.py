@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from twin.state.builder import CampusAPs, Snapshot, build_state, load_campus_aps
+from twin.state.builder import CampusAPs, Snapshot, build_state, lag_s, load_campus_aps
 
 NOW = datetime(2026, 10, 8, 10, 0, 0, tzinfo=UTC)
 CAMPUS = CampusAPs(
@@ -67,3 +67,36 @@ def test_flows_mapping_is_read_only() -> None:
     state = build_state(Snapshot([], [], [kpi]), CAMPUS, NOW, stale_s=5)
     with pytest.raises(TypeError):
         del state.flows["sta1-video"]  # type: ignore[attr-defined]  # proving it is read-only
+
+
+def _sta(age_s: float) -> dict[str, Any]:
+    return {"ts": NOW - timedelta(seconds=age_s), "sta": "sta1", "ap": "ap1", "x": 1.0, "y": 2.0}
+
+
+def _kpi(age_s: float) -> dict[str, Any]:
+    return {
+        "ts": NOW - timedelta(seconds=age_s),
+        "flow_id": "sta1-video",
+        "app_class": "video",
+        "throughput_mbps": 1.0,
+        "latency_ms": 10.0,
+        "loss_pct": 0.0,
+    }
+
+
+def test_lag_is_set_by_the_stalest_measurement_not_the_freshest_row() -> None:
+    # AP and station telemetry stopped 8 s ago; a fresh KPI row must not hide that
+    snapshot = Snapshot([_ap("ap1", 8)], [_sta(8)], [_kpi(0.5)])
+    state = build_state(snapshot, CAMPUS, NOW, stale_s=5)
+    assert lag_s(state, NOW) == pytest.approx(8.0)
+
+
+def test_a_measurement_without_rows_does_not_set_the_lag() -> None:
+    state = build_state(Snapshot([_ap("ap1", 1)], [_sta(2)], []), CAMPUS, NOW, stale_s=5)
+    assert lag_s(state, NOW) == pytest.approx(2.0)
+
+
+def test_an_empty_tx_power_cell_means_unknown_power() -> None:
+    row = {**_ap("ap1", 1), "tx_power_dbm": None}  # parse_flux_csv turns "" into None
+    state = build_state(Snapshot([row], [], []), CAMPUS, NOW, stale_s=5)
+    assert state.aps["ap1"].tx_power_dbm is None

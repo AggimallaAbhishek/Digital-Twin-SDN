@@ -5,9 +5,11 @@ description = "GenAI-driven digital twin for intelligent SDN-based wireless netw
 readme = "README.md"
 requires-python = ">=3.11,<3.12"
 dependencies = [
+    "numpy==2.4.6",
     "pyarrow==23.0.1",
     "pydantic>=2.8,<3",
     "pyyaml>=6.0,<7",
+    "scikit-learn==1.9.1",
 ]
 
 [dependency-groups]
@@ -66,8 +68,8 @@ disallow_subclassing_any = false
 disallow_untyped_decorators = false
 
 [[tool.mypy.overrides]]
-# pyarrow ships no type stubs or py.typed marker (P2.3 Parquet export)
-module = ["pyarrow", "pyarrow.*"]
+# pyarrow (P2.3 Parquet) and scikit-learn (P4.2 IsolationForest) ship no type stubs / py.typed
+module = ["pyarrow", "pyarrow.*", "sklearn", "sklearn.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

@@ -1,0 +1,6 @@
+# P4.2 anomaly detector (ml/anomaly/, evaluated by experiments/analysis/anomaly_eval.py).
+dataset: data/v1      # P2.3 dataset (seed 42 train, 43 val, 44 test)
+step_s: 5             # telemetry bins
+window_s: 30          # one window = 6 bins of the whole network, sliding by one bin
+n_estimators: 200     # Isolation Forest trees
+seed: 42              # RULEBOOK E-1

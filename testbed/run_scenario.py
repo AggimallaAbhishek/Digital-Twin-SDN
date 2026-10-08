@@ -37,16 +37,15 @@ from typing import Any, Callable, Dict
 import yaml
 from mininet.log import info, setLogLevel
 
-from testbed import ap_agent, ap_logic
+from testbed import ap_agent
 from testbed.interference import ApRadio, RadioModel, capacity_caps, load_radio_model, tc_commands
-from testbed.layout import CampusLayout, load_layout, place_stations
-from testbed.mobility.crowd import Walk, plan_crowd
+from testbed.layout import CampusLayout, StationSpec, load_layout, place_stations
+from testbed.mobility.crowd import Walk, nearest_ap, plan_crowd
 from testbed.mobility.runner import CrowdRunner
 from testbed.scenario_plan import (
     EventSpec,
     ScenarioSpec,
     Step,
-    nearest_up_ap,
     parse_scenario,
     resolve_selector,
     summarize_kpis,
@@ -98,7 +97,7 @@ class Radios:
         with self._agent.lock:
             for spec in self._layout.aps:
                 ap = self._campus.aps[spec.name]
-                channel = ap_logic.parse_iw_info(ap.cmd(f"iw dev {ap.wintfs[0].name} info")).channel
+                channel = self._agent.iw_info(ap).channel
                 up = spec.name not in self.down and channel is not None
                 radios.append(ApRadio(spec.name, spec.position, channel or 0, up))
         for name, cap in capacity_caps(radios, self._model).items():
@@ -129,8 +128,11 @@ class ScenarioRun:
     probe: TrafficProbe
     walks: list[Walk]
     log: EventLog
-    stop: threading.Event = field(default_factory=threading.Event)
-    _threads: list[threading.Thread] = field(default_factory=list)
+    stop: threading.Event = field(init=False, default_factory=threading.Event)
+    radios: Radios = field(init=False)
+    stations: list[StationSpec] = field(init=False)
+    nodes: dict[str, Any] = field(init=False)  # Any: Mininet-WiFi station nodes
+    _threads: list[threading.Thread] = field(init=False, default_factory=list)
 
     def __post_init__(self) -> None:
         self.radios = Radios(self.campus, self.layout, self.model, self.agent)
@@ -168,13 +170,13 @@ class ScenarioRun:
     def _step(self, step: Step) -> None:
         zone_of = zones_at(self.layout, self.stations, self.walks, step.t_s)
         items: list[tuple[str, str, float | None]] = []
+        seen: set[tuple[str, str]] = set()
         for traffic in step.traffic:
             for sta in resolve_selector(traffic.stations, zone_of):
-                if self.probe.has_flow(sta, traffic.profile) or any(
-                    (sta, traffic.profile) == item[:2] for item in items
-                ):
+                if (sta, traffic.profile) in seen or self.probe.has_flow(sta, traffic.profile):
                     self.log("traffic_duplicate", sta=sta, profile=traffic.profile)
                     continue
+                seen.add((sta, traffic.profile))
                 items.append((sta, traffic.profile, traffic.rate_mbps))
         if items:
             self.probe.start_flows(items)
@@ -183,23 +185,25 @@ class ScenarioRun:
             self._event(event)
 
     def _event(self, event: EventSpec) -> None:
-        ap = self.campus.aps[event.ap]
-        intf = ap.wintfs[0].name
         if event.type == "force_channel":
             self.agent.set_channel(event.ap, {"channel": event.channel})
             self.log("force_channel", ap=event.ap, channel=event.channel)
         elif event.type == "ap_down":
             orphans = [s["sta"] for s in self.agent.stations()["stations"] if s["ap"] == event.ap]
-            with self.agent.lock:
-                out = ap.cmd(f"hostapd_cli -i {intf} disable").strip()
+            out = self._hostapd(event.ap, "disable")
             self.radios.down.add(event.ap)
             self.log("ap_down", ap=event.ap, hostapd=out, orphans=orphans)
             self._thread(lambda: self._rejoin(orphans), f"rejoin-{event.ap}")
         else:  # ap_up (parse_scenario allows only the three types)
-            with self.agent.lock:
-                out = ap.cmd(f"hostapd_cli -i {intf} enable").strip()
+            out = self._hostapd(event.ap, "enable")
             self.radios.down.discard(event.ap)
             self.log("ap_up", ap=event.ap, hostapd=out)
+
+    def _hostapd(self, ap_name: str, verb: str) -> str:
+        """`hostapd_cli disable|enable` on an AP (disable drops all its clients)."""
+        ap = self.campus.aps[ap_name]
+        with self.agent.lock:
+            return str(ap.cmd(f"hostapd_cli -i {ap.wintfs[0].name} {verb}")).strip()
 
     def _rejoin(self, orphans: list[str]) -> None:
         """Orphaned stations join the nearest AP still up, all at once (like real clients)."""
@@ -216,7 +220,7 @@ class ScenarioRun:
     def _rejoin_one(self, name: str) -> None:
         sta = self.nodes[name]
         position = (float(sta.position[0]), float(sta.position[1]))
-        target = nearest_up_ap(self.layout, position, self.radios.down)
+        target = nearest_ap(self.layout, position, down=self.radios.down)
         ok = steer(sta, self.campus.aps[target], lock=self.agent.lock)  # lock held per command
         self.log("rejoined", sta=name, ap=target, associated=ok)
 

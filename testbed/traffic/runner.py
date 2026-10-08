@@ -135,7 +135,7 @@ class TrafficProbe:
         scenario's TrafficItem.rate_mbps) overrides the profile's rate for video and bulk; web
         has no rate, so passing one is an error rather than silently ignored.
         """
-        flows = [self._new_flow(sta, cls, rate) for sta, cls, rate in items]
+        flows = [(*self._new_flow(sta, cls, rate), rate) for sta, cls, rate in items]
         if len({f.flow_id for f, _, _ in flows}) != len(flows):
             raise ValueError("the same flow is listed twice")
         ports: dict[str, int] = {}
@@ -204,9 +204,8 @@ class TrafficProbe:
         proc = self._popen(self._stations[sta], ping_command(self._config, self._server_ip))
         self._spawn(lambda: self._read_ping(proc, window), f"ping-{sta}")
 
-    def _new_flow(
-        self, sta: str, app_class: str, rate_mbps: float | None
-    ) -> tuple[_Flow, Profile, float | None]:
+    def _new_flow(self, sta: str, app_class: str, rate_mbps: float | None) -> tuple[_Flow, Profile]:
+        """Validate one requested flow; the rate is only checked, not stored."""
         fid = flow_id(sta, app_class)
         if fid in self._flows:
             raise ValueError(f"flow {fid} is already running")
@@ -217,7 +216,7 @@ class TrafficProbe:
         profile = self._config.profiles[app_class]
         if rate_mbps is not None and not isinstance(profile, IperfProfile):
             raise ValueError(f"{app_class} has no rate; rate_mbps applies to video and bulk")
-        return _Flow(fid, sta, app_class), profile, rate_mbps
+        return _Flow(fid, sta, app_class), profile
 
     def _start_iperf_client(
         self, flow: _Flow, profile: IperfProfile, port: int, rate_mbps: float | None

@@ -15,7 +15,6 @@ from testbed.scenario_plan import (
     Step,
     TrafficSpec,
     max_deviation_pct,
-    nearest_up_ap,
     parse_scenario,
     resolve_selector,
     summarize_kpis,
@@ -133,17 +132,6 @@ def test_a_station_outside_every_zone_is_an_error() -> None:
     walk = Walk("sta9", start_s=0.0, src=(10.0, 20.0), dst=(10.0, 2.0), speed_mps=1.0)
     with pytest.raises(ValueError, match="outside every zone"):
         zones_at(LAYOUT, STATIONS, [walk], t=100)
-
-
-def test_orphans_join_the_nearest_ap_that_is_up() -> None:
-    lab_point = (60.0, 50.0)
-    assert nearest_up_ap(LAYOUT, lab_point, down=set()) == "ap2"
-    assert nearest_up_ap(LAYOUT, (55.0, 40.0), down={"ap2"}) == "ap4"  # 20 m vs ap1 at 36 m
-
-
-def test_no_ap_up_is_an_error() -> None:
-    with pytest.raises(ValueError, match="no AP is up"):
-        nearest_up_ap(LAYOUT, (0.0, 0.0), down={"ap1", "ap2", "ap3", "ap4"})
 
 
 # ------------------------------------------------------------------ timeline

@@ -189,3 +189,13 @@ def test_every_arrival_in_the_lecture_hall_is_nearest_to_ap1() -> None:
     # decision P1.4-A: walkers join the nearest AP on arrival, so a flash crowd lands on ap1
     for walk in _plan(*FLASH):
         assert nearest_ap(LAYOUT, walk.dst) == "ap1"
+
+
+def test_stations_of_a_failed_ap_join_the_nearest_ap_that_is_up() -> None:
+    assert nearest_ap(LAYOUT, (60.0, 50.0)) == "ap2"
+    assert nearest_ap(LAYOUT, (55.0, 40.0), down={"ap2"}) == "ap4"  # 20 m vs ap1 at 36 m
+
+
+def test_no_ap_up_is_an_error() -> None:
+    with pytest.raises(ValueError, match="no AP is up"):
+        nearest_ap(LAYOUT, (0.0, 0.0), down={"ap1", "ap2", "ap3", "ap4"})

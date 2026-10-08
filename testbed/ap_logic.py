@@ -21,7 +21,7 @@ CSA_BEACONS = 5  # channel switch announced this many beacons ahead; clients fol
 
 Counters = Dict[str, Tuple[int, int]]  # mac -> (rx_bytes, tx_bytes); typing.Dict for Python 3.8
 
-_AP_NAME = re.compile(r"^ap[0-9]+$")
+AP_NAME = re.compile(r"^ap[0-9]+$")  # = common/schemas.py APName
 _MAC = r"([0-9a-f]{2}(?::[0-9a-f]{2}){5})"
 _IW_ADDR = re.compile(r"^\s*addr " + _MAC, re.M)
 _IW_CHANNEL = re.compile(r"^\s*channel (\d+) ", re.M)
@@ -90,7 +90,7 @@ def parse_txpower_request(body: Any) -> int:
 def parse_associate_request(body: Any) -> str:
     """Validate a POST /stations/{id}/associate body; return the target AP name."""
     value = _single_field(body, "ap")
-    if not isinstance(value, str) or not _AP_NAME.match(value):
+    if not isinstance(value, str) or not AP_NAME.match(value):
         raise ValueError(f"ap must be an AP name like 'ap2', got {value!r}")
     return value
 

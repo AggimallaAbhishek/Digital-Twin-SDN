@@ -77,7 +77,7 @@ class ApAgent:
         with self.lock:
             aps = []
             for name, ap in sorted(self._aps.items()):
-                iw = self._iw_info(ap)
+                iw = self.iw_info(ap)
                 aps.append(
                     {
                         "ap": name,
@@ -95,7 +95,7 @@ class ApAgent:
     def ap_stats(self, name: str) -> Record:
         ap = self._ap(name)
         with self.lock:
-            iw = self._iw_info(ap)
+            iw = self.iw_info(ap)
             clients = self._station_dump(ap)
             now = time.monotonic()
             prev_t, prev = self._baseline.get(name, (now, None))
@@ -146,11 +146,11 @@ class ApAgent:
         channel = ap_logic.parse_channel_request(body)
         intf = ap.wintfs[0]
         with self.lock:
-            if self._iw_info(ap).channel != channel:
+            if self.iw_info(ap).channel != channel:
                 out = ap.cmd(ap_logic.chan_switch_cmd(intf.name, channel))
                 if "OK" not in out:
                     raise RadioError(f"hostapd refused the channel switch: {out.strip()!r}")
-                self._wait_for(lambda: self._iw_info(ap).channel == channel, "channel", channel)
+                self._wait_for(lambda: self.iw_info(ap).channel == channel, "channel", channel)
                 intf.channel = channel  # keep Mininet-WiFi's view in sync
         return {"ts": _now(), "ap": name, "channel": channel}
 
@@ -159,7 +159,7 @@ class ApAgent:
         dbm = ap_logic.parse_txpower_request(body)
         with self.lock:
             ap.setTxPower(dbm)  # also updates wmediumd's interference model
-            self._wait_for(lambda: self._iw_info(ap).tx_power_dbm == dbm, "tx power", dbm)
+            self._wait_for(lambda: self.iw_info(ap).tx_power_dbm == dbm, "tx power", dbm)
         return {"ts": _now(), "ap": name, "tx_power_dbm": float(dbm)}
 
     def associate(self, sta_name: str, body: Any) -> Record:
@@ -182,7 +182,8 @@ class ApAgent:
         return self._stations[name]
 
     @staticmethod
-    def _iw_info(ap: Any) -> ap_logic.IwInfo:
+    def iw_info(ap: Any) -> ap_logic.IwInfo:
+        """Parsed `iw dev <ap> info` (channel, tx power, bssid); caller holds `lock`."""
         return ap_logic.parse_iw_info(ap.cmd(f"iw dev {ap.wintfs[0].name} info"))
 
     @staticmethod

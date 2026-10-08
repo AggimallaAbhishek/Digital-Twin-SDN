@@ -82,8 +82,8 @@ def from_kpis(body: Any, meta: Meta) -> Batch:
 
 def series_key(record: TelemetryRecord) -> tuple[Any, ...]:
     """Identifies a time series: measurement plus its tag values (one point per ts)."""
-    values = record.model_dump(include={*TAGS[type(record)], *RUN_TAGS})
-    return (MEASUREMENTS[type(record)], *sorted(values.items()))
+    names = sorted({*TAGS[type(record)], *RUN_TAGS})
+    return (MEASUREMENTS[type(record)], *(getattr(record, n) for n in names))
 
 
 def line_protocol(record: TelemetryRecord) -> str:

@@ -8,9 +8,8 @@ from testbed import scenario_plan
 from testbed.traffic import profiles
 
 
-def test_traffic_classes_match_the_schema() -> None:
+def test_traffic_classes_match_the_schema() -> None:  # scenario_plan imports this copy
     assert set(profiles.APP_CLASSES) == set(get_args(AppClass))
-    assert set(scenario_plan.APP_CLASSES) == set(get_args(AppClass))
 
 
 def test_event_types_match_the_schema() -> None:

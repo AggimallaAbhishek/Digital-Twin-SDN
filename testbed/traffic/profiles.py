@@ -137,7 +137,7 @@ def ping_command(config: TrafficConfig, server_ip: str) -> list[str]:
 
 def _iperf_profile(name: str, raw: Mapping[str, Any]) -> IperfProfile:
     where = f"profiles.{name}"
-    _known_keys(raw, _IPERF_KEYS, where)
+    known_keys(raw, _IPERF_KEYS, where)
     protocol = raw.get("protocol")
     if protocol not in _PROTOCOLS:
         raise ValueError(f"{where}.protocol must be one of {_PROTOCOLS}, got {protocol!r}")
@@ -149,7 +149,7 @@ def _iperf_profile(name: str, raw: Mapping[str, Any]) -> IperfProfile:
 
 
 def _web_profile(raw: Mapping[str, Any]) -> WebProfile:
-    _known_keys(raw, _WEB_KEYS, "profiles.web")
+    known_keys(raw, _WEB_KEYS, "profiles.web")
     object_kb: Any = raw.get("object_kb")
     if not (_is_int(object_kb) and object_kb > 0):
         raise ValueError(f"profiles.web.object_kb must be an integer > 0, got {object_kb!r}")
@@ -161,7 +161,8 @@ def _web_profile(raw: Mapping[str, Any]) -> WebProfile:
     )
 
 
-def _known_keys(raw: Mapping[str, Any], allowed: set[str], where: str) -> None:
+def known_keys(raw: Mapping[str, Any], allowed: set[str], where: str) -> None:
+    """ValueError naming any key of `raw` not in `allowed`."""
     unknown = set(raw) - allowed
     if unknown:
         raise ValueError(f"{where}: unknown keys {sorted(unknown)}")

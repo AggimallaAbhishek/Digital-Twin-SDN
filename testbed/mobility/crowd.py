@@ -11,7 +11,7 @@ import math
 import random
 import re
 from dataclasses import dataclass
-from typing import Any, Mapping, Sequence
+from typing import AbstractSet, Any, Mapping, Sequence
 
 from testbed.layout import CampusLayout, StationSpec
 
@@ -113,7 +113,7 @@ def plan_crowd(
                 for name, zone in zone_of.items()
                 if zone == group.from_zone and busy_until.get(name, -math.inf) <= group.start_s
             ),
-            key=_station_number,
+            key=station_number,
         )
         if len(free) < group.stations:
             raise ValueError(
@@ -146,9 +146,15 @@ def position_at(walk: Walk, t: float) -> tuple[float, float]:
     return (x0 + f * (x1 - x0), y0 + f * (y1 - y0))
 
 
-def nearest_ap(layout: CampusLayout, position: tuple[float, float]) -> str:
-    """The AP a walker joins on arrival (decision P1.4-A: nearest, not RSSI-threshold roaming)."""
-    return min(layout.aps, key=lambda ap: math.dist(ap.position, position)).name
+def nearest_ap(
+    layout: CampusLayout, position: tuple[float, float], down: AbstractSet[str] = frozenset()
+) -> str:
+    """The AP a station joins: the nearest one that is up (decision P1.4-A: nearest, not
+    RSSI-threshold roaming). Used for crowd arrivals and for stations of a failed AP (P1.6)."""
+    up = [ap for ap in layout.aps if ap.name not in down]
+    if not up:
+        raise ValueError("no AP is up")
+    return min(up, key=lambda ap: math.dist(ap.position, position)).name
 
 
 def _random_point(rng: random.Random, layout: CampusLayout, zone_name: str) -> tuple[float, float]:
@@ -159,5 +165,6 @@ def _random_point(rng: random.Random, layout: CampusLayout, zone_name: str) -> t
     )
 
 
-def _station_number(name: str) -> int:
+def station_number(name: str) -> int:
+    """sta2 sorts before sta10."""
     return int(re.sub(r"\D", "", name) or 0)

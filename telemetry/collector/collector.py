@@ -19,13 +19,14 @@ import logging
 import os
 import sys
 import time
+import typing
 import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -49,6 +50,7 @@ ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG = ROOT / "config" / "telemetry.yaml"
 LOG_DIR = ROOT / "logs" / "collector"
 BACKOFF_S = 0.2
+_NEVER = datetime.min.replace(tzinfo=UTC)  # older than any record
 
 Fetch = Callable[[str, float], Any]
 Write = Callable[[list[str]], None]
@@ -83,13 +85,13 @@ def load_collector_config(path: Path = DEFAULT_CONFIG) -> CollectorConfig:
     if not isinstance(raw, dict):
         raise ValueError(f"{path}: must be a mapping")
     values: dict[str, Any] = {}
-    for name, kind in CollectorConfig.__annotations__.items():
+    for name, kind in typing.get_type_hints(CollectorConfig).items():
         value = raw.get(name)
-        number = int if kind == "int" else int | float
-        if kind == "str":
+        if kind is str:
             ok = isinstance(value, str) and bool(value)
-        else:
-            ok = isinstance(value, number) and not isinstance(value, bool) and value > 0
+        else:  # int fields must be whole numbers; float fields take either
+            accepted = int if kind is int else int | float
+            ok = isinstance(value, accepted) and not isinstance(value, bool) and value > 0
         if not ok:
             raise ValueError(f"config/telemetry.yaml: {name} is missing or invalid ({value!r})")
         values[name] = value
@@ -111,11 +113,9 @@ class Health:
         if not ok:
             self.failures[source] = self.failures.get(source, 0) + 1
             return
-        if source in self._last_ok:
-            gap = t - self._last_ok[source]
-            self.max_gap_s[source] = max(self.max_gap_s.get(source, 0.0), gap)
+        gap = t - self._last_ok.get(source, t)
+        self.max_gap_s[source] = max(self.max_gap_s.get(source, 0.0), gap)
         self._last_ok[source] = t
-        self.max_gap_s.setdefault(source, 0.0)
 
     def written(self, record_times: list[float], written_at: float) -> None:
         """Record a successful write of records stamped `record_times` (epoch seconds)."""
@@ -178,24 +178,31 @@ class Collector:
                 report.failed_sources.append(name)
                 self.health.poll(name, now, ok=False)
                 log.warning("poll of %s failed: %s", name, exc)
-        records = [r for b in batches for r in b.records if self._is_new(r)]
+        keyed = [(series_key(r), r) for b in batches for r in b.records]
+        new = [(key, r) for key, r in keyed if r.ts > self._written.get(key, _NEVER)]
         report.invalid = [e for b in batches for e in b.errors]
         for error in report.invalid:
             log.warning("invalid record dropped: %s", error)
-        try:
-            if records:
-                self._write([line_protocol(r) for r in records])
-                self.health.written([r.ts.timestamp() for r in records], self._clock())
-        except WriteError as exc:
-            report.write_failed = True
-            log.error("write failed: %s", exc)
+        stored = self._store(new)
         for name in fetched:  # a source counts as polled only once its data is stored
-            self.health.poll(name, now, ok=not report.write_failed)
-        if not report.write_failed:
-            for record in records:
-                self._written[series_key(record)] = record.ts
-            report.records = len(records)
+            self.health.poll(name, now, ok=stored)
+        report.write_failed = not stored
+        report.records = len(new) if stored else 0
         return report
+
+    def _store(self, new: list[tuple[tuple[Any, ...], TelemetryRecord]]) -> bool:
+        """Write new records; remember the newest ts per series. False if the write failed."""
+        if not new:
+            return True
+        try:
+            self._write([line_protocol(r) for _, r in new])
+        except WriteError as exc:
+            log.error("write failed: %s", exc)
+            return False
+        self.health.written([r.ts.timestamp() for _, r in new], self._clock())
+        for key, record in new:
+            self._written[key] = record.ts
+        return True
 
     def run(self, duration_s: float | None) -> None:
         """poll_once() every period until `duration_s` (forever if None) or Ctrl-C."""
@@ -205,10 +212,6 @@ class Collector:
             self.poll_once(self._clock())
             next_poll += self.config.period_s
             time.sleep(max(0.0, next_poll - self._clock()))
-
-    def _is_new(self, record: TelemetryRecord) -> bool:
-        last = self._written.get(series_key(record))
-        return last is None or record.ts > last
 
     def _jobs(self) -> dict[str, Callable[[], Batch]]:
         get = self._get

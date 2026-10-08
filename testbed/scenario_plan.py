@@ -14,11 +14,11 @@ import statistics
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
-from testbed.ap_logic import CHANNELS
+from testbed.ap_logic import AP_NAME, CHANNELS
 from testbed.layout import CampusLayout, StationSpec
-from testbed.mobility.crowd import CrowdGroupSpec, Walk, parse_groups, position_at
+from testbed.mobility.crowd import CrowdGroupSpec, Walk, parse_groups, position_at, station_number
+from testbed.traffic.profiles import APP_CLASSES, known_keys
 
-APP_CLASSES = ("video", "web", "bulk")  # = common/schemas.py AppClass
 EVENT_TYPES = ("ap_down", "ap_up", "force_channel")  # = common/schemas.py ScenarioEvent.type
 P95 = 0.95
 
@@ -36,7 +36,6 @@ _TRAFFIC_KEYS = {"profile", "stations", "start_s", "rate_mbps"}
 _EVENT_KEYS = {"at_s", "type", "ap", "channel"}
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
 _SELECTOR = re.compile(r"^(\*|[a-z_]+:\*|sta[0-9]+)$")
-_AP_NAME = re.compile(r"^ap[0-9]+$")
 
 
 @dataclass(frozen=True)
@@ -84,7 +83,7 @@ class Step:
 
 def parse_scenario(raw: Mapping[str, Any]) -> ScenarioSpec:
     """Parse a scenario mapping; raise ValueError naming the bad field."""
-    _known_keys(raw, _SCENARIO_KEYS, "scenario")
+    known_keys(raw, _SCENARIO_KEYS, "scenario")
     for key in ("scenario_id", "topology"):
         if not isinstance(raw.get(key), str) or not _IDENTIFIER.match(raw[key]):
             raise ValueError(f"{key} must be an identifier, got {raw.get(key)!r}")
@@ -125,7 +124,7 @@ def resolve_selector(selector: str, zone_of: Mapping[str, str]) -> list[str]:
         names = [selector]
     else:
         raise ValueError(f"unknown station {selector!r}")
-    return sorted(names, key=_station_number)
+    return sorted(names, key=station_number)
 
 
 def zones_at(
@@ -137,14 +136,6 @@ def zones_at(
         if t >= walk.start_s:
             position[walk.sta] = position_at(walk, t)
     return {name: _zone_of(layout, xy) for name, xy in position.items()}
-
-
-def nearest_up_ap(layout: CampusLayout, position: tuple[float, float], down: set[str]) -> str:
-    """The AP an orphaned station joins: the nearest one that is up (as decision P1.4-A)."""
-    up = [ap for ap in layout.aps if ap.name not in down]
-    if not up:
-        raise ValueError("no AP is up")
-    return min(up, key=lambda ap: math.dist(ap.position, position)).name
 
 
 def timeline(spec: ScenarioSpec) -> list[Step]:
@@ -189,7 +180,7 @@ def max_deviation_pct(values: Sequence[float]) -> float:
 
 def _traffic(index: int, item: Mapping[str, Any]) -> TrafficSpec:
     where = f"traffic {index}"
-    _known_keys(item, _TRAFFIC_KEYS, where)
+    known_keys(item, _TRAFFIC_KEYS, where)
     profile, stations = item.get("profile"), item.get("stations")
     if profile not in APP_CLASSES:
         raise ValueError(f"{where}: profile must be one of {APP_CLASSES}, got {profile!r}")
@@ -206,11 +197,11 @@ def _traffic(index: int, item: Mapping[str, Any]) -> TrafficSpec:
 
 def _event(index: int, item: Mapping[str, Any]) -> EventSpec:
     where = f"event {index}"
-    _known_keys(item, _EVENT_KEYS, where)
+    known_keys(item, _EVENT_KEYS, where)
     kind, ap, channel = item.get("type"), item.get("ap"), item.get("channel")
     if kind not in EVENT_TYPES:
         raise ValueError(f"{where}: type must be one of {EVENT_TYPES}, got {kind!r}")
-    if not isinstance(ap, str) or not _AP_NAME.match(ap):
+    if not isinstance(ap, str) or not AP_NAME.match(ap):
         raise ValueError(f"{where}: ap must be an AP name, got {ap!r}")
     if kind == "force_channel" and channel not in CHANNELS:
         raise ValueError(f"{where}: force_channel needs a channel in {CHANNELS}, got {channel!r}")
@@ -226,12 +217,6 @@ def _zone_of(layout: CampusLayout, xy: tuple[float, float]) -> str:
     raise ValueError(f"position {xy} is outside every zone")
 
 
-def _known_keys(raw: Mapping[str, Any], allowed: set[str], where: str) -> None:
-    unknown = set(raw) - allowed
-    if unknown:
-        raise ValueError(f"{where}: unknown keys {sorted(unknown)}")
-
-
 def _number(value: Any, where: str, positive: bool = False) -> float:
     if not _is_number(value) or value < 0 or (positive and value == 0):
         raise ValueError(f"{where} must be a number {'> 0' if positive else '>= 0'}, got {value!r}")
@@ -244,7 +229,3 @@ def _is_int(value: Any) -> bool:
 
 def _is_number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
-
-
-def _station_number(name: str) -> int:
-    return int(re.sub(r"\D", "", name) or 0)

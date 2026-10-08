@@ -38,7 +38,7 @@ def detection_delays(
         if onset is None:
             continue
         entry = out.setdefault(run, {"delay_s": None, "false_alarms_before": 0})
-        if flagged and t_end < onset:
+        if flagged and t_end <= onset:  # that window ends before any post-onset data
             entry["false_alarms_before"] += 1
         elif flagged and entry["delay_s"] is None:
             entry["delay_s"] = t_end - onset

@@ -69,7 +69,8 @@ def windows(run: RunRows, aps: Sequence[str], step_s: float, window_s: float) ->
         t_end = (end + 1) * step_s
         features = [x for ap in aps for x in _ap_features(bins[f"ap:{ap}"], span)]
         features += _network_features(bins["sta"], bins["kpi"], span)
-        stress = run.onset_s is not None and t_end >= run.onset_s
+        # the window covers [t_end - window_s, t_end): stress once it holds post-onset data
+        stress = run.onset_s is not None and t_end > run.onset_s
         out.append(Window(run.run_id, run.scenario_id, run.split, t_end, features, stress))
     return out
 

@@ -25,11 +25,14 @@ def rolling_errors(
     warmup_steps: int,
 ) -> list[float]:
     """Forecast minus actual, from every origin t that has a value, at least `warmup_steps`
-    values of history and a value at t + horizon (rolling-origin evaluation)."""
+    values of history and a value at t + horizon (rolling-origin evaluation).
+
+    The forecasters assume evenly spaced steps, so a gap (None) restarts the history."""
     errors = []
     history: list[float] = []
     for t, value in enumerate(series[: len(series) - horizon_steps]):
         if value is None:
+            history = []
             continue
         history.append(value)
         actual = series[t + horizon_steps]

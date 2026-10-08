@@ -36,7 +36,7 @@ def test_best_threshold_needs_scores() -> None:
         best_threshold([], [])
 
 
-def test_detection_delay_is_first_alert_at_or_after_onset() -> None:
+def test_detection_delay_is_first_alert_after_onset() -> None:
     # (run, onset, t_end, flagged)
     rows = [
         ("ap_failure-s44", 240.0, 235.0, True),  # before onset: a false alarm
@@ -85,3 +85,9 @@ def test_alert_names_the_ap_that_deviates_most() -> None:
 def test_network_wide_deviation_names_the_network() -> None:
     detector = Detector.fit(_normal(300, np.random.default_rng(3)), NAMES, seed=42, n_estimators=50)
     assert detector.entity([0.3, 0.0, 0.3, 0.0, 9.0]) == "network"  # only loss is off
+
+
+def test_an_alert_in_the_window_ending_at_onset_is_early() -> None:
+    # that window covers [onset - 30 s, onset): nothing after the disruption is in it yet
+    rows = [("ap_failure-s44", 240.0, 240.0, True), ("ap_failure-s44", 240.0, 245.0, True)]
+    assert detection_delays(rows) == {"ap_failure-s44": {"delay_s": 5.0, "false_alarms_before": 1}}

@@ -81,7 +81,8 @@ def test_client_delta_follows_a_crowd() -> None:
 
 def test_windows_after_the_onset_are_stress() -> None:
     ws = windows(_run(onset_s=40.0), APS, step_s=5, window_s=30)
-    assert [w.stress for w in ws] == [False, False, True, True, True, True, True]  # ends 30..60 s
+    # windows end at 30..60 s; the one ending at 40 s covers [10, 40) and has no data after onset
+    assert [w.stress for w in ws] == [False, False, False, True, True, True, True]
     assert ws[2].t_end_s == 40.0
 
 

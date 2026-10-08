@@ -17,6 +17,6 @@ These are only proposals: the twin verifier (P3.4) still checks every action.
 
 **`anomaly/` (P4.2):** Isolation Forest over whole-network 30 s windows. `features.py` builds the windows: per AP, utilisation, clients, client change and silent share; network-wide, unassociated stations, loss and p95 latency. `detector.py` fits on normal windows only and names the AP that deviates most. `metrics.py` gives precision/recall/F1, the threshold and detection delay. `experiments/analysis/anomaly_eval.py` writes `models/anomaly/v1/metrics.json`.
 
-**Result on the test split:** F1 0.964 (precision 0.958, recall 0.970), and no alerts in the normal run. In `ap_failure` it alerts 5 s after ap2 goes down and names ap2.
+**Result on the test split:** F1 0.964 (precision 0.950, recall 0.979), and no alerts in the normal run. In `ap_failure` it alerts 5 s after ap2 goes down and names ap2.
 
 **Forecaster result on `data/v1`, test split:** Holt does **not** beat the baseline, which is the last 10 s average. RMSE at 1 min is 0.117 for the baseline vs 0.129 for Holt; at 3 min, 0.212 vs 0.256. Holt only wins in the flash crowd, the one gradual ramp; in the other scenarios load changes in single steps.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 
 import pytest
 
@@ -85,3 +86,16 @@ def test_rmse() -> None:
     assert rmse([3.0, -4.0]) == pytest.approx(math.sqrt(12.5))
     with pytest.raises(ValueError, match="no errors"):
         rmse([])
+
+
+def test_a_gap_restarts_the_history() -> None:
+    # the forecaster assumes evenly spaced steps, so it never sees history across a gap
+    series = [0.1, 0.2, 0.3, None, 0.5, 0.6, 0.7, 0.8]
+    seen: list[int] = []
+
+    def forecast(history: Sequence[float]) -> float:
+        seen.append(len(history))
+        return 0.0
+
+    rolling_errors(series, forecast, horizon_steps=1, warmup_steps=2)
+    assert seen == [2, 2, 3]  # origins 1 (0.2) and, after the gap, 5 (0.6) and 6 (0.7)

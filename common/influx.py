@@ -102,7 +102,7 @@ def query_csv(
     conn: InfluxConnection,
     flux: str,
     timeout_s: float,
-    opener: Callable[..., Any] = urllib.request.urlopen,
+    opener: Callable[..., Any] = urllib.request.urlopen,  # Any: urlopen's overloads; tests fake it
 ) -> str:
     """Run `flux` on InfluxDB; the result as CSV text."""
     if not is_http_url(conn.url):
@@ -126,8 +126,10 @@ def parse_flux_csv(text: str, model: type[TelemetryRecord]) -> list[dict[str, An
     """Rows of a pivoted, ungrouped Flux result (`Accept: application/csv`), typed per `model`.
 
     `_time` becomes `ts`; tags stay strings; integer schema fields become int, the rest float.
+    Rows are dicts (Any: the value type depends on the column).
     """
     header: list[str] | None = None
+    is_int: dict[str, bool] = {}  # per column, worked out once (millions of cells in an export)
     rows = []
     tags = {*TAGS[model], *RUN_TAGS}
     for line in csv.reader(io.StringIO(text)):
@@ -147,7 +149,9 @@ def parse_flux_csv(text: str, model: type[TelemetryRecord]) -> list[dict[str, An
             elif name in tags or value == "":
                 row[name] = value or None
             else:
-                row[name] = int(value) if is_int_field(model, name) else float(value)
+                if name not in is_int:
+                    is_int[name] = is_int_field(model, name)
+                row[name] = int(value) if is_int[name] else float(value)
         rows.append(row)
     return rows
 

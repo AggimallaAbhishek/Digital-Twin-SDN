@@ -83,8 +83,9 @@ def main() -> int:
     def baseline_score(w: int) -> float:
         return mean_score("train", lambda h, n: moving_average_forecast(h, w, n))
 
-    def holt_score(ab: tuple[float, float]) -> float:
-        return mean_score("train", lambda h, n: holt_forecast(h, ab[0], ab[1], n))
+    def holt_score(alpha_beta: tuple[float, float]) -> float:
+        a, b = alpha_beta
+        return mean_score("train", lambda h, n: holt_forecast(h, a, b, n))
 
     window = min(config["baseline_windows"], key=baseline_score)
     alpha, beta = min(itertools.product(config["holt_alpha"], config["holt_beta"]), key=holt_score)
@@ -92,21 +93,26 @@ def main() -> int:
         "moving_average": lambda h, n: moving_average_forecast(h, window, n),
         "holt": lambda h, n: holt_forecast(h, alpha, beta, n),
     }
-    metrics: dict[str, Any] = {}
-    for split in ("train", "val", "test"):
-        for name, f in models.items():
-            for h_s, h in zip(config["horizons_s"], horizons, strict=True):
-                metrics.setdefault(split, {}).setdefault(name, {})[f"rmse_{h_s}s"] = round(
-                    score(data[split], f, h, warmup), 4
-                )
-    by_scenario: dict[str, Any] = {}
-    for scenario in sorted({sc for sc, _ in data["test"]}):
-        subset = [(sc, s) for sc, s in data["test"] if sc == scenario]
-        for name, f in models.items():
-            by_scenario.setdefault(scenario, {})[name] = {
-                f"rmse_{h_s}s": round(score(subset, f, h, warmup), 4)
-                for h_s, h in zip(config["horizons_s"], horizons, strict=True)
-            }
+
+    def rmses(
+        series: Sequence[tuple[str, Series]], f: Callable[[Sequence[float], int], float]
+    ) -> dict[str, float]:
+        return {
+            f"rmse_{h_s}s": round(score(series, f, h, warmup), 4)
+            for h_s, h in zip(config["horizons_s"], horizons, strict=True)
+        }
+
+    metrics = {
+        split: {name: rmses(data[split], f) for name, f in models.items()}
+        for split in ("train", "val", "test")
+    }
+    by_scenario = {
+        scenario: {
+            name: rmses([(sc, s) for sc, s in data["test"] if sc == scenario], f)
+            for name, f in models.items()
+        }
+        for scenario in sorted({sc for sc, _ in data["test"]})
+    }
     OUT.mkdir(parents=True, exist_ok=True)
     params = {"moving_average_window_steps": window, "holt_alpha": alpha, "holt_beta": beta}
     meta = {

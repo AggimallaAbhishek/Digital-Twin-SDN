@@ -6,7 +6,9 @@ from collections.abc import Sequence
 from typing import Any
 
 
-def prf(labels: Sequence[bool], flags: Sequence[bool]) -> tuple[float, float, float]:
+def precision_recall_f1(
+    labels: Sequence[bool], flags: Sequence[bool]
+) -> tuple[float, float, float]:
     """Precision, recall and F1 of `flags` against `labels` (0.0 where undefined)."""
     tp = sum(1 for y, f in zip(labels, flags, strict=True) if y and f)
     fp = sum(1 for y, f in zip(labels, flags, strict=True) if not y and f)
@@ -21,12 +23,14 @@ def best_threshold(scores: Sequence[float], labels: Sequence[bool]) -> float:
     """The score threshold (flag score >= threshold) with the best F1; lowest on ties."""
     if not scores:
         raise ValueError("no scores to choose a threshold from")
-    return max(sorted(set(scores)), key=lambda t: prf(labels, [s >= t for s in scores])[2])
+    return max(
+        sorted(set(scores)), key=lambda t: precision_recall_f1(labels, [s >= t for s in scores])[2]
+    )
 
 
 def detection_delays(
     rows: Sequence[tuple[str, float | None, float, bool]],
-) -> dict[str, dict[str, Any]]:
+) -> dict[str, dict[str, Any]]:  # Any: delay_s float | None, false_alarms_before int
     """Per run with a disruption: seconds from onset to the first alert (None if never) and
     alerts raised before the onset. `rows` are (run_id, onset_s, window t_end_s, flagged)."""
     out: dict[str, dict[str, Any]] = {}

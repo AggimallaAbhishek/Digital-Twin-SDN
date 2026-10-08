@@ -15,7 +15,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from common.influx import InfluxConnection, parse_flux_csv, query_csv, rows_query
-from common.schemas import APStats, KPIRecord, StationStats, TelemetryRecord
+from common.schemas import MEASUREMENTS, APStats, KPIRecord, StationStats, TelemetryRecord
 from twin.state.builder import CampusAPs, Snapshot, build_state, lag_s
 from twin.state.model import TwinState
 
@@ -65,16 +65,17 @@ class TwinSync:
         now = now or datetime.now(UTC)
         start = now - timedelta(seconds=self._config.sync_window_s)
         snapshot = Snapshot(
-            ap_rows=self._rows(APStats, "ap_stats", start, now),
-            sta_rows=self._rows(StationStats, "sta_stats", start, now),
-            kpi_rows=self._rows(KPIRecord, "kpi", start, now),
+            ap_rows=self._rows(APStats, start, now),
+            sta_rows=self._rows(StationStats, start, now),
+            kpi_rows=self._rows(KPIRecord, start, now),
         )
         state = build_state(snapshot, self._campus, now, self._config.ap_stale_s)
         self.lag_s = lag_s(state, now)
         return state
 
     def _rows(
-        self, model: type[TelemetryRecord], measurement: str, start: datetime, stop: datetime
+        self, model: type[TelemetryRecord], start: datetime, stop: datetime
     ) -> list[dict[str, Any]]:
+        measurement = MEASUREMENTS[model]
         flux = rows_query(self._conn.bucket, measurement, start, stop, run_id=self._run_id)
         return parse_flux_csv(self._query(self._conn, flux, self._config.query_timeout_s), model)

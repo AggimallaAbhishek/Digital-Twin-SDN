@@ -18,7 +18,7 @@ from sklearn.ensemble import IsolationForest
 MIN_STD = 1e-6  # features that never vary in normal operation (e.g. an AP being silent)
 
 
-@dataclass
+@dataclass(frozen=True)
 class Detector:
     """A fitted Isolation Forest plus the normal feature statistics used to name the entity."""
 

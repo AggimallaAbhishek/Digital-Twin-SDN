@@ -25,7 +25,7 @@ from typing import Any
 PER_AP = ("util_mean", "util_max", "clients_mean", "clients_delta", "silent")
 NETWORK = ("unassociated", "loss_mean", "latency_p95")
 P95 = 0.95
-Row = dict[str, Any]
+Row = dict[str, Any]  # a dataset row: column -> value (str, float, None)
 
 
 @dataclass(frozen=True)
@@ -75,13 +75,12 @@ def windows(run: RunRows, aps: Sequence[str], step_s: float, window_s: float) ->
 
 
 def _bin_rows(run: RunRows, step_s: float) -> dict[str, dict[int, list[Row]]]:
+    """Rows by series ("ap:<name>", "sta", "kpi"), then by time bin."""
     bins: dict[str, dict[int, list[Row]]] = defaultdict(lambda: defaultdict(list))
-    for row in run.ap_rows:
-        bins[f"ap:{row['ap']}"][int(row["t_s"] // step_s)].append(row)
-    for row in run.sta_rows:
-        bins["sta"][int(row["t_s"] // step_s)].append(row)
-    for row in run.kpi_rows:
-        bins["kpi"][int(row["t_s"] // step_s)].append(row)
+    keyed = [(f"ap:{r['ap']}", r) for r in run.ap_rows]
+    keyed += [("sta", r) for r in run.sta_rows] + [("kpi", r) for r in run.kpi_rows]
+    for key, row in keyed:
+        bins[key][int(row["t_s"] // step_s)].append(row)
     return bins
 
 

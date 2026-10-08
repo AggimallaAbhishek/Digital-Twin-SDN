@@ -15,7 +15,10 @@ from collections.abc import Sequence
 
 
 def moving_average_forecast(history: Sequence[float], window: int, horizon_steps: int) -> float:
-    """Baseline: the mean of the last `window` values, for any horizon."""
+    """Baseline: the mean of the last `window` values, for any horizon.
+
+    `horizon_steps` is unused: it keeps the same signature as holt_forecast, so the evaluation
+    treats both forecasters alike."""
     if not history:
         raise ValueError("no history to forecast from")
     recent = history[-window:]

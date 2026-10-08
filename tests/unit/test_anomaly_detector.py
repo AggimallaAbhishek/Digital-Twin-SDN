@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from ml.anomaly.detector import Detector
-from ml.anomaly.metrics import best_threshold, detection_delays, prf
+from ml.anomaly.metrics import best_threshold, detection_delays, precision_recall_f1
 
 NAMES = ["ap1.util_mean", "ap1.silent", "ap2.util_mean", "ap2.silent", "net.loss_mean"]
 
@@ -15,14 +15,14 @@ NAMES = ["ap1.util_mean", "ap1.silent", "ap2.util_mean", "ap2.silent", "net.loss
 def test_precision_recall_f1() -> None:
     labels = [True, True, False, False, True]
     flags = [True, False, True, False, True]  # TP 2, FP 1, FN 1
-    p, r, f1 = prf(labels, flags)
+    p, r, f1 = precision_recall_f1(labels, flags)
     assert p == pytest.approx(2 / 3)
     assert r == pytest.approx(2 / 3)
     assert f1 == pytest.approx(2 / 3)
 
 
 def test_metrics_with_nothing_flagged_are_zero_not_an_error() -> None:
-    assert prf([True, False], [False, False]) == (0.0, 0.0, 0.0)
+    assert precision_recall_f1([True, False], [False, False]) == (0.0, 0.0, 0.0)
 
 
 def test_best_threshold_maximises_f1() -> None:

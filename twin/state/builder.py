@@ -22,7 +22,7 @@ from twin.state.model import APState, FlowState, StationState, TwinState
 
 @dataclass(frozen=True)
 class CampusAPs:
-    """What the config says about each AP: where it is and its planned channel."""
+    """What the campus config says: each AP's position and planned channel, and the zones."""
 
     positions: dict[str, tuple[float, float]]
     channels: dict[str, int]
@@ -39,7 +39,9 @@ class CampusAPs:
 
 @dataclass(frozen=True)
 class Snapshot:
-    """Recent telemetry rows (common.influx.parse_flux_csv) of one run, any order."""
+    """Recent telemetry rows (common.influx.parse_flux_csv) of one run, any order.
+
+    Rows are column -> value dicts (Any: str tags, int/float fields, datetime ts, None)."""
 
     ap_rows: list[dict[str, Any]]
     sta_rows: list[dict[str, Any]]
@@ -47,7 +49,7 @@ class Snapshot:
 
 
 def load_campus_aps(campus: Mapping[str, Any]) -> CampusAPs:
-    """AP positions and planned channels from a parsed config/campus_v1.yaml."""
+    """AP positions, planned channels and zones from a parsed config/campus_v1.yaml."""
     aps = campus["aps"]
     return CampusAPs(
         positions={a["name"]: (float(a["position"][0]), float(a["position"][1])) for a in aps},
@@ -61,8 +63,9 @@ def load_campus_aps(campus: Mapping[str, Any]) -> CampusAPs:
 
 def build_state(snapshot: Snapshot, campus: CampusAPs, now: datetime, stale_s: float) -> TwinState:
     """The network as the latest telemetry describes it; ValueError if there is none."""
-    rows = [*snapshot.ap_rows, *snapshot.sta_rows, *snapshot.kpi_rows]
-    if not rows:
+    every = (*snapshot.ap_rows, *snapshot.sta_rows, *snapshot.kpi_rows)
+    newest = max((r["ts"] for r in every), default=None)
+    if newest is None:
         raise ValueError("no telemetry in the snapshot")
     ap_rows = _latest(snapshot.ap_rows, "ap")
     aps = {}
@@ -88,7 +91,7 @@ def build_state(snapshot: Snapshot, campus: CampusAPs, now: datetime, stale_s: f
         )
         for fid, r in _latest(snapshot.kpi_rows, "flow_id").items()
     }
-    return TwinState(max(r["ts"] for r in rows), aps, stations, flows)
+    return TwinState(newest, aps, stations, flows)
 
 
 def lag_s(state: TwinState, now: datetime) -> float:

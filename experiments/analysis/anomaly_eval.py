@@ -26,7 +26,8 @@ from experiments.dataset import disruption
 from experiments.shell import git_commit
 from ml.anomaly.detector import Detector
 from ml.anomaly.features import RunRows, Window, feature_names, windows
-from ml.anomaly.metrics import best_threshold, detection_delays, prf
+from ml.anomaly.metrics import best_threshold, detection_delays, precision_recall_f1
+from twin.state.builder import load_campus_aps
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "models" / "anomaly" / "v1"
@@ -65,11 +66,16 @@ def load_runs(dataset: Path) -> list[RunRows]:
     return runs
 
 
+def _scores(labels: list[bool], flags: list[bool]) -> dict[str, float]:
+    p, r, f1 = precision_recall_f1(labels, flags)
+    return {"precision": round(p, 3), "recall": round(r, 3), "f1": round(f1, 3)}
+
+
 def main() -> int:
     """Fit, tune, report; 0 always (the report is the deliverable)."""
     config: dict[str, Any] = yaml.safe_load((ROOT / "config" / "anomaly.yaml").read_text())
     campus = yaml.safe_load((ROOT / "config" / "campus_v1.yaml").read_text())
-    aps = sorted(a["name"] for a in campus["aps"])
+    aps = sorted(load_campus_aps(campus).positions)
     runs = load_runs(ROOT / config["dataset"])
     onsets = {r.run_id: r.onset_s for r in runs}
     all_windows = [w for r in runs for w in windows(r, aps, config["step_s"], config["window_s"])]
@@ -84,27 +90,16 @@ def main() -> int:
 
     test = split["test"]
     flags = [s >= threshold for s in detector.score([w.features for w in test])]
+    val_flags = [s >= threshold for s in val_scores]
     report: dict[str, Any] = {"threshold": threshold, "train_normal_windows": len(normal)}
-    for name, ws in (("val", split["val"]), ("test", test)):
-        f = [s >= threshold for s in detector.score([w.features for w in ws])]
-        p, r, f1 = prf([w.stress for w in ws], f)
-        report[name] = {
-            "precision": round(p, 3),
-            "recall": round(r, 3),
-            "f1": round(f1, 3),
-            "windows": len(ws),
-        }
+    for name, ws, f in (("val", split["val"], val_flags), ("test", test, flags)):
+        report[name] = _scores([w.stress for w in ws], f) | {"windows": len(ws)}
     by_scenario = {}
     for scenario in sorted({w.scenario_id for w in test}):
         idx = [i for i, w in enumerate(test) if w.scenario_id == scenario]
-        labels = [test[i].stress for i in idx]
-        p, r, f1 = prf(labels, [flags[i] for i in idx])
-        alarms = sum(flags[i] for i in idx)
-        by_scenario[scenario] = {
-            "precision": round(p, 3),
-            "recall": round(r, 3),
-            "f1": round(f1, 3),
-            "alerts": alarms,
+        picked = [flags[i] for i in idx]
+        by_scenario[scenario] = _scores([test[i].stress for i in idx], picked) | {
+            "alerts": sum(picked)
         }
     report["test_by_scenario"] = by_scenario
     report["test_detection"] = detection_delays(

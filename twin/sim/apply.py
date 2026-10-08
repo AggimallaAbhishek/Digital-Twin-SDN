@@ -40,6 +40,7 @@ T = TypeVar("T")
 
 def apply(state: TwinState, action: Action) -> TwinState:
     """A copy of `state` with `action` applied; ValueError if a target is unknown or stale."""
+    # Any: each handler takes its own Action subclass; _HANDLERS pairs them by type
     handler: Callable[[TwinState, Any], TwinState] = _HANDLERS[type(action)]
     return handler(state, action)
 
@@ -108,13 +109,13 @@ def _reroute(state: TwinState, action: RerouteFlow) -> TwinState:
     return _replace_flow(state, p.flow_id, path=tuple(p.path))
 
 
-def _replace_ap(state: TwinState, name: str, **changes: Any) -> TwinState:
+def _replace_ap(state: TwinState, name: str, **changes: Any) -> TwinState:  # Any: APState fields
     _need(state.aps, [name], "AP")
     aps: dict[str, APState] = {**state.aps, name: dataclasses.replace(state.aps[name], **changes)}
     return dataclasses.replace(state, aps=aps)
 
 
-def _replace_flow(state: TwinState, flow_id: str, **changes: Any) -> TwinState:
+def _replace_flow(state: TwinState, flow_id: str, **changes: Any) -> TwinState:  # FlowState fields
     _need(state.flows, [flow_id], "flow")
     flow = dataclasses.replace(state.flows[flow_id], **changes)
     return dataclasses.replace(state, flows={**state.flows, flow_id: flow})
@@ -126,7 +127,7 @@ def _need(known: Mapping[str, T], names: Iterable[str], what: str) -> None:
         raise ValueError(f"unknown {what}: {', '.join(missing)}")
 
 
-_HANDLERS: dict[type, Callable[[TwinState, Any], TwinState]] = {
+_HANDLERS: dict[type, Callable[[TwinState, Any], TwinState]] = {  # Any: as in apply()
     SteerClients: _steer,
     SetApChannel: _set_channel,
     SetApTxPower: _set_tx_power,

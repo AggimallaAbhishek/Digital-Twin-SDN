@@ -267,10 +267,17 @@ def _ap_names(body: Any) -> list[str]:
     return [ap["ap"] for ap in aps]
 
 
+def is_http_url(url: str) -> bool:
+    """Only http(s) URLs are ever opened (no file:// or custom schemes; bandit B310)."""
+    return urllib.parse.urlsplit(url).scheme in ("http", "https")
+
+
 def http_fetch(url: str, timeout_s: float) -> Any:
     """GET `url` and parse JSON; FetchError on any network, HTTP or JSON problem."""
+    if not is_http_url(url):
+        raise FetchError(f"{url}: only http(s) URLs are fetched")
     try:
-        with urllib.request.urlopen(url, timeout=timeout_s) as response:  # noqa: S310 - http(s) URLs from config
+        with urllib.request.urlopen(url, timeout=timeout_s) as response:  # noqa: S310  # nosec B310 - scheme checked above
             return json.loads(response.read())
     except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
         raise FetchError(f"{url}: {exc}") from exc
@@ -297,6 +304,8 @@ class InfluxWriter:
         *,
         opener: Callable[..., Any] = urllib.request.urlopen,
     ) -> None:
+        if not is_http_url(target.url):
+            raise ValueError(f"INFLUXDB_URL must be an http(s) URL, got {target.url!r}")
         query = urllib.parse.urlencode(
             {"org": target.org, "bucket": target.bucket, "precision": "ns"}
         )

@@ -21,6 +21,7 @@ from telemetry.collector.collector import (
     InfluxTarget,
     InfluxWriter,
     WriteError,
+    http_fetch,
     load_collector_config,
 )
 from telemetry.collector.records import Meta
@@ -401,3 +402,14 @@ def test_run_stops_when_told(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(time, "sleep", sleep)
     Collector(CONFIG, META, fetch=vm, write=FakeWriter(), clock=clock).run(None, stop=stop)
     assert vm.calls.count("http://192.168.64.2:8081/kpi") == 3
+
+
+@pytest.mark.parametrize("url", ["file:///etc/passwd", "ftp://192.168.64.2/aps", "aps"])
+def test_only_http_urls_are_fetched(url: str) -> None:
+    with pytest.raises(FetchError, match="http"):
+        http_fetch(url, timeout_s=1.0)
+
+
+def test_influx_writer_needs_an_http_url() -> None:
+    with pytest.raises(ValueError, match="http"):
+        InfluxWriter(InfluxTarget("file:///tmp/x", "o", "b", "t"), timeout_s=1.0, retries=0)

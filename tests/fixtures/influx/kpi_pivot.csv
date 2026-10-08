@@ -1,0 +1,14 @@
+,result,table,_start,_stop,_time,_measurement,app_class,flow_id,run_id,scenario_id,jitter_ms,latency_ms,loss_pct,throughput_mbps
+,_result,0,2026-10-08T07:32:40Z,2026-10-08T07:32:43Z,2026-10-08T07:32:40.812Z,kpi,bulk,sta16-bulk,smoke-util,smoke,0.258,0.464,0,0.594
+,_result,0,2026-10-08T07:32:40Z,2026-10-08T07:32:43Z,2026-10-08T07:32:41.812Z,kpi,bulk,sta16-bulk,smoke-util,smoke,3.579,2.823,0,0.457
+,_result,0,2026-10-08T07:32:40Z,2026-10-08T07:32:43Z,2026-10-08T07:32:42.813Z,kpi,bulk,sta16-bulk,smoke-util,smoke,0.426,0.973,0,0.139
+,_result,0,2026-10-08T07:32:40Z,2026-10-08T07:32:43Z,2026-10-08T07:32:42.813Z,kpi,web,sta12-web,smoke-util,smoke,0.209,0.47,0,3.789
+,_result,0,2026-10-08T07:32:40Z,2026-10-08T07:32:43Z,2026-10-08T07:32:40.812Z,kpi,web,sta13-web,smoke-util,smoke,0.74,1.274,0,5.157
+,_result,0,2026-10-08T07:32:40Z,2026-10-08T07:32:43Z,2026-10-08T07:32:42.813Z,kpi,web,sta13-web,smoke-util,smoke,0.462,0.494,0,4.354
+,_result,0,2026-10-08T07:32:40Z,2026-10-08T07:32:43Z,2026-10-08T07:32:40.812Z,kpi,web,sta18-web,smoke-util,smoke,0.262,0.458,0,1.778
+,_result,0,2026-10-08T07:32:40Z,2026-10-08T07:32:43Z,2026-10-08T07:32:42.813Z,kpi,web,sta18-web,smoke-util,smoke,0.679,0.811,0,1.788
+,_result,0,2026-10-08T07:32:40Z,2026-10-08T07:32:43Z,2026-10-08T07:32:42.813Z,kpi,web,sta19-web,smoke-util,smoke,0.502,0.504,0,3.284
+,_result,0,2026-10-08T07:32:40Z,2026-10-08T07:32:43Z,2026-10-08T07:32:41.812Z,kpi,web,sta2-web,smoke-util,smoke,0.229,0.451,0,3.407
+,_result,0,2026-10-08T07:32:40Z,2026-10-08T07:32:43Z,2026-10-08T07:32:42.813Z,kpi,web,sta3-web,smoke-util,smoke,0.816,0.855,0,3.385
+,_result,0,2026-10-08T07:32:40Z,2026-10-08T07:32:43Z,2026-10-08T07:32:40.812Z,kpi,web,sta6-web,smoke-util,smoke,0.658,0.92,0,4.96
+,_result,0,2026-10-08T07:32:40Z,2026-10-08T07:32:43Z,2026-10-08T07:32:40.812Z,kpi,web,sta9-web,smoke-util,smoke,0.514,0.614,0,4.582

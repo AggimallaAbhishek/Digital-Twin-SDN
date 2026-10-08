@@ -3,7 +3,7 @@
 RUN := uv run
 FAST_TESTS := -m "not vm and not llm and not integration"
 
-.PHONY: help setup env hooks fmt lint types imports test test-all check security up down ps logs sync-vm smoke-vm campus-vm controller-vm vm-clock ap-agent-vm mobility-vm traffic-vm scenario-vm scenario-repro-vm collect batch llm-check llm-client-check
+.PHONY: help setup env hooks fmt lint types imports test test-all check security up down ps logs sync-vm smoke-vm campus-vm controller-vm vm-clock ap-agent-vm mobility-vm traffic-vm scenario-vm scenario-repro-vm collect batch dataset llm-check llm-client-check
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -108,6 +108,11 @@ BATCH_CONFIG ?= experiments/batch_v1.yaml
 
 batch: sync-vm ## P2.3 every scenario x seed with the collector -> data/raw/<version>/ (~2 h 15 min; needs `make up`)
 	@set -a; . ./.env; set +a; $(KEEP_AWAKE) $(RUN) python -m experiments.run_batch --config $(BATCH_CONFIG)
+
+DATASET_VERSION ?= v1
+
+dataset: ## P2.3 export data/raw/$(DATASET_VERSION)/ (from `make batch`) to data/$(DATASET_VERSION)/*.parquet
+	@set -a; . ./.env; set +a; $(RUN) python -m experiments.export_dataset --version $(DATASET_VERSION)
 
 llm-check: ## P0.7: main + fallback LLM intent -> Policy check (config/llm.yaml; needs Ollama)
 	$(RUN) python -m genai.eval.compare_models

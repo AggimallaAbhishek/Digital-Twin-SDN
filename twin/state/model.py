@@ -23,6 +23,7 @@ class APState:
     channel: int
     up: bool
     util: float  # share of its current capacity in use, 0-1 (ap_stats.channel_util, deviation #8)
+    tx_power_dbm: float | None = None
 
 
 @dataclass(frozen=True)
@@ -32,6 +33,7 @@ class StationState:
     name: str
     position: tuple[float, float]
     ap: str | None
+    zone: str | None = None  # campus zone the station is in (config/campus_v1.yaml zones)
 
 
 @dataclass(frozen=True)
@@ -44,6 +46,9 @@ class FlowState:
     throughput_mbps: float
     latency_ms: float
     loss_pct: float
+    queue_id: int = 0  # OVS QoS queue (common/schemas.py QOS_QUEUE_IDS; 0 = best effort)
+    rate_limit_mbps: float | None = None
+    path: tuple[str, ...] = ()  # explicit route after a reroute_flow; () = the default path
 
 
 @dataclass(frozen=True)

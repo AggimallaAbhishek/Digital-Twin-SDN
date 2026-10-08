@@ -71,3 +71,10 @@ def test_aps_without_recent_stats_are_down() -> None:
     later = datetime(2026, 10, 8, 9, 44, 40, tzinfo=UTC)  # 10.8 s after the last ap_stats
     state = build_state(SNAPSHOT, CAMPUS, later, STALE_S)
     assert not any(ap.up for ap in state.aps.values())
+
+
+def test_aps_carry_tx_power_and_stations_their_zone() -> None:
+    state = build_state(SNAPSHOT, CAMPUS, NOW, STALE_S)
+    assert {ap.tx_power_dbm for ap in state.aps.values()} == {14.0}
+    assert state.stations["sta10"].zone == "lecture_hall"  # (21.2, 46.8)
+    assert state.stations["sta16"].zone == "library"

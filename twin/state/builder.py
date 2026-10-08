@@ -26,6 +26,15 @@ class CampusAPs:
 
     positions: dict[str, tuple[float, float]]
     channels: dict[str, int]
+    zones: dict[str, tuple[tuple[float, float], tuple[float, float]]]  # name -> (x range, y range)
+
+    def zone_of(self, position: tuple[float, float]) -> str | None:
+        """The zone containing `position` (edges included), or None."""
+        x, y = position
+        for name, ((x0, x1), (y0, y1)) in self.zones.items():
+            if x0 <= x <= x1 and y0 <= y <= y1:
+                return name
+        return None
 
 
 @dataclass(frozen=True)
@@ -43,6 +52,10 @@ def load_campus_aps(campus: Mapping[str, Any]) -> CampusAPs:
     return CampusAPs(
         positions={a["name"]: (float(a["position"][0]), float(a["position"][1])) for a in aps},
         channels={a["name"]: int(a["channel"]) for a in aps},
+        zones={
+            name: ((float(z["x"][0]), float(z["x"][1])), (float(z["y"][0]), float(z["y"][1])))
+            for name, z in campus.get("zones", {}).items()
+        },
     )
 
 
@@ -58,11 +71,12 @@ def build_state(snapshot: Snapshot, campus: CampusAPs, now: datetime, stale_s: f
         up = row is not None and (now - row["ts"]).total_seconds() <= stale_s
         channel = int(row["channel"]) if row is not None else campus.channels[name]
         util = float(row["channel_util"]) if row is not None and up else 0.0
-        aps[name] = APState(name, position, channel, up, util)
-    stations = {
-        name: StationState(name, (float(r["x"]), float(r["y"])), r.get("ap"))
-        for name, r in _latest(snapshot.sta_rows, "sta").items()
-    }
+        power = float(row["tx_power_dbm"]) if row is not None and "tx_power_dbm" in row else None
+        aps[name] = APState(name, position, channel, up, util, power)
+    stations = {}
+    for name, r in _latest(snapshot.sta_rows, "sta").items():
+        position = (float(r["x"]), float(r["y"]))
+        stations[name] = StationState(name, position, r.get("ap"), campus.zone_of(position))
     flows = {
         fid: FlowState(
             flow_id=fid,

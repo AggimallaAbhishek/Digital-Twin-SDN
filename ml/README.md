@@ -12,3 +12,7 @@ Forecasting (`forecast/`), anomaly detection (`anomaly/`), optimizer heuristics 
 - **No reroute:** the topology is a tree, so there are no alternative paths (deviation #9).
 
 These are only proposals: the twin verifier (P3.4) still checks every action.
+
+**`forecast/` (P4.1):** moving-average baseline and Holt's linear trend (`models.py`), plus 5 s resampling, rolling-origin errors and RMSE (`series.py`). It forecasts per-AP utilisation 1 and 3 minutes ahead. `experiments/analysis/forecast_eval.py` tunes on train and reports val/test into `models/forecast/v1/`.
+
+**Result on `data/v1`, test split:** Holt does **not** beat the baseline, which is the last 10 s average. RMSE at 1 min is 0.117 for the baseline vs 0.129 for Holt; at 3 min, 0.212 vs 0.256. Holt only wins in the flash crowd, the one gradual ramp; in the other scenarios load changes in single steps.

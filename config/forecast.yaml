@@ -1,0 +1,9 @@
+# P4.1 per-AP load forecaster (ml/forecast/, evaluated by experiments/analysis/forecast_eval.py).
+dataset: data/v1            # P2.3 dataset (seed 42 train, 43 val, 44 test)
+target: channel_util        # AP utilisation of its current capacity (deviation #8)
+step_s: 5                   # PROJECT_PLAN §6: resample to 5 s
+horizons_s: [60, 180]       # PHASE_PLAN P4.1: t+1 min and t+3 min
+warmup_s: 60                # at least this much history before the first forecast
+baseline_windows: [1, 2, 3, 6, 12, 24]              # moving average, in steps (5 s .. 2 min)
+holt_alpha: [0.05, 0.1, 0.2, 0.3, 0.5, 0.7, 0.9]
+holt_beta: [0.0, 0.02, 0.05, 0.1, 0.2, 0.3]

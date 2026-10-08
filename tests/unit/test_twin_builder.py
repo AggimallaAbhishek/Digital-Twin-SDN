@@ -11,7 +11,9 @@ from twin.state.builder import CampusAPs, Snapshot, build_state, load_campus_aps
 
 NOW = datetime(2026, 10, 8, 10, 0, 0, tzinfo=UTC)
 CAMPUS = CampusAPs(
-    positions={"ap1": (20.0, 50.0), "ap2": (60.0, 50.0)}, channels={"ap1": 1, "ap2": 6}
+    positions={"ap1": (20.0, 50.0), "ap2": (60.0, 50.0)},
+    channels={"ap1": 1, "ap2": 6},
+    zones={"lab": ((40.0, 80.0), (35.0, 65.0))},
 )
 
 
@@ -42,8 +44,19 @@ def test_no_telemetry_means_no_state() -> None:
 
 
 def test_campus_aps_come_from_the_config() -> None:
-    raw = {"aps": [{"name": "ap1", "position": [20, 50], "channel": 1}]}
-    assert load_campus_aps(raw) == CampusAPs({"ap1": (20.0, 50.0)}, {"ap1": 1})
+    raw = {
+        "aps": [{"name": "ap1", "position": [20, 50], "channel": 1}],
+        "zones": {"lab": {"x": [40, 80], "y": [35, 65]}},
+    }
+    assert load_campus_aps(raw) == CampusAPs(
+        {"ap1": (20.0, 50.0)}, {"ap1": 1}, {"lab": ((40.0, 80.0), (35.0, 65.0))}
+    )
+
+
+def test_a_station_outside_every_zone_has_none() -> None:
+    sta = {"ts": NOW, "sta": "sta3", "ap": "ap1", "x": 1.0, "y": 2.0}
+    state = build_state(Snapshot([], [sta], []), CAMPUS, NOW, stale_s=5)
+    assert state.stations["sta3"].zone is None
 
 
 def test_flows_mapping_is_read_only() -> None:

@@ -9,4 +9,5 @@ The digital twin (Phase 3, **critical path**): state mirror and sync (`state/`),
 **So far:**
 - **`state/model.py`:** `TwinState` (APs, stations, flows; read-only mappings; a station's AP is stored once, on the station).
 - **`state/builder.py`, `state/sync.py` (P3.1):** `TwinSync(conn, campus, run_id, config).refresh()` reads the last 10 s of a run from InfluxDB (`common/influx.py`) and builds the state from the latest record of each series. An AP is up if it reported within 5 s (`config/twin.yaml`). `sync.lag_s` is the age of the newest telemetry.
+- **`sim/apply.py` (P3.2):** `apply(state, action)` returns a new `TwinState` with the action applied (all 7 allow-listed types). AP down: its stations rejoin the nearest AP still up. Unknown or stale targets raise `ValueError`.
 - **`radio.py`:** predicted RSSI (log-distance, −16 dBm at 1 m, exponent 4, fitted to measurements) and co-channel load. The twin's copy of the testbed's interference model is pinned equal by `tests/contract/test_radio_model_parity.py`.

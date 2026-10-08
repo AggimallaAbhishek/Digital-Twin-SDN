@@ -295,3 +295,78 @@ def test_writer_needs_the_influx_settings(monkeypatch: pytest.MonkeyPatch) -> No
         monkeypatch.delenv(name, raising=False)
     with pytest.raises(SystemExit, match="INFLUXDB_URL"):
         InfluxWriter.from_env(CONFIG)
+
+
+# ------------------------------------------------------------------ review fixes (2026-10-08)
+@pytest.mark.parametrize("body", [{"aps": "none"}, {"oops": []}, [], {"aps": [{"name": "ap1"}]}])
+def test_a_malformed_ap_list_fails_that_source_only(body: Any) -> None:
+    vm, writer = FakeVM(), FakeWriter()
+    url = "http://192.168.64.2:8081/aps"
+    good = RESPONSES[url]
+    RESPONSES[url] = body
+    try:
+        report = _collector(vm, writer).poll_once(now=0.0)
+    finally:
+        RESPONSES[url] = good
+    assert report.failed_sources == ["ap_stats"]
+    assert any(line.startswith("kpi,") for line in writer.lines)
+
+
+class FreshVM(FakeVM):
+    """Like FakeVM, but every /kpi answer carries new timestamps (as live data does)."""
+
+    def __call__(self, url: str, timeout_s: float) -> Any:
+        body = super().__call__(url, timeout_s)
+        if not url.endswith("/kpi"):
+            return body
+        stamp = f"2026-10-08T10:00:{len(self.calls):02d}.000+00:00"
+        return {"ts": stamp, "kpis": [{**k, "ts": stamp} for k in body["kpis"]]}
+
+
+def test_a_failed_write_counts_as_a_gap_for_every_source() -> None:
+    clock = FakeClock()
+    fail = {"now": False}
+
+    def write(lines: list[str]) -> None:
+        if fail["now"]:
+            raise WriteError("InfluxDB down")
+
+    collector = Collector(CONFIG, META, fetch=FreshVM(), write=write, clock=clock)
+    collector.poll_once(now=0.0)
+    fail["now"] = True
+    report = collector.poll_once(now=3.0)
+    fail["now"] = False
+    collector.poll_once(now=7.0)
+    assert report.write_failed
+    assert collector.health.max_gap_s["kpi"] == 7.0
+
+
+def test_an_outage_at_the_end_of_the_run_is_a_gap() -> None:
+    health = Health()
+    health.poll("kpi", 0.0, True)
+    health.poll("kpi", 1.0, True)
+    health.finish(at=9.0)
+    assert health.max_gap_s == {"kpi": 8.0}
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "field"),
+    [
+        ("ryu_port: 8080", "ryu_port: 8080.5", "ryu_port"),
+        ("write_retries: 2 ", "write_retries: 2.5 ", "write_retries"),
+    ],
+)
+def test_ports_and_retries_must_be_integers(tmp_path: Path, old: str, new: str, field: str) -> None:
+    raw = (ROOT / "config" / "telemetry.yaml").read_text()
+    assert old in raw
+    path = tmp_path / "telemetry.yaml"
+    path.write_text(raw.replace(old, new))
+    with pytest.raises(ValueError, match=field):
+        load_collector_config(path)
+
+
+def test_config_must_be_a_mapping(tmp_path: Path) -> None:
+    path = tmp_path / "telemetry.yaml"
+    path.write_text("- just\n- a list\n")
+    with pytest.raises(ValueError, match="mapping"):
+        load_collector_config(path)

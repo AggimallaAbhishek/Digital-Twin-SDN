@@ -97,6 +97,29 @@ testbed/smoke/run_smoke.sh
 
 Logs go to `~/p02/` (`smoke.out`, `ryu.out`, `mnc.out`).
 
+## 4b. Running a scenario (P1.6)
+
+From the Mac, with the VM up and reachable as `sdnvm`:
+
+```bash
+make scenario-vm SCENARIO=lecture_flash_crowd        # one unattended 10-min run (~11 min)
+make scenario-repro-vm SCENARIO=lecture_flash_crowd  # 3 runs with the same seed, throughput within ±5%
+```
+
+- **Scenarios** live in `experiments/scenarios/`: `normal`, `lecture_flash_crowd`, `ap_failure` and `cochannel_interference` (docs/scenario.md). The targets copy them, the testbed and the config to the VM, and set the VM clock from the Mac.
+- **Results:**
+  - The last line printed is `SCENARIO_RESULT run_id=… -> PASS`.
+  - The run's files are in `~/p02/runs/<run_id>/` on the VM: `manifest.json`, `events.jsonl`, `kpi.jsonl` and `summary.json` (testbed/README.md).
+- **To record telemetry,** run the collector on the Mac while the scenario plays:
+
+  ```bash
+  make up
+  make collect SCENARIO_ID=lecture_flash_crowd RUN_ID=<run_id> DURATION_S=600
+  ```
+
+  Then watch Grafana → *Digital Twin SDN / Raw KPIs* (telemetry/README.md).
+- **One run at a time:** every target starts with `mn -c`, so it stops anything else running on the VM (RULEBOOK N-2).
+
 ## 5. Known problems and fixes
 
 | # | Symptom | Cause | Fix |

@@ -330,7 +330,7 @@ These are **starting contracts**. They should be agreed in week 2 and changed on
 | `twin/telemetry/port` | `port_stats` | `dpid`, `port` | `rx_bytes`, `tx_bytes`, `rx_pkts`, `tx_pkts`, `rx_dropped`, `tx_dropped`, `rx_bps`, `tx_bps` |
 | `twin/telemetry/flow` | `flow_stats` | `dpid`, `flow_id`, `app_class` | `bytes`, `pkts`, `duration_s`, `bps` |
 | `twin/telemetry/ap` | `ap_stats` | `ap`, `channel` | `n_clients`, `channel_util`, `tx_power_dbm`, `retries`, `noise_dbm` |
-| `twin/telemetry/station` | `sta_stats` | `sta`, `ap` | `rssi_dbm`, `snr_db`, `tx_bitrate`, `rx_bitrate`, `x`, `y` |
+| `twin/telemetry/station` | `sta_stats` | `sta`, `ap` | `rssi_dbm`, `snr_db`, `tx_bitrate_mbps`, `rx_bitrate_mbps`, `x`, `y` |
 | `twin/telemetry/kpi` | `kpi` | `flow_id`, `app_class` | `throughput_mbps`, `latency_ms`, `jitter_ms`, `loss_pct` |
 | `twin/events/action` | `actions` | `source`, `type`, `status` | `action_id`, `payload_json`, `verdict_json` |
 | `twin/events/alert` | `alerts` | `detector`, `entity` | `score`, `details_json` |

@@ -80,13 +80,16 @@ class CollectorConfig:
 def load_collector_config(path: Path = DEFAULT_CONFIG) -> CollectorConfig:
     """Load config/telemetry.yaml; ValueError names a missing or non-positive value."""
     raw = yaml.safe_load(path.read_text())
+    if not isinstance(raw, dict):
+        raise ValueError(f"{path}: must be a mapping")
     values: dict[str, Any] = {}
     for name, kind in CollectorConfig.__annotations__.items():
         value = raw.get(name)
+        number = int if kind == "int" else int | float
         if kind == "str":
             ok = isinstance(value, str) and bool(value)
         else:
-            ok = isinstance(value, int | float) and not isinstance(value, bool) and value > 0
+            ok = isinstance(value, number) and not isinstance(value, bool) and value > 0
         if not ok:
             raise ValueError(f"config/telemetry.yaml: {name} is missing or invalid ({value!r})")
         values[name] = value
@@ -120,6 +123,11 @@ class Health:
         if record_times:
             self.max_lag_s = max(self.max_lag_s, written_at - min(record_times))
 
+    def finish(self, at: float) -> None:
+        """End of run: time since each source's last success counts as a gap too."""
+        for source, last in self._last_ok.items():
+            self.max_gap_s[source] = max(self.max_gap_s[source], at - last)
+
     def passed(self, max_lag_s: float, max_gap_s: float) -> bool:
         """Records were written, with lag and every source's gap within the limits."""
         gaps_ok = all(gap <= max_gap_s for gap in self.max_gap_s.values())
@@ -133,6 +141,7 @@ class PollReport:
     records: int = 0
     failed_sources: list[str] = field(default_factory=list)
     invalid: list[str] = field(default_factory=list)
+    write_failed: bool = False
 
 
 class Collector:
@@ -160,10 +169,11 @@ class Collector:
         report = PollReport()
         jobs = {name: self._pool.submit(job) for name, job in self._jobs().items()}
         batches: list[Batch] = []
+        fetched: list[str] = []
         for name, future in jobs.items():
             try:
                 batches.append(future.result())
-                self.health.poll(name, now, ok=True)
+                fetched.append(name)
             except FetchError as exc:
                 report.failed_sources.append(name)
                 self.health.poll(name, now, ok=False)
@@ -172,12 +182,19 @@ class Collector:
         report.invalid = [e for b in batches for e in b.errors]
         for error in report.invalid:
             log.warning("invalid record dropped: %s", error)
-        if records:
-            self._write([line_protocol(r) for r in records])
-            self.health.written([r.ts.timestamp() for r in records], self._clock())
+        try:
+            if records:
+                self._write([line_protocol(r) for r in records])
+                self.health.written([r.ts.timestamp() for r in records], self._clock())
+        except WriteError as exc:
+            report.write_failed = True
+            log.error("write failed: %s", exc)
+        for name in fetched:  # a source counts as polled only once its data is stored
+            self.health.poll(name, now, ok=not report.write_failed)
+        if not report.write_failed:
             for record in records:
                 self._written[series_key(record)] = record.ts
-        report.records = len(records)
+            report.records = len(records)
         return report
 
     def run(self, duration_s: float | None) -> None:
@@ -185,11 +202,7 @@ class Collector:
         start = self._clock()
         next_poll = start
         while duration_s is None or self._clock() - start < duration_s:
-            now = self._clock()
-            try:
-                self.poll_once(now)
-            except WriteError as exc:
-                log.error("write failed: %s", exc)
+            self.poll_once(self._clock())
             next_poll += self.config.period_s
             time.sleep(max(0.0, next_poll - self._clock()))
 
@@ -209,7 +222,7 @@ class Collector:
 
     def _ap_stats(self) -> Batch:
         if self._aps is None:  # once: the campus has a fixed set of APs
-            self._aps = [ap["ap"] for ap in self._get(f"{self._agent}/aps")["aps"]]
+            self._aps = _ap_names(self._get(f"{self._agent}/aps"))
         batch = Batch()
         for ap in self._aps:
             one = from_ap_stats(self._get(f"{self._agent}/aps/{ap}/stats"), self.meta)
@@ -219,6 +232,16 @@ class Collector:
 
     def _get(self, url: str) -> Any:
         return self._fetch(url, self.config.request_timeout_s)
+
+
+def _ap_names(body: Any) -> list[str]:
+    """AP names from GET /aps; FetchError if the body is not the documented shape."""
+    aps = body.get("aps") if isinstance(body, dict) else None
+    if not isinstance(aps, list) or not all(
+        isinstance(ap, dict) and isinstance(ap.get("ap"), str) for ap in aps
+    ):
+        raise FetchError(f"/aps: unexpected response {str(body)[:80]!r}")
+    return [ap["ap"] for ap in aps]
 
 
 def http_fetch(url: str, timeout_s: float) -> Any:
@@ -309,6 +332,7 @@ def main(argv: list[str] | None = None) -> int:
     with contextlib.suppress(KeyboardInterrupt):  # Ctrl-C ends the run and still reports
         collector.run(args.duration_s)
     health = collector.health
+    health.finish(at=time.time())
     ok = health.passed(config.max_lag_s, config.max_gap_s)
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     summary = {"scenario_id": args.scenario_id, "run_id": args.run_id, "passed": ok}

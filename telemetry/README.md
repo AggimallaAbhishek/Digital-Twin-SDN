@@ -26,6 +26,7 @@ make collect SCENARIO_ID=lecture_flash_crowd RUN_ID=flash-1  # Ctrl-C to stop, o
 - **Validation** happens on arrival against `common/schemas.py`. An invalid record is logged with its reason and dropped. For example, a disabled AP reports `channel: null`, which `APStats` rejects.
 - **No duplicates:** `/kpi` returns each flow's *latest* record on every poll. The collector writes only records newer than the last one it wrote for the same series.
 - **Tags:** every line carries `scenario_id` and `run_id` (from the command line) plus the PROJECT_PLAN §7.1 tags.
+- **When a source counts as polled:** only once its data is stored, so a failed InfluxDB write counts as a gap for every source in that poll, and so does the time after the last success when the run ends. A malformed `/aps` reply fails the `ap_stats` source only.
 - **Health** is checked against the P2.1 *Done when*:
   - lag = write time − record `ts`, must stay under 2 s;
   - gap = time between successful polls of a source, must stay under 5 s.
@@ -41,7 +42,8 @@ Grafana → *Digital Twin SDN / Raw KPIs (P2.2)*. Pick the run in the **Run** dr
 |---|---|
 | **Access points** | AP downlink throughput (dashed line: 4.6 Mbit/s capacity) · airtime utilisation (dashed line: 80% congestion limit) · clients per AP · channel per AP |
 | **Traffic KPIs by class** | mean flow throughput · p95 latency · packet loss |
-| **Wired links** | core link s1–s2 · server link srv1 |
+| **Wired links** | utilisation of the s1 → s2 core link (% of 100 Mbit/s) · utilisation of srv1's link (% of 1 Gbit/s) |
+| **Flows** | table of every flow's latest KPIs: class, throughput, latency (RTT), jitter, loss |
 
 **Colours** follow the entity and never change between panels:
 - APs: ap1 blue, ap2 orange, ap3 aqua, ap4 yellow.

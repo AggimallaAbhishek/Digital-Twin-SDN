@@ -207,6 +207,11 @@ def test_max_deviation_from_the_mean(values: list[float], deviation: float) -> N
     assert max_deviation_pct(values) == pytest.approx(deviation)
 
 
+@pytest.mark.parametrize(("values", "deviation"), [([0.0, 0.0], 0.0), ([0.0, 1.0], 100.0)])
+def test_deviation_around_a_zero_or_tiny_mean(values: list[float], deviation: float) -> None:
+    assert max_deviation_pct(values) == pytest.approx(deviation)
+
+
 def test_deviation_needs_values() -> None:
     with pytest.raises(ValueError, match="no values"):
         max_deviation_pct([])

@@ -69,6 +69,7 @@
     "x": 0,
     "y": 1
    },
+   "interval": "10s",
    "targets": [
     {
      "refId": "A",
@@ -76,7 +77,7 @@
       "type": "influxdb",
       "uid": "influxdb"
      },
-     "query": "import \"strings\"\nfrom(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"port_stats\" and r._field == \"tx_bps\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> filter(fn: (r) => strings.hasPrefix(v: r.dpid, prefix: \"1\") and r.port == \"1\")\n  |> map(fn: (r) => ({r with _value: r._value / 1000000.0}))\n  |> map(fn: (r) => ({_time: r._time, _value: r._value, ap: \"ap\" + strings.substring(v: r.dpid, start: 15, end: 16)}))\n  |> group(columns: [\"ap\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n"
+     "query": "import \"strings\"\nfrom(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"port_stats\" and r._field == \"tx_bps\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> filter(fn: (r) => strings.hasPrefix(v: r.dpid, prefix: \"1\") and r.port == \"1\")\n  |> map(fn: (r) => ({r with _value: r._value / 1000000.0}))\n  |> map(fn: (r) => ({_time: r._time, _value: r._value, ap: \"ap\" + strings.substring(v: r.dpid, start: 15, end: 16)}))\n  |> group(columns: [\"ap\"])\n  |> keep(columns: [\"_time\", \"_value\", \"ap\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n"
     }
    ],
    "fieldConfig": {
@@ -92,7 +93,8 @@
       "gradientMode": "none",
       "thresholdsStyle": {
        "mode": "dashed"
-      }
+      },
+      "axisSoftMax": 5
      },
      "color": {
       "mode": "palette-classic"
@@ -207,6 +209,7 @@
     "x": 12,
     "y": 1
    },
+   "interval": "10s",
    "targets": [
     {
      "refId": "A",
@@ -214,7 +217,7 @@
       "type": "influxdb",
       "uid": "influxdb"
      },
-     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ap_stats\" and r._field == \"channel_util\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> map(fn: (r) => ({r with _value: r._value * 100.0}))\n  |> group(columns: [\"ap\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n"
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ap_stats\" and r._field == \"channel_util\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> map(fn: (r) => ({r with _value: r._value * 100.0}))\n  |> group(columns: [\"ap\"])\n  |> keep(columns: [\"_time\", \"_value\", \"ap\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n"
     }
    ],
    "fieldConfig": {
@@ -230,7 +233,8 @@
       "gradientMode": "none",
       "thresholdsStyle": {
        "mode": "dashed"
-      }
+      },
+      "axisSoftMax": 100
      },
      "color": {
       "mode": "palette-classic"
@@ -346,6 +350,7 @@
     "x": 0,
     "y": 9
    },
+   "interval": "10s",
    "targets": [
     {
      "refId": "A",
@@ -353,7 +358,7 @@
       "type": "influxdb",
       "uid": "influxdb"
      },
-     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ap_stats\" and r._field == \"n_clients\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> group(columns: [\"ap\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n"
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ap_stats\" and r._field == \"n_clients\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> group(columns: [\"ap\"])\n  |> keep(columns: [\"_time\", \"_value\", \"ap\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n"
     }
    ],
    "fieldConfig": {
@@ -480,6 +485,7 @@
     "x": 12,
     "y": 9
    },
+   "interval": "10s",
    "targets": [
     {
      "refId": "A",
@@ -487,7 +493,7 @@
       "type": "influxdb",
       "uid": "influxdb"
      },
-     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ap_stats\" and r._field == \"tx_power_dbm\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> map(fn: (r) => ({r with _value: float(v: r.channel)}))\n  |> group(columns: [\"ap\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n"
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ap_stats\" and r._field == \"tx_power_dbm\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> map(fn: (r) => ({r with _value: float(v: r.channel)}))\n  |> group(columns: [\"ap\"])\n  |> keep(columns: [\"_time\", \"_value\", \"ap\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n"
     }
    ],
    "fieldConfig": {
@@ -629,6 +635,7 @@
     "x": 0,
     "y": 17
    },
+   "interval": "10s",
    "targets": [
     {
      "refId": "A",
@@ -636,7 +643,7 @@
       "type": "influxdb",
       "uid": "influxdb"
      },
-     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"kpi\" and r._field == \"throughput_mbps\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> group(columns: [\"app_class\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n"
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"kpi\" and r._field == \"throughput_mbps\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> group(columns: [\"app_class\"])\n  |> keep(columns: [\"_time\", \"_value\", \"app_class\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n"
     }
    ],
    "fieldConfig": {
@@ -721,7 +728,7 @@
     "legend": {
      "showLegend": true,
      "displayMode": "table",
-     "placement": "right",
+     "placement": "bottom",
      "calcs": [
       "lastNotNull",
       "max"
@@ -748,6 +755,7 @@
     "x": 8,
     "y": 17
    },
+   "interval": "10s",
    "targets": [
     {
      "refId": "A",
@@ -755,7 +763,7 @@
       "type": "influxdb",
       "uid": "influxdb"
      },
-     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"kpi\" and r._field == \"latency_ms\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> group(columns: [\"app_class\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: (column, tables=<-) => tables |> quantile(q: 0.95, column: column), createEmpty: false)\n"
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"kpi\" and r._field == \"latency_ms\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> group(columns: [\"app_class\"])\n  |> keep(columns: [\"_time\", \"_value\", \"app_class\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: (column, tables=<-) => tables |> quantile(q: 0.95, column: column), createEmpty: false)\n"
     }
    ],
    "fieldConfig": {
@@ -840,7 +848,7 @@
     "legend": {
      "showLegend": true,
      "displayMode": "table",
-     "placement": "right",
+     "placement": "bottom",
      "calcs": [
       "lastNotNull",
       "max"
@@ -867,6 +875,7 @@
     "x": 16,
     "y": 17
    },
+   "interval": "10s",
    "targets": [
     {
      "refId": "A",
@@ -874,7 +883,7 @@
       "type": "influxdb",
       "uid": "influxdb"
      },
-     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"kpi\" and r._field == \"loss_pct\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> group(columns: [\"app_class\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n"
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"kpi\" and r._field == \"loss_pct\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> group(columns: [\"app_class\"])\n  |> keep(columns: [\"_time\", \"_value\", \"app_class\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n"
     }
    ],
    "fieldConfig": {
@@ -960,7 +969,7 @@
     "legend": {
      "showLegend": true,
      "displayMode": "table",
-     "placement": "right",
+     "placement": "bottom",
      "calcs": [
       "lastNotNull",
       "max"
@@ -988,8 +997,8 @@
   {
    "id": 8,
    "type": "timeseries",
-   "title": "Core link s1-s2 (Mbit/s)",
-   "description": "Traffic on s1 port 3, the 100 Mbit/s link between the two switches (both directions).",
+   "title": "Core link s1 \u2192 s2 utilisation (%)",
+   "description": "Traffic from s1 to s2 (s1 port 3) as a share of the 100 Mbit/s core link: everything srv1 sends to the lab and library APs crosses it.",
    "datasource": {
     "type": "influxdb",
     "uid": "influxdb"
@@ -1000,6 +1009,7 @@
     "x": 0,
     "y": 26
    },
+   "interval": "10s",
    "targets": [
     {
      "refId": "A",
@@ -1007,12 +1017,12 @@
       "type": "influxdb",
       "uid": "influxdb"
      },
-     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"port_stats\" and r._field == \"tx_bps\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> filter(fn: (r) => r.dpid == \"0000000000000001\" and r.port == \"3\")\n  |> map(fn: (r) => ({r with _value: r._value / 1000000.0}))\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n"
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"port_stats\" and r._field == \"tx_bps\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> filter(fn: (r) => r.dpid == \"0000000000000001\" and r.port == \"3\")\n  |> map(fn: (r) => ({r with _value: r._value / 100000000.0 * 100.0}))\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n"
     }
    ],
    "fieldConfig": {
     "defaults": {
-     "unit": "Mbits",
+     "unit": "percent",
      "custom": {
       "lineWidth": 2,
       "fillOpacity": 0,
@@ -1038,7 +1048,8 @@
        }
       ]
      },
-     "decimals": 2
+     "min": 0,
+     "decimals": 1
     },
     "overrides": []
    },
@@ -1061,8 +1072,8 @@
   {
    "id": 9,
    "type": "timeseries",
-   "title": "Server link srv1 (Mbit/s)",
-   "description": "Traffic from srv1 into s1 (s1 port 4, 1 Gbit/s): all downlink video, web and bulk traffic starts here.",
+   "title": "Server link srv1 utilisation (%)",
+   "description": "Traffic from srv1 into s1 (s1 port 4) as a share of its 1 Gbit/s link: all downlink video, web and bulk traffic starts here.",
    "datasource": {
     "type": "influxdb",
     "uid": "influxdb"
@@ -1073,6 +1084,7 @@
     "x": 12,
     "y": 26
    },
+   "interval": "10s",
    "targets": [
     {
      "refId": "A",
@@ -1080,12 +1092,12 @@
       "type": "influxdb",
       "uid": "influxdb"
      },
-     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"port_stats\" and r._field == \"rx_bps\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> filter(fn: (r) => r.dpid == \"0000000000000001\" and r.port == \"4\")\n  |> map(fn: (r) => ({r with _value: r._value / 1000000.0}))\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n"
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"port_stats\" and r._field == \"rx_bps\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> filter(fn: (r) => r.dpid == \"0000000000000001\" and r.port == \"4\")\n  |> map(fn: (r) => ({r with _value: r._value / 1000000000.0 * 100.0}))\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n"
     }
    ],
    "fieldConfig": {
     "defaults": {
-     "unit": "Mbits",
+     "unit": "percent",
      "custom": {
       "lineWidth": 2,
       "fillOpacity": 0,
@@ -1111,6 +1123,7 @@
        }
       ]
      },
+     "min": 0,
      "decimals": 2
     },
     "overrides": []
@@ -1130,6 +1143,165 @@
      "sort": "none"
     }
    }
+  },
+  {
+   "id": 103,
+   "type": "row",
+   "title": "Flows",
+   "collapsed": false,
+   "panels": [],
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 33
+   }
+  },
+  {
+   "id": 10,
+   "type": "table",
+   "title": "Latest KPIs per flow",
+   "description": "Each traffic flow's most recent KPI record in the selected time range (KPI probe). Web rows update when a fetch finishes.",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "influxdb"
+   },
+   "gridPos": {
+    "h": 14,
+    "w": 24,
+    "x": 0,
+    "y": 34
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "influxdb"
+     },
+     "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"kpi\")\n  |> filter(fn: (r) => r.run_id == \"${run_id}\")\n  |> last()\n  |> pivot(rowKey: [\"flow_id\", \"app_class\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> group()\n  |> keep(columns: [\"flow_id\", \"app_class\", \"throughput_mbps\", \"latency_ms\", \"jitter_ms\", \"loss_pct\"])\n  |> sort(columns: [\"app_class\", \"flow_id\"])\n"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "decimals": 2,
+     "custom": {
+      "align": "auto"
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "flow_id"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "Flow"
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "app_class"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "Class"
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "throughput_mbps"
+      },
+      "properties": [
+       {
+        "id": "unit",
+        "value": "Mbits"
+       },
+       {
+        "id": "displayName",
+        "value": "Throughput"
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "latency_ms"
+      },
+      "properties": [
+       {
+        "id": "unit",
+        "value": "ms"
+       },
+       {
+        "id": "displayName",
+        "value": "Latency (RTT)"
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "jitter_ms"
+      },
+      "properties": [
+       {
+        "id": "unit",
+        "value": "ms"
+       },
+       {
+        "id": "displayName",
+        "value": "Jitter"
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "loss_pct"
+      },
+      "properties": [
+       {
+        "id": "unit",
+        "value": "percent"
+       },
+       {
+        "id": "displayName",
+        "value": "Loss"
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "showHeader": true,
+    "cellHeight": "sm",
+    "footer": {
+     "show": false
+    }
+   },
+   "transformations": [
+    {
+     "id": "organize",
+     "options": {
+      "indexByName": {
+       "app_class": 0,
+       "flow_id": 1,
+       "throughput_mbps": 2,
+       "latency_ms": 3,
+       "jitter_ms": 4,
+       "loss_pct": 5
+      }
+     }
+    }
+   ]
   }
  ]
 }

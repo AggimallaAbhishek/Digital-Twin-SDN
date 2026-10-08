@@ -57,7 +57,7 @@ Traffic is sized to this capacity: video calls default to **1 Mbit/s** (was 3), 
 
 | ID | Purpose | Timeline (10 min, seed 42) | Expected stress |
 |---|---|---|---|
-| `normal` | training data for forecaster/anomaly | Everyone browses; one 1 Mbit/s video call each in the lab (sta4), corridor (sta9) and library (sta16); a 0.5 Mbit/s bulk transfer on sta5 | none: busiest AP ~2.6 of 4.6 Mbit/s |
+| `normal` | training data for forecaster/anomaly | Everyone browses; one 1 Mbit/s video call each in the lab (sta4), corridor (sta9) and library (sta16); a 0.5 Mbit/s bulk transfer on sta5 | none: busiest AP (lab, ap2) ~1.9 of 4.6 Mbit/s |
 | `lecture_flash_crowd` | **evaluation** | t=120–160 s: 6 corridor + 4 library stations leave for the lecture hall (all there by ~195 s); t=210 s: everyone in the hall (13 stations) streams the lecture at 0.4 Mbit/s | ap1 at ~180% of its 3.45 Mbit/s cap; ap2/ap3 nearby with spare capacity |
 | `ap_failure` | **evaluation** | 0.6 Mbit/s video calls in the lab and lecture hall from t=10 s; t=240 s: ap2 (lab) goes down. After 5 s its stations join the nearest AP still up: sta4, sta5 → ap1; sta6–8 → ap4 | ap1 at ~99% of its cap |
 | `cochannel_interference` | **evaluation** | 0.4 Mbit/s video calls in the corridor and lecture hall from t=10 s; t=180 s: ap3 is forced onto channel 1, co-channel with ap1 (30 m) and ap4 (40 m) | ap3 capped at 1.72 Mbit/s for ~3.4 Mbit/s of demand (~200%) |

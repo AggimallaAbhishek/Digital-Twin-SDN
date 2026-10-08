@@ -32,7 +32,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Callable, Dict
 
 import yaml
 from mininet.log import info, setLogLevel
@@ -220,7 +220,7 @@ class ScenarioRun:
         ok = steer(sta, self.campus.aps[target], lock=self.agent.lock)  # lock held per command
         self.log("rejoined", sta=name, ap=target, associated=ok)
 
-    def _thread(self, target: Any, name: str) -> None:
+    def _thread(self, target: Callable[[], None], name: str) -> None:
         thread = threading.Thread(target=target, name=name, daemon=True)
         thread.start()
         self._threads.append(thread)
@@ -256,7 +256,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("scenario", type=Path)
     parser.add_argument("--run-id", default=None)
-    parser.add_argument("--git-commit", default="unknown")
+    parser.add_argument("--git-commit", required=True, help="recorded in the manifest (rule 10)")
     parser.add_argument("--agent-port", type=int, default=ap_agent.DEFAULT_PORT)
     args = parser.parse_args(argv)
 

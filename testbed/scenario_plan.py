@@ -181,7 +181,10 @@ def max_deviation_pct(values: Sequence[float]) -> float:
     if not values:
         raise ValueError("no values to compare")
     mean = statistics.mean(values)
-    return max(abs(v - mean) for v in values) / mean * 100
+    spread = max(abs(v - mean) for v in values)
+    if mean == 0:  # e.g. a class that carried nothing in every run
+        return 0.0 if spread == 0 else math.inf
+    return spread / abs(mean) * 100
 
 
 def _traffic(index: int, item: Mapping[str, Any]) -> TrafficSpec:

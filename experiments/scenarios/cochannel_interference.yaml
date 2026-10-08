@@ -1,6 +1,6 @@
 # Co-channel interference (docs/scenario.md): ap3 is forced onto channel 1 at t=180 s, joining
 # ap1 (30 m away) and ap4 (40 m). The emulated interference (radio_model) then caps ap3 at
-# ~1.73 Mbit/s while the corridor's 7 video calls need ~3.4 (~200%). Moving ap3 back to
+# ~1.72 Mbit/s while the corridor's 7 video calls need ~3.4 (~200%). Moving ap3 back to
 # channel 11 removes the cap.
 scenario_id: cochannel_interference
 duration_s: 600

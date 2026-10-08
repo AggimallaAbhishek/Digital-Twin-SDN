@@ -7,6 +7,7 @@ import pytest
 
 from common.schemas import Policy
 from genai.eval.run_intents import INTENTS, Outcome, accuracy, load_cases, main, score
+from genai.intent.engine import PROMPT_VERSION
 from genai.llm.client import LLMClient, LLMOutputError, LLMResult
 
 LINE = (
@@ -131,7 +132,7 @@ class _FakeClient:
         self, messages: list[dict[str, str]], schema: type[Policy], *, prompt_version: str
     ) -> LLMResult[Policy]:
         assert schema is Policy
-        assert prompt_version == "intent_v1"
+        assert prompt_version == PROMPT_VERSION  # the prompt the intent engine uses
         reply = self._replies.get(messages[-1]["content"])
         if reply is None:
             raise LLMOutputError("still invalid")

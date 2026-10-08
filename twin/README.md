@@ -11,3 +11,20 @@ The digital twin (Phase 3, **critical path**): state mirror and sync (`state/`),
 - **`state/builder.py`, `state/sync.py` (P3.1):** `TwinSync(conn, campus, run_id, config).refresh()` reads the last 10 s of a run from InfluxDB (`common/influx.py`) and builds the state from the latest record of each series. An AP is up if it reported within 5 s (`config/twin.yaml`). Lag = `lag_s(state, now)` taken when the state is used: the age of the **stalest** measurement's newest record (ap_stats, sta_stats, kpi), so one stalled measurement can't hide behind fresh ones, and the query time counts.
 - **`sim/apply.py` (P3.2):** `apply(state, action)` returns a new `TwinState` with the action applied (all 7 allow-listed types). AP down: its stations rejoin the nearest AP still up. Unknown or stale targets raise `ValueError`.
 - **`radio.py`:** predicted RSSI (log-distance, −16 dBm at 1 m, exponent 4, fitted to measurements) and co-channel load. The twin's copy of the testbed's interference model is pinned equal by `tests/contract/test_radio_model_parity.py`.
+
+## Analytical simulator (P3.3)
+
+```python
+params = load_sim_params(yaml.safe_load(Path("config/sim.yaml").read_text()))
+radio = load_radio_params(campus)                    # config/campus_v1.yaml
+baseline = simulate(state, radio, params)            # SimResult: flows, ap_util, kpis
+predicted = simulate(apply(state, action), radio, params)
+```
+
+- Per AP that is up: capacity 4.6 Mbit/s, capped by same-channel APs that are up (`radio.py`, the model the testbed emulates). Strict priority between OVS queues 1 → 0 → 2, max-min fair within a queue. Video and web lose what they can't send; TCP bulk only sees base loss.
+- Latency = base + `service_ms` × the mean length of an M/M/1/K queue at the load of the flow's queue and those served before it. The queue is bounded, so latency levels off at saturation, as measured.
+- Web throughput is the rate of one fetch (what the KPI probe reports): `web_efficiency` × the capacity left by other traffic in the same or a higher queue.
+- A flow with no working AP: 0 Mbit/s, 100% loss, 1000 ms.
+- `kpis` (`common.schemas.KPIValues`): total throughput, mean latency and loss over flows, Jain's index of clients per AP.
+- Not modelled: wired links (100 Mbit/s, negligible; deviation #12), the ~4 s reconnection of a steered station. QoS queues are modelled but not yet provisioned in the testbed (deviation #11, task P4.4a).
+- Parameters in `config/sim.yaml` are first estimates from data/v1; P3.5 calibrates them. `tests/contract/test_sim_traffic_parity.py` keeps the video rate and probe timeout equal to the testbed's.

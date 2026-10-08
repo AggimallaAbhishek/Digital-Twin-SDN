@@ -47,3 +47,20 @@ uv run python -m genai.eval.run_intents --config <copy with model: qwen2.5:3b>  
 
 - **Correct** = schema-valid, and scope (zone + set of app classes), objectives and constraints equal the expected ones as sets (decisions P5.4-A). Each expected policy is checked against the `Policy` schema on load.
 - **2026-10-08, prompt intent_v1:** `gpt-oss:120b-cloud` 29/30 (96.7%); `qwen2.5:3b` 20/30 (66.7%).
+- **2026-10-08, prompt intent_v2 (few-shot, P5.3):** `gpt-oss:120b-cloud` 30/30 (100%); `qwen2.5:3b` 21/30 (70%). The local model's misses are mostly hard constraints.
+- The eval always uses the intent engine's prompt (`genai/intent/engine.py` `PROMPT`).
+
+## Intent engine (P5.3)
+
+```python
+engine = IntentEngine(LLMClient.from_config(), ToolLayer(backend))
+result = engine.handle("Give video calls in the lab priority.", flows, now)   # flows: FlowRef list
+result.policy, result.actions, result.verdicts, result.standing, result.error
+```
+
+1. The LLM client turns the text into a `Policy` (`prompts/intent_v2.md`, schema-constrained, at most 2 repairs). No valid policy → `error`, and the compiler never sees it.
+2. `intent/compiler.py` (deterministic, decision P5.3-A): `priority` → `set_qos_queue` (high 1, normal 0, low 2; one per app class); `throughput_mbps <=` → `rate_limit_flow` on every matching flow (strictest cap wins). KPI targets and constraints become no action: they stay in `standing` for the verifier. Refused with a reason: a priority for all traffic everywhere, conflicting priorities, a cap under 1 Mbit/s.
+3. Each action goes to `simulate_in_twin`. Nothing is applied: the executor (P4.4) does that after approval (L-1).
+4. The policy keeps the operator's exact words as `intent_text`, whatever the model echoed.
+
+`flows` (id, app class, zone) come from the twin state; `POST /intents` arrives with the API in P3.6 (decision P5.3-B).

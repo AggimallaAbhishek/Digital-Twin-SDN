@@ -1,7 +1,8 @@
 """P5.4: intent accuracy on the 30-intent test set (genai/eval/intents.jsonl, RULEBOOK L-7).
 
 Each intent goes through the LLM client (genai/llm/client.py: main model, local fallback,
-schema-constrained output, repair retries) with the prompt genai/prompts/intent_v1.md.
+schema-constrained output, repair retries) with the intent engine's prompt
+(genai/intent/engine.py PROMPT).
 
 An intent is **correct** when the client returns a schema-valid Policy whose scope (zone and the
 set of app classes), objectives and constraints all equal the expected ones, compared as sets.
@@ -22,12 +23,11 @@ from typing import Any
 from pydantic import ValidationError
 
 from common.schemas import Policy
+from genai.intent.engine import PROMPT, PROMPT_VERSION
 from genai.llm.client import LLM_CONFIG, LLMClient, LLMOutputError, LLMUnavailableError
 
 ROOT = Path(__file__).resolve().parents[2]
 INTENTS = ROOT / "genai" / "eval" / "intents.jsonl"
-PROMPT = ROOT / "genai" / "prompts" / "intent_v1.md"
-PROMPT_VERSION = "intent_v1"
 
 
 @dataclass(frozen=True)

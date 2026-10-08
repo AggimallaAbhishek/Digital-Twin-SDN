@@ -3,7 +3,7 @@
 RUN := uv run
 FAST_TESTS := -m "not vm and not llm and not integration"
 
-.PHONY: help setup env hooks fmt lint types imports test test-all check security up down ps logs sync-vm smoke-vm campus-vm controller-vm ap-agent-vm mobility-vm traffic-vm scenario-vm scenario-repro-vm llm-check llm-client-check
+.PHONY: help setup env hooks fmt lint types imports test test-all check security up down ps logs sync-vm smoke-vm campus-vm controller-vm vm-clock ap-agent-vm mobility-vm traffic-vm scenario-vm scenario-repro-vm collect llm-check llm-client-check
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -61,6 +61,11 @@ sync-vm: ## Copy testbed/, controller/, config/ and the scenarios to the VM (~/D
 	ssh sdnvm 'rm -rf ~/Digital-Twin-SDN/testbed ~/Digital-Twin-SDN/controller ~/Digital-Twin-SDN/config ~/Digital-Twin-SDN/experiments/scenarios'
 	scp -qr testbed controller config sdnvm:Digital-Twin-SDN/
 	scp -qr experiments/scenarios sdnvm:Digital-Twin-SDN/experiments/
+	@$(MAKE) --no-print-directory vm-clock
+
+vm-clock: ## Set the VM clock from the Mac (its NTP can't sync: docs/setup.md Known problems #12)
+	ssh sdnvm "sudo date -u -s @$$(python3 -c 'import time; print(round(time.time(), 3))') > /dev/null"
+	@python3 -c 'import subprocess,time; a=time.time(); b=float(subprocess.check_output(["ssh","sdnvm","date +%s.%N"])); c=time.time(); print(f"VM clock skew {b-(a+c)/2:+.2f} s")'
 
 smoke-vm: sync-vm ## P0.2 smoke test on the VM (2 APs, 4 stations)
 	ssh sdnvm '~/Digital-Twin-SDN/testbed/smoke/run_smoke.sh'
@@ -90,6 +95,12 @@ scenario-vm: sync-vm ## P1.6 run one scenario on the VM (SCENARIO=lecture_flash_
 scenario-repro-vm: sync-vm ## P1.6 run SCENARIO 3x with its seed and compare throughput (±5%, ~35 min)
 	for i in 1 2 3; do ssh sdnvm '$(RUN_SCENARIO) repro-$(SCENARIO)-'$$i' testbed.run_scenario experiments/scenarios/$(SCENARIO).yaml --run-id repro-$(SCENARIO)-'$$i' --git-commit $(GIT_COMMIT)' || exit 1; done
 	ssh sdnvm 'cd ~/Digital-Twin-SDN && python3 -B -m testbed.checks.repro_check ~/p02/runs/repro-$(SCENARIO)-1 ~/p02/runs/repro-$(SCENARIO)-2 ~/p02/runs/repro-$(SCENARIO)-3'
+
+SCENARIO_ID ?= $(SCENARIO)
+RUN_ID ?= $(SCENARIO_ID)-manual
+
+collect: ## P2.1 collector: VM -> InfluxDB (SCENARIO_ID=, RUN_ID=, optional DURATION_S=; needs `make up`)
+	@set -a; . ./.env; set +a; $(RUN) python -m telemetry.collector.collector --scenario-id $(SCENARIO_ID) --run-id $(RUN_ID) $(if $(DURATION_S),--duration-s $(DURATION_S))
 
 llm-check: ## P0.7: main + fallback LLM intent -> Policy check (config/llm.yaml; needs Ollama)
 	$(RUN) python -m genai.eval.compare_models

@@ -1,0 +1,11 @@
+# P2.1 telemetry collector (telemetry/collector/). InfluxDB URL, org, bucket and token come from
+# the environment (.env, never committed): INFLUXDB_URL, INFLUXDB_ORG, INFLUXDB_BUCKET, INFLUXDB_TOKEN.
+vm_host: 192.168.64.2      # testbed VM (docs/setup.md); Ryu REST and the AP agent listen here
+ryu_port: 8080
+agent_port: 8081
+period_s: 1.0              # PHASE_PLAN P2.1: poll every 1-2 s
+request_timeout_s: 1.5     # per HTTP call (RULEBOOK C-6)
+write_timeout_s: 3.0
+write_retries: 2           # bounded, with backoff
+max_lag_s: 2.0             # P2.1 Done when: lag < 2 s
+max_gap_s: 5.0             # P2.1 Done when: no gaps > 5 s

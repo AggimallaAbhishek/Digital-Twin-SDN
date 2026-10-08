@@ -156,8 +156,14 @@ class ScenarioRun:
             thread.join(timeout=10)
 
     def _walk(self, crowd: CrowdRunner) -> None:
-        for arrival in crowd.run(self.stop):
-            self.log("arrived", sta=arrival.sta, ap=arrival.ap, associated=arrival.associated)
+        for arrival in crowd.run(self.stop):  # returns once every walker has re-associated
+            self.log(
+                "arrived",
+                sta=arrival.sta,
+                ap=arrival.ap,
+                associated=arrival.associated,
+                walk_end_s=arrival.t_s,
+            )
 
     def _step(self, step: Step) -> None:
         zone_of = zones_at(self.layout, self.stations, self.walks, step.t_s)
@@ -196,15 +202,23 @@ class ScenarioRun:
             self.log("ap_up", ap=event.ap, hostapd=out)
 
     def _rejoin(self, orphans: list[str]) -> None:
-        """Orphaned stations join the nearest AP still up (normal client behaviour)."""
+        """Orphaned stations join the nearest AP still up, all at once (like real clients)."""
         if self.stop.wait(self.model.orphan_rejoin_s):
             return
-        for name in orphans:
-            sta = self.nodes[name]
-            position = (float(sta.position[0]), float(sta.position[1]))
-            target = nearest_up_ap(self.layout, position, self.radios.down)
-            ok = steer(sta, self.campus.aps[target], lock=self.agent.lock)
-            self.log("rejoined", sta=name, ap=target, associated=ok)
+        threads = [
+            threading.Thread(target=self._rejoin_one, args=(name,), daemon=True) for name in orphans
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+    def _rejoin_one(self, name: str) -> None:
+        sta = self.nodes[name]
+        position = (float(sta.position[0]), float(sta.position[1]))
+        target = nearest_up_ap(self.layout, position, self.radios.down)
+        ok = steer(sta, self.campus.aps[target], lock=self.agent.lock)  # lock held per command
+        self.log("rejoined", sta=name, ap=target, associated=ok)
 
     def _thread(self, target: Any, name: str) -> None:
         thread = threading.Thread(target=target, name=name, daemon=True)

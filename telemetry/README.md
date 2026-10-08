@@ -31,7 +31,7 @@ make collect SCENARIO_ID=lecture_flash_crowd RUN_ID=flash-1  # Ctrl-C to stop, o
   - lag = write time − record `ts`, must stay under 2 s;
   - gap = time between successful polls of a source, must stay under 5 s.
 
-  The result is printed as `COLLECTOR_RESULT …` and saved to `logs/collector/<run_id>.json`. The JSON also gives the worst lag per measurement (`max_lag_by_measurement`), and a poll that takes longer than its period is logged as a warning, so a lag problem can be traced to its source.
+  The result is printed as `COLLECTOR_RESULT …` and saved to `logs/collector/<run_id>.json`. Records the VM produced before the collector started (the probe's latest KPI records, say) are written but don't count as lag (`backlog_records`). The JSON also gives the worst lag per measurement (`max_lag_by_measurement`), and a poll that takes longer than its period is logged as a warning, so a lag problem can be traced to its source.
 - **Secrets:** the InfluxDB URL, org and token come from `.env`, which `make collect` sources. The token is never logged or printed.
 
 ## Dashboard (P2.2)

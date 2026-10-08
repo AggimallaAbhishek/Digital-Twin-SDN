@@ -161,7 +161,7 @@ Milestones          M0          M1   |                   M2 |             M3    
 |---|---|---|---|---|
 | 0 Setup & contracts | Oct 6–8 | 🟦 In progress | | P0.2 ✅, P0.3 ✅, P0.5 ✅, P0.7 ✅ (gpt-oss:120b-cloud + local qwen2.5:3b); open: P0.6 approval (Abhishek), P0.1 Q4b template, P0.4 literature (Oct 12), VM RAM → 6 GB |
 | 1 Testbed | Oct 7–12 | ✅ Done (Oct 8) | M1 testbed part met | P1.1–P1.5 ✅ (Oct 6–7), P1.6 ✅ (Oct 8) |
-| 2 Telemetry | Oct 8–14 | ⬜ | | |
+| 2 Telemetry | Oct 8–14 | 🟦 In progress | | P2.2 ✅ (Oct 8); P2.1 30-min verification running; P2.3 due Oct 14 |
 | 3 Twin | Oct 13–19 | ⬜ | | critical path |
 | 4 ML + executor | Oct 9–19 | ⬜ | | |
 | 5 GenAI | Oct 8–22 | 🟦 In progress | | P5.1 ✅ (Oct 7) |
@@ -268,7 +268,7 @@ Status values: ⬜ Not started · 🟦 In progress · 🟨 At risk · 🟥 Block
 | ID | Task | Due | Produces | Done when |
 |---|---|---|---|---|
 | P2.1 | Collector: polls Ryu REST + AP agent every 1–2 s, validates against schemas, writes to InfluxDB (measurements from PROJECT_PLAN §7.1, tagged `scenario_id`, `run_id`) | Oct 11 | `telemetry/collector/` | Lag < 2 s; no gaps > 5 s in a 30-minute run; invalid data logged and dropped |
-| P2.2 | Grafana dashboard (provisioned): per-AP load, link utilization, per-flow KPIs | Oct 12 ∥ | `telemetry/grafana/dashboards/raw_kpis.json` | Flash crowd is visible live |
+| P2.2 ✅ | Grafana dashboard (provisioned): per-AP load, link utilization, per-flow KPIs | Oct 12 ∥ | `telemetry/grafana/dashboards/raw_kpis.json` | Flash crowd is visible live *(2026-10-08: watched live during `lecture_flash_crowd` with the collector: clients per AP show ap1 3 → 13 while ap3 7 → 1 and ap4 5 → 1; ap1 downlink jumps to 3.49 Mbit/s against its 3.45 Mbit/s cap; ap1 airtime rises to 82% across the 80% line; video loss ~53% and throughput 0.18 of 0.4 Mbit/s. Panels: AP downlink/airtime/clients/channel, KPIs by class, link utilisation (% of capacity), latest KPIs per flow. Colours validated for CVD and contrast on Grafana's light and dark surfaces. Contract test: every queried measurement/field is one the collector writes)* |
 | P2.3 | Batch runner (N scenarios × M seeds, resets the network between runs) + dataset export to Parquet | Oct 14 | `experiments/run_batch.py`, `experiments/export_dataset.py`, `docs/dataset.md` | **≥ 1 hour** of labelled telemetry across 4 scenarios; split by run |
 
 **Exit gate (part of M1 for P2.1–P2.2; P2.3 by Oct 14).**

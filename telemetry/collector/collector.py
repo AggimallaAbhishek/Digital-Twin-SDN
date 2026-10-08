@@ -102,7 +102,9 @@ def load_collector_config(path: Path = DEFAULT_CONFIG) -> CollectorConfig:
 class Health:
     """Lag and gaps against the P2.1 limits."""
 
+    started_at: float = 0.0  # records stamped earlier are backlog: written, but not lag
     records: int = 0
+    backlog_records: int = 0
     max_lag_s: float = 0.0
     max_lag_by_measurement: dict[str, float] = field(default_factory=dict)
     failures: dict[str, int] = field(default_factory=dict)
@@ -120,10 +122,12 @@ class Health:
 
     def written(self, record_times: dict[str, list[float]], written_at: float) -> None:
         """Record a successful write; `record_times` maps measurement -> record ts (epoch s)."""
-        for measurement, times in record_times.items():
+        for measurement, all_times in record_times.items():
+            self.records += len(all_times)
+            times = [t for t in all_times if t >= self.started_at]
+            self.backlog_records += len(all_times) - len(times)
             if not times:
                 continue
-            self.records += len(times)
             lag = written_at - min(times)
             self.max_lag_s = max(self.max_lag_s, lag)
             worst = self.max_lag_by_measurement.get(measurement, 0.0)
@@ -161,7 +165,7 @@ class Collector:
         write: Write,
         clock: Callable[[], float] = time.time,
     ) -> None:
-        self.config, self.meta, self.health = config, meta, Health()
+        self.config, self.meta, self.health = config, meta, Health(started_at=clock())
         self._fetch, self._write, self._clock = fetch, write, clock
         self._ryu = f"http://{config.vm_host}:{config.ryu_port}"
         self._agent = f"http://{config.vm_host}:{config.agent_port}"

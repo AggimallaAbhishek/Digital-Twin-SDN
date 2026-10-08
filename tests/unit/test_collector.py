@@ -371,3 +371,17 @@ def test_config_must_be_a_mapping(tmp_path: Path) -> None:
     path.write_text("- just\n- a list\n")
     with pytest.raises(ValueError, match="mapping"):
         load_collector_config(path)
+
+
+def test_backlog_from_before_the_collector_started_is_written_but_not_lag() -> None:
+    health = Health(started_at=10.0)
+    health.written({"kpi": [7.0, 10.5]}, written_at=11.0)  # 7.0: produced before we started
+    assert health.records == 2
+    assert health.max_lag_s == pytest.approx(0.5)
+    assert health.backlog_records == 1
+
+
+def test_collector_lag_starts_at_its_own_start(monkeypatch: pytest.MonkeyPatch) -> None:
+    clock = FakeClock()
+    collector = Collector(CONFIG, META, fetch=FakeVM(), write=FakeWriter(), clock=clock)
+    assert collector.health.started_at == clock.t

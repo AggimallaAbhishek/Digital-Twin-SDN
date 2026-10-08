@@ -15,7 +15,7 @@ import pytest
 import yaml
 
 from twin.radio import RadioParams
-from twin.sim.analytical import load_sim_params, simulate
+from twin.sim.analytical import AppModel, SimParams, load_sim_params, simulate
 from twin.state.model import APState, FlowState, StationState, TwinState
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -49,25 +49,49 @@ def _videos(n: int, ap: str = "ap1") -> tuple[dict[str, str | None], list[FlowSt
 
 
 def test_params_come_from_the_config() -> None:
-    assert PARAMS.video_mbps == 1.0
+    assert PARAMS.apps["video"] == AppModel(offered_mbps=1.0, elastic=False, fetch=False)
+    assert PARAMS.apps["bulk"].elastic
+    assert PARAMS.apps["web"].fetch
     assert PARAMS.queue_slots == 6
     assert PARAMS.dead_latency_ms == 1000.0
 
 
+def test_the_simulator_is_off_until_its_exit_gate_passes() -> None:
+    assert PARAMS.enabled is False  # RULEBOOK B-5
+
+
+def _raw() -> dict[str, Any]:
+    raw: dict[str, Any] = yaml.safe_load((ROOT / "config" / "sim.yaml").read_text())
+    return raw
+
+
+def _bad_app(**entry: Any) -> dict[str, Any]:
+    apps = _raw()["apps"]
+    return {"apps": {**apps, "video": {**apps["video"], **entry}}}
+
+
 @pytest.mark.parametrize(
-    "change",
+    ("change", "named"),
     [
-        {"video_mbps": -1},
-        {"queue_slots": 0},
-        {"web_efficiency": 1.5},
-        {"extra": 1},
-        {"bulk_mbps": "x"},
+        ({"queue_slots": 0}, "queue_slots"),
+        ({"fetch_efficiency": 1.5}, "fetch_efficiency"),
+        ({"base_latency_ms": -1}, "base_latency_ms"),
+        ({"enabled": "yes"}, "enabled"),
+        ({"extra": 1}, "extra"),
+        ({"apps": {"video": {"offered_mbps": 1.0, "elastic": False, "fetch": False}}}, "apps"),
+        (_bad_app(offered_mbps=-1), "apps.video.offered_mbps"),
+        (_bad_app(elastic="no"), "apps.video.elastic"),
+        (_bad_app(colour="red"), "apps.video"),
     ],
 )
-def test_bad_params_are_rejected_by_name(change: dict[str, Any]) -> None:
-    raw = yaml.safe_load((ROOT / "config" / "sim.yaml").read_text()) | change
-    with pytest.raises(ValueError, match=next(iter(change))):
-        load_sim_params(raw)
+def test_bad_params_are_rejected_by_name(change: dict[str, Any], named: str) -> None:
+    with pytest.raises(ValueError, match=named):
+        load_sim_params(_raw() | change)
+
+
+def _with_bulk(offered_mbps: float) -> SimParams:
+    bulk = AppModel(offered_mbps, elastic=True, fetch=False)
+    return dataclasses.replace(PARAMS, apps={**PARAMS.apps, "bulk": bulk})
 
 
 def test_below_capacity_every_flow_gets_its_demand() -> None:
@@ -147,7 +171,7 @@ def test_a_web_fetch_gets_a_share_of_the_capacity_left_over() -> None:
 
 
 def test_a_rate_limit_only_binds_below_the_demand() -> None:
-    params = dataclasses.replace(PARAMS, bulk_mbps=3.0)
+    params = _with_bulk(3.0)
     clients: dict[str, str | None] = {"sta1": "ap1", "sta2": "ap1"}
     flows = [_flow("sta1", "bulk", limit=1.0), _flow("sta2", "bulk", limit=5.0)]
     result = simulate(_state([_ap("ap1")], clients, flows), RADIO, params)
@@ -175,7 +199,17 @@ def test_no_flows_and_no_clients_is_a_quiet_fair_network() -> None:
 
 def test_a_queue_at_exactly_full_load_holds_half_its_slots() -> None:
     # rho = 1: the M/M/1/K formula is 0/0 there; its limit is K/2 = 3 -> 0.8 + 2.5 * 3 ms
-    params = dataclasses.replace(PARAMS, bulk_mbps=4.6)
+    params = _with_bulk(4.6)
     clients: dict[str, str | None] = {"sta1": "ap1"}
     result = simulate(_state([_ap("ap1")], clients, [_flow("sta1", "bulk")]), RADIO, params)
     assert result.flows["sta1-bulk"].latency_ms == pytest.approx(8.3)
+
+
+def test_network_throughput_counts_traffic_on_the_air_not_fetch_rates() -> None:
+    # 10 web stations: each fetch runs at 0.8 * 4.6 = 3.68 Mbit/s (what the probe reports), but
+    # fetches rarely overlap: the AP carries 10 * 0.08 = 0.8 Mbit/s, and that is what adds up
+    clients: dict[str, str | None] = {f"sta{i}": "ap1" for i in range(10)}
+    flows = [_flow(s, "web") for s in clients]
+    result = simulate(_state([_ap("ap1")], clients, flows), RADIO, PARAMS)
+    assert result.flows["sta0-web"].throughput_mbps == pytest.approx(3.68)
+    assert result.kpis.throughput_mbps == pytest.approx(0.8)

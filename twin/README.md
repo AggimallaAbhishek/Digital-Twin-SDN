@@ -23,8 +23,9 @@ predicted = simulate(apply(state, action), radio, params)
 
 - Per AP that is up: capacity 4.6 Mbit/s, capped by same-channel APs that are up (`radio.py`, the model the testbed emulates). Strict priority between OVS queues 1 → 0 → 2, max-min fair within a queue. Video and web lose what they can't send; TCP bulk only sees base loss.
 - Latency = base + `service_ms` × the mean length of an M/M/1/K queue at the load of the flow's queue and those served before it. The queue is bounded, so latency levels off at saturation, as measured.
-- Web throughput is the rate of one fetch (what the KPI probe reports): `web_efficiency` × the capacity left by other traffic in the same or a higher queue.
+- App classes are one table in `config/sim.yaml` (`apps`: offered rate, elastic = TCP, fetch = the probe reports one fetch's rate). Web is a fetch class: its throughput is `fetch_efficiency` × the capacity left by other traffic in the same or a higher queue, while `carried_mbps` is the little it puts on the air.
 - A flow with no working AP: 0 Mbit/s, 100% loss, 1000 ms.
-- `kpis` (`common.schemas.KPIValues`): total throughput, mean latency and loss over flows, Jain's index of clients per AP.
+- `kpis` (`common.schemas.KPIValues`): total traffic carried (fetch rates don't add up), mean latency and loss over flows, Jain's index of clients per AP.
+- **Off by default** (`enabled: false`, RULEBOOK B-5) until the twin's exit gate (M2); the verifier, API and loop must check it.
 - Not modelled: wired links (100 Mbit/s, negligible; deviation #12), the ~4 s reconnection of a steered station. QoS queues are modelled but not yet provisioned in the testbed (deviation #11, task P4.4a).
 - Parameters in `config/sim.yaml` are first estimates from data/v1; P3.5 calibrates them. `tests/contract/test_sim_traffic_parity.py` keeps the video rate and probe timeout equal to the testbed's.

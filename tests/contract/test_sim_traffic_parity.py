@@ -2,9 +2,10 @@
 
 from pathlib import Path
 
+import pytest
 import yaml
 
-from testbed.traffic.profiles import IperfProfile, load_traffic_config
+from testbed.traffic.profiles import IperfProfile, WebProfile, load_traffic_config
 from twin.sim.analytical import load_sim_params
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -17,7 +18,23 @@ TRAFFIC = load_traffic_config(
 def test_video_demand_is_the_profile_rate() -> None:
     video = TRAFFIC.profiles["video"]
     assert isinstance(video, IperfProfile)
-    assert video.rate_mbps == SIM.video_mbps
+    assert video.rate_mbps == SIM.apps["video"].offered_mbps
+    assert not SIM.apps["video"].elastic  # UDP at a fixed rate
+
+
+def test_web_demand_is_one_object_per_think_time() -> None:
+    web = TRAFFIC.profiles["web"]
+    assert isinstance(web, WebProfile)
+    offered = web.object_kb * 8 / 1000 / web.think_mean_s  # kB per s -> Mbit/s
+    assert SIM.apps["web"].offered_mbps == pytest.approx(offered, rel=0.05)
+    assert SIM.apps["web"].fetch
+
+
+def test_bulk_is_unlimited_tcp_so_the_twin_treats_it_as_elastic() -> None:
+    bulk = TRAFFIC.profiles["bulk"]
+    assert isinstance(bulk, IperfProfile)
+    assert (bulk.protocol, bulk.rate_mbps) == ("tcp", None)
+    assert SIM.apps["bulk"].elastic  # its 0.5 Mbit/s is measured (data/v1), not configured
 
 
 def test_a_dead_flow_has_the_probe_timeout_as_latency() -> None:

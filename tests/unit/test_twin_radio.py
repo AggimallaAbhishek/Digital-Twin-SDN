@@ -32,6 +32,13 @@ def test_params_come_from_the_campus_config() -> None:
     assert load_radio_params(CAMPUS) == PARAMS
 
 
+@pytest.mark.parametrize("capacity", [0, -4.6])
+def test_an_ap_capacity_that_is_not_positive_is_an_error(capacity: float) -> None:
+    campus = {**CAMPUS, "radio_model": {**CAMPUS["radio_model"], "ap_capacity_mbps": capacity}}
+    with pytest.raises(ValueError, match="ap_capacity_mbps"):
+        load_radio_params(campus)
+
+
 def test_missing_section_is_an_error() -> None:
     with pytest.raises(ValueError, match="radio_model"):
         load_radio_params({"propagation": CAMPUS["propagation"]})

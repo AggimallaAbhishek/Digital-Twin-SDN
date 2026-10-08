@@ -3,19 +3,21 @@
     engine = IntentEngine(LLMClient.from_config(), ToolLayer(backend))
     result = engine.handle("Give video calls in the lab priority.", flows, now)
 
-1. The LLM client turns the text into a `Policy` (prompt genai/prompts/intent_v2.md, JSON schema
-   output, validation and at most 2 repairs: RULEBOOK L-2). No valid policy -> stop here, so
-   invalid LLM output never reaches the compiler.
+1. `parse_intent`: the LLM client turns the text into a `Policy` (prompt genai/prompts/
+   intent_v2.md, JSON schema output, validation and at most 2 repairs: RULEBOOK L-2). No valid
+   policy -> stop here, so invalid LLM output never reaches the compiler. The intent eval
+   (genai/eval/run_intents.py) measures this same function.
 2. The deterministic compiler (compiler.py) turns the policy into actions, or refuses it.
 3. Each action goes to the twin through the `simulate_in_twin` tool (P5.2). Nothing is applied:
    the executor (P4.4) applies accepted actions, after operator approval where needed (L-1).
 
-`POST /intents` exposes this once the API exists (P3.6, decision P5.3-B).
+Off by default (config/intent.yaml, RULEBOOK B-5); `POST /intents` arrives with the API (P3.6,
+decision P5.3-B), which checks the flag.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -27,7 +29,23 @@ from genai.llm.client import LLMOutputError, LLMResult, LLMUnavailableError
 
 PROMPT = Path(__file__).resolve().parents[1] / "prompts" / "intent_v2.md"
 PROMPT_VERSION = "intent_v2"
-MAX_INTENT_CHARS = 1000  # = Policy.intent_text max_length
+MAX_INTENT_CHARS: int = next(  # the schema's limit, not a copy of it (RULEBOOK C-3)
+    m.max_length for m in Policy.model_fields["intent_text"].metadata if hasattr(m, "max_length")
+)
+
+
+@dataclass(frozen=True)
+class IntentConfig:
+    """config/intent.yaml."""
+
+    enabled: bool
+
+
+def load_intent_config(raw: Mapping[str, Any]) -> IntentConfig:
+    """Validate a parsed config/intent.yaml; ValueError if anything but `enabled: bool`."""
+    if set(raw) != {"enabled"} or not isinstance(raw["enabled"], bool):
+        raise ValueError(f"intent config must be exactly {{enabled: true|false}}, got {raw!r}")
+    return IntentConfig(enabled=raw["enabled"])
 
 
 class PolicyClient(Protocol):
@@ -42,6 +60,20 @@ class Tools(Protocol):
     """What the engine needs from genai/tools/tools.py ToolLayer."""
 
     def call(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]: ...  # Any: JSON
+
+
+def parse_intent(client: PolicyClient, text: str, system: str) -> LLMResult[Policy]:
+    """The validated Policy for `text`, keeping the operator's exact words as `intent_text`.
+
+    ValueError if the text is empty or too long; LLMOutputError / LLMUnavailableError from the
+    client if no valid policy came back."""
+    if not text.strip() or len(text) > MAX_INTENT_CHARS:
+        raise ValueError(f"intent must be 1-{MAX_INTENT_CHARS} characters")
+    messages = [{"role": "system", "content": system}, {"role": "user", "content": text}]
+    reply = client.complete_json(messages, Policy, prompt_version=PROMPT_VERSION)
+    # the audit trail keeps what the operator typed, whatever the model echoed (validated again)
+    policy = Policy.model_validate(reply.value.model_dump(by_alias=True) | {"intent_text": text})
+    return LLMResult(value=policy, model=reply.model, fell_back=reply.fell_back)
 
 
 @dataclass(frozen=True)
@@ -65,18 +97,13 @@ class IntentEngine:
 
     def handle(self, text: str, flows: Sequence[FlowRef], now: datetime) -> IntentResult:
         """Parse, compile and simulate one intent; problems come back in `error`."""
-        if not text.strip() or len(text) > MAX_INTENT_CHARS:
-            return IntentResult(error=f"intent must be 1-{MAX_INTENT_CHARS} characters")
-        messages = [
-            {"role": "system", "content": self._system},
-            {"role": "user", "content": text},
-        ]
         try:
-            reply = self._client.complete_json(messages, Policy, prompt_version=PROMPT_VERSION)
+            reply = parse_intent(self._client, text, self._system)
+        except ValueError as exc:
+            return IntentResult(error=str(exc))
         except (LLMOutputError, LLMUnavailableError) as exc:
             return IntentResult(error=f"no valid policy: {exc}")
-        # keep the operator's own words for the audit trail, whatever the model echoed
-        policy = reply.value.model_copy(update={"intent_text": text})
+        policy = reply.value
         try:
             compiled = compile_policy(policy, flows, now)
         except CompileError as exc:
@@ -87,4 +114,10 @@ class IntentEngine:
             )
             for a in compiled.actions
         }
-        return IntentResult(policy, compiled.actions, verdicts, compiled.standing, reply.model)
+        return IntentResult(
+            policy=policy,
+            actions=compiled.actions,
+            verdicts=verdicts,
+            standing=compiled.standing,
+            model=reply.model,
+        )

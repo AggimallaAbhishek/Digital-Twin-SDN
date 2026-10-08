@@ -36,6 +36,8 @@ def load_radio_params(campus: Mapping[str, Any]) -> RadioParams:
     radio, propagation = campus.get("radio_model"), campus.get("propagation")
     if not isinstance(radio, Mapping) or not isinstance(propagation, Mapping):
         raise ValueError("campus config needs radio_model and propagation sections")
+    if float(radio["ap_capacity_mbps"]) <= 0:
+        raise ValueError(f"ap_capacity_mbps must be > 0, got {radio['ap_capacity_mbps']!r}")
     return RadioParams(
         ap_capacity_mbps=float(radio["ap_capacity_mbps"]),
         cochannel_full_m=float(radio["cochannel_full_m"]),

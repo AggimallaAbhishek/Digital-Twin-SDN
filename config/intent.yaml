@@ -1,0 +1,3 @@
+# P5.3 intent engine (genai/intent/engine.py). The API (P3.6) and the loop only accept intents
+# when this is on.
+enabled: false   # RULEBOOK B-5: off until the GenAI exit gate (M3, Oct 24) passes

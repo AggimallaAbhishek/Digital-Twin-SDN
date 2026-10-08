@@ -1,9 +1,13 @@
 # P3.3 analytical simulator (twin/sim/analytical.py). Starting values from data/v1; P3.5 calibrates
 # them against measured actions. AP capacity and co-channel caps come from campus_v1.yaml radio_model.
-video_mbps: 1.0          # offered video rate = testbed/traffic/profiles.yaml (contract test)
-web_mbps: 0.08           # offered web load: one 50 kB object every ~5 s
-bulk_mbps: 0.5           # TCP bulk over the emulated radio settles near 0.5 Mbit/s per flow (data/v1)
-web_efficiency: 0.8      # a web fetch gets this share of the capacity left over (data/v1: ~3.7 of 4.6)
+enabled: false           # RULEBOOK B-5: off until the twin's exit gate (M2, Oct 19) passes
+
+apps:                    # per app class (common/schemas.py AppClass)
+  video: {offered_mbps: 1.0, elastic: false, fetch: false}   # = testbed profiles.yaml rate (contract test)
+  web: {offered_mbps: 0.08, elastic: false, fetch: true}     # one 50 kB object every ~5 s
+  bulk: {offered_mbps: 0.5, elastic: true, fetch: false}     # TCP over the emulated radio settles near 0.5 (data/v1)
+
+fetch_efficiency: 0.8    # a web fetch gets this share of the capacity left over (data/v1: ~3.7 of 4.6)
 base_latency_ms: 0.8     # ping RTT on an idle AP (data/v1 median)
 service_ms: 2.5          # latency per packet waiting ahead (M/M/1/K, fitted to the data/v1 plateau)
 queue_slots: 6           # K: the queue is bounded, so latency levels off near 8-10 ms at saturation

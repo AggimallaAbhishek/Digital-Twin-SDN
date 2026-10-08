@@ -23,7 +23,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from common.schemas import Policy
-from genai.intent.engine import PROMPT, PROMPT_VERSION
+from genai.intent.engine import PROMPT, parse_intent
 from genai.llm.client import LLM_CONFIG, LLMClient, LLMOutputError, LLMUnavailableError
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -122,9 +122,8 @@ def main(argv: list[str] | None = None) -> None:
     outcomes: list[Outcome] = []
     models: dict[str, int] = {}
     for case in cases:
-        messages = [{"role": "system", "content": system}, {"role": "user", "content": case.intent}]
         try:
-            result = client.complete_json(messages, Policy, prompt_version=PROMPT_VERSION)
+            result = parse_intent(client, case.intent, system)  # the engine's own parse step
         except (LLMOutputError, LLMUnavailableError) as exc:
             got, note = None, f"no valid policy: {exc}"
         else:

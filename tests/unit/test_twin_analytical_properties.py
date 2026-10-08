@@ -71,7 +71,7 @@ def test_predictions_stay_physical(state: TwinState) -> None:
     for ap in state.up_aps():  # an AP never carries more than its full capacity
         assert _non_web_rate(result, state, ap.name) <= RADIO.ap_capacity_mbps + 1e-9
         assert 0.0 <= result.ap_util[ap.name] <= 1.0
-    offered = {"video": PARAMS.video_mbps, "bulk": PARAMS.bulk_mbps}
+    offered = {name: app.offered_mbps for name, app in PARAMS.apps.items() if not app.fetch}
     for flow in state.flows.values():
         r = result.flows[flow.flow_id]
         assert 0.0 <= r.loss_pct <= 100.0
@@ -81,6 +81,8 @@ def test_predictions_stay_physical(state: TwinState) -> None:
         if flow.app_class in offered:
             assert r.throughput_mbps <= offered[flow.app_class] + 1e-9
     assert 0.0 < result.kpis.jain <= 1.0 + 1e-9
+    # the network never carries more than its APs can: 4.6 Mbit/s each at most
+    assert result.kpis.throughput_mbps <= RADIO.ap_capacity_mbps * len(state.up_aps()) + 1e-9
 
 
 @settings(max_examples=200, deadline=None)

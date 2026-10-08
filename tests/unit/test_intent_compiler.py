@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, TypeVar
 
 import pytest
 
@@ -37,14 +37,21 @@ def _policy(
     )
 
 
+T = TypeVar("T", SetQosQueue, RateLimitFlow)
+
+
+def _only(compiled: Compiled, kind: type[T]) -> list[T]:
+    """The compiled actions, all of which must be of type `kind`."""
+    assert all(isinstance(a, kind) for a in compiled.actions)
+    return [a for a in compiled.actions if isinstance(a, kind)]
+
+
 def _queues(compiled: Compiled) -> list[SetQosQueue]:
-    assert all(isinstance(a, SetQosQueue) for a in compiled.actions)
-    return [a for a in compiled.actions if isinstance(a, SetQosQueue)]
+    return _only(compiled, SetQosQueue)
 
 
 def _limits(compiled: Compiled) -> list[RateLimitFlow]:
-    assert all(isinstance(a, RateLimitFlow) for a in compiled.actions)
-    return [a for a in compiled.actions if isinstance(a, RateLimitFlow)]
+    return _only(compiled, RateLimitFlow)
 
 
 def _priority(value: str) -> dict[str, Any]:
@@ -145,3 +152,15 @@ def test_kpi_targets_and_constraints_become_no_actions() -> None:
 def test_compiling_twice_gives_the_same_actions() -> None:
     policy = _policy([_priority("high")], apps=["video", "web"])
     assert compile_policy(policy, FLOWS, NOW) == compile_policy(policy, FLOWS, NOW)
+
+
+def test_naming_every_app_class_everywhere_is_still_all_traffic_everywhere() -> None:
+    every = ["video", "web", "bulk"]
+    with pytest.raises(CompileError, match="all traffic everywhere"):
+        compile_policy(_policy([_priority("high")], zone=None, apps=every), FLOWS, NOW)
+
+
+def test_naming_every_app_class_in_a_zone_is_one_zone_wide_action() -> None:
+    every = ["bulk", "video", "web"]
+    [action] = _queues(compile_policy(_policy([_priority("high")], apps=every), FLOWS, NOW))
+    assert (action.params.match.zone, action.params.match.app_class) == ("lab", None)

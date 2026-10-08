@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 from common.schemas import Policy
 from genai.intent.compiler import FlowRef
-from genai.intent.engine import PROMPT_VERSION, IntentEngine
+from genai.intent.engine import PROMPT_VERSION, IntentEngine, load_intent_config
 from genai.llm.client import LLMOutputError, LLMResult, LLMUnavailableError
 from genai.tools.mock_backend import MockBackend
 from genai.tools.tools import ToolLayer
@@ -136,3 +138,15 @@ def test_end_to_end_over_the_tool_layer() -> None:
     verdict = result.verdicts[action.action_id]
     assert verdict["action_id"] == action.action_id
     assert verdict["accepted"] is True
+
+
+def test_the_intent_engine_is_off_until_its_exit_gate_passes() -> None:
+    root = Path(__file__).resolve().parents[2]
+    raw = yaml.safe_load((root / "config" / "intent.yaml").read_text())
+    assert load_intent_config(raw).enabled is False  # RULEBOOK B-5
+
+
+@pytest.mark.parametrize("raw", [{}, {"enabled": "yes"}, {"enabled": False, "extra": 1}])
+def test_a_bad_intent_config_is_refused(raw: dict[str, Any]) -> None:
+    with pytest.raises(ValueError, match="intent config"):
+        load_intent_config(raw)

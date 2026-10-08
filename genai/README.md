@@ -58,9 +58,10 @@ result = engine.handle("Give video calls in the lab priority.", flows, now)   # 
 result.policy, result.actions, result.verdicts, result.standing, result.error
 ```
 
-1. The LLM client turns the text into a `Policy` (`prompts/intent_v2.md`, schema-constrained, at most 2 repairs). No valid policy → `error`, and the compiler never sees it.
-2. `intent/compiler.py` (deterministic, decision P5.3-A): `priority` → `set_qos_queue` (high 1, normal 0, low 2; one per app class); `throughput_mbps <=` → `rate_limit_flow` on every matching flow (strictest cap wins). KPI targets and constraints become no action: they stay in `standing` for the verifier. Refused with a reason: a priority for all traffic everywhere, conflicting priorities, a cap under 1 Mbit/s.
+1. `parse_intent` (also what the intent eval measures): the LLM client turns the text into a `Policy` (`prompts/intent_v2.md`, schema-constrained, at most 2 repairs). No valid policy → `error`, and the compiler never sees it.
+2. `intent/compiler.py` (deterministic, decision P5.3-A): `priority` → `set_qos_queue` (high 1, normal 0, low 2; one per app class); `throughput_mbps <=` → `rate_limit_flow` on every matching flow (strictest cap wins). KPI targets and constraints become no action: they stay in `standing` for the verifier. Refused with a reason: a priority for all traffic everywhere (also when all three app classes are named), conflicting priorities, a cap under 1 Mbit/s.
 3. Each action goes to `simulate_in_twin`. Nothing is applied: the executor (P4.4) does that after approval (L-1).
-4. The policy keeps the operator's exact words as `intent_text`, whatever the model echoed.
+4. The policy keeps the operator's exact words as `intent_text`, whatever the model echoed (validated by the schema again).
+5. **Off by default** (`config/intent.yaml` `enabled: false`, RULEBOOK B-5) until the GenAI exit gate (M3); the API checks it.
 
 `flows` (id, app class, zone) come from the twin state; `POST /intents` arrives with the API in P3.6 (decision P5.3-B).

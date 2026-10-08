@@ -20,6 +20,7 @@ import hashlib
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import NamedTuple, get_args
 
 from pydantic import BaseModel
 
@@ -27,6 +28,7 @@ from common.schemas import (
     ACTION_ADAPTER,
     RATE_LIMIT_MIN_MBPS,
     Action,
+    AppClass,
     Objective,
     Policy,
     QosMatch,
@@ -51,6 +53,14 @@ class FlowRef:
     zone: str | None
 
 
+class Draft(NamedTuple):
+    """An action before it gets its id: its type (the schema discriminator), params and why."""
+
+    kind: str
+    params: BaseModel
+    reason: str
+
+
 @dataclass(frozen=True)
 class Compiled:
     """The actions to verify, and the objectives that stay standing (checked every loop)."""
@@ -61,33 +71,33 @@ class Compiled:
 
 def compile_policy(policy: Policy, flows: Sequence[FlowRef], now: datetime) -> Compiled:
     """Deterministic: the same policy, flows and time give the same actions and ids."""
-    drafts: list[tuple[str, BaseModel, str]] = []
+    drafts: list[Draft] = []
     priorities = {o.value for o in policy.objectives if o.kpi == "priority"}
     if len(priorities) > 1:
         raise CompileError(f"conflicting priorities in one policy: {sorted(map(str, priorities))}")
     if priorities:
         drafts += _queue_drafts(policy, str(priorities.pop()))
     caps = [float(o.value) for o in policy.objectives if _is_cap(o)]
-    if caps:
-        drafts += _cap_drafts(policy, min(caps), flows)
-    standing = [o for o in policy.objectives if o.kpi != "priority" and not _is_cap(o)]
-    if caps and not any(kind == "rate_limit_flow" for kind, _, _ in drafts):
-        standing += [o for o in policy.objectives if _is_cap(o)]  # nothing to limit right now
-    return Compiled(_actions(drafts, policy, now), standing)
+    limits = _cap_drafts(policy, min(caps), flows) if caps else []
+    # a cap with no flow to limit right now stays standing, like the KPI targets
+    standing = [o for o in policy.objectives if o.kpi != "priority" and not (_is_cap(o) and limits)]
+    return Compiled(_actions([*drafts, *limits], policy, now), standing)
 
 
 def _is_cap(objective: Objective) -> bool:
     return objective.kpi == "throughput_mbps" and objective.op == "<="
 
 
-def _queue_drafts(policy: Policy, priority: str) -> list[tuple[str, BaseModel, str]]:
+def _queue_drafts(policy: Policy, priority: str) -> list[Draft]:
     zone, apps = policy.scope.zone, policy.scope.app_class
+    if apps is not None and set(apps) == set(get_args(AppClass)):
+        apps = None  # naming every app class is the same as all traffic
     if zone is None and apps is None:
         raise CompileError("a priority for all traffic everywhere changes nothing")
     queue = QUEUE_FOR_PRIORITY[priority]
     reason = f"{policy.policy_id}: priority {priority} -> queue {queue}"
     return [
-        (
+        Draft(
             "set_qos_queue",
             SetQosQueueParams(match=QosMatch(zone=zone, app_class=app), queue_id=queue),
             reason,
@@ -96,9 +106,7 @@ def _queue_drafts(policy: Policy, priority: str) -> list[tuple[str, BaseModel, s
     ]
 
 
-def _cap_drafts(
-    policy: Policy, cap: float, flows: Sequence[FlowRef]
-) -> list[tuple[str, BaseModel, str]]:
+def _cap_drafts(policy: Policy, cap: float, flows: Sequence[FlowRef]) -> list[Draft]:
     if cap < RATE_LIMIT_MIN_MBPS:
         raise CompileError(
             f"throughput cap {cap:g} Mbit/s is below the {RATE_LIMIT_MIN_MBPS} Mbit/s "
@@ -112,14 +120,12 @@ def _cap_drafts(
     ]
     reason = f"{policy.policy_id}: throughput <= {cap:g} Mbit/s"
     return [
-        ("rate_limit_flow", RateLimitFlowParams(flow_id=f.flow_id, max_mbps=cap), reason)
+        Draft("rate_limit_flow", RateLimitFlowParams(flow_id=f.flow_id, max_mbps=cap), reason)
         for f in matching
     ]
 
 
-def _actions(
-    drafts: list[tuple[str, BaseModel, str]], policy: Policy, now: datetime
-) -> list[Action]:
+def _actions(drafts: list[Draft], policy: Policy, now: datetime) -> list[Action]:
     stamp = now.strftime("%Y%m%d_%H%M%S")
     actions: list[Action] = []
     for n, (kind, params, reason) in enumerate(drafts, start=1):

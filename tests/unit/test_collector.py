@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -385,3 +386,18 @@ def test_collector_lag_starts_at_its_own_start(monkeypatch: pytest.MonkeyPatch) 
     clock = FakeClock()
     collector = Collector(CONFIG, META, fetch=FakeVM(), write=FakeWriter(), clock=clock)
     assert collector.health.started_at == clock.t
+
+
+def test_run_stops_when_told(monkeypatch: pytest.MonkeyPatch) -> None:
+    clock = FakeClock()
+    stop = threading.Event()
+    vm = FakeVM()
+
+    def sleep(seconds: float) -> None:
+        clock.sleep(seconds)
+        if clock.t >= 1003.0:  # the scenario ended after 3 polls
+            stop.set()
+
+    monkeypatch.setattr(time, "sleep", sleep)
+    Collector(CONFIG, META, fetch=vm, write=FakeWriter(), clock=clock).run(None, stop=stop)
+    assert vm.calls.count("http://192.168.64.2:8081/kpi") == 3

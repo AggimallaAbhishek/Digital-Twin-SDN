@@ -1,0 +1,9 @@
+# P2.3 batch (experiments/run_batch.py): every scenario x every seed, unattended.
+# Split by run (RULEBOOK E-2): one seed per split, so every scenario is in train, val and test.
+dataset_version: v1
+scenarios: [normal, lecture_flash_crowd, ap_failure, cochannel_interference]
+seeds:
+  42: train
+  43: val
+  44: test
+agent_wait_s: 180        # how long to wait for the VM's AP agent to answer after a run starts

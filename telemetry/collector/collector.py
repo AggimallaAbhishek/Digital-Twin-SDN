@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import sys
+import threading
 import time
 import typing
 import urllib.error
@@ -217,11 +218,13 @@ class Collector:
             self._written[key] = record.ts
         return True
 
-    def run(self, duration_s: float | None) -> None:
-        """poll_once() every period until `duration_s` (forever if None) or Ctrl-C."""
+    def run(self, duration_s: float | None, stop: threading.Event | None = None) -> None:
+        """poll_once() every period until `duration_s` (forever if None), `stop`, or Ctrl-C."""
         start = self._clock()
         next_poll = start
-        while duration_s is None or self._clock() - start < duration_s:
+        while (duration_s is None or self._clock() - start < duration_s) and not (
+            stop is not None and stop.is_set()
+        ):
             started = self._clock()
             self.poll_once(started)
             took = self._clock() - started

@@ -22,6 +22,7 @@ Artefacts in <LOG_DIR>/runs/<run_id>/: manifest.json (seed, commit, config hash;
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import hashlib
 import json
 import os
@@ -259,24 +260,20 @@ def write_summary(run_dir: Path, manifest: Record) -> Record:
     return summary
 
 
-def main(argv: list[str] | None = None) -> int:
-    """CLI entry point; returns a process exit code."""
+def parse_args(argv: list[str] | None) -> argparse.Namespace:
+    """Command-line arguments (see the module docstring)."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("scenario", type=Path)
     parser.add_argument("--run-id", default=None)
+    parser.add_argument("--seed", type=int, default=None, help="override the scenario's seed")
     parser.add_argument("--git-commit", required=True, help="recorded in the manifest (rule 10)")
     parser.add_argument("--agent-port", type=int, default=ap_agent.DEFAULT_PORT)
-    args = parser.parse_args(argv)
+    return parser.parse_args(argv)
 
-    spec = parse_scenario(yaml.safe_load(args.scenario.read_text()))
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    run_id = args.run_id or f"{spec.scenario_id}-{stamp}"
-    run_dir = Path(os.environ.get("LOG_DIR", str(Path.home() / "p02"))) / "runs" / run_id
-    run_dir.mkdir(parents=True, exist_ok=True)
-    layout = load_layout(DEFAULT_LAYOUT)
-    model = load_radio_model(yaml.safe_load(DEFAULT_LAYOUT.read_text()))
-    walks = plan_crowd(spec.groups, layout, place_stations(layout), seed=spec.seed)
-    manifest = {
+
+def start_manifest(spec: ScenarioSpec, args: argparse.Namespace, run_id: str) -> Record:
+    """What makes the run reproducible (RULEBOOK rule 10)."""
+    return {
         "scenario_id": spec.scenario_id,
         "run_id": run_id,
         "seed": spec.seed,
@@ -286,6 +283,22 @@ def main(argv: list[str] | None = None) -> int:
         "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "host": socket.gethostname(),
     }
+
+
+def main(argv: list[str] | None = None) -> int:
+    """CLI entry point; returns a process exit code."""
+    args = parse_args(argv)
+    spec = parse_scenario(yaml.safe_load(args.scenario.read_text()))
+    if args.seed is not None:  # same scenario, different crowd sample and think times (P2.3)
+        spec = dataclasses.replace(spec, seed=args.seed)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    run_id = args.run_id or f"{spec.scenario_id}-{stamp}"
+    run_dir = Path(os.environ.get("LOG_DIR", str(Path.home() / "p02"))) / "runs" / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    layout = load_layout(DEFAULT_LAYOUT)
+    model = load_radio_model(yaml.safe_load(DEFAULT_LAYOUT.read_text()))
+    walks = plan_crowd(spec.groups, layout, place_stations(layout), seed=spec.seed)
+    manifest = start_manifest(spec, args, run_id)
     (run_dir / "manifest.json").write_text(json.dumps(manifest, indent=1))
     info(f"SCENARIO_START {json.dumps(manifest)}\n")
 
@@ -303,7 +316,8 @@ def main(argv: list[str] | None = None) -> int:
         agent.kpi_source = probe.latest
         t0 = time.monotonic()
         log = EventLog(run_dir / "events.jsonl", t0)
-        log("started", associated=sum(assoc.values()), stations=len(assoc))
+        utc0 = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+        log("started", utc=utc0, associated=sum(assoc.values()), stations=len(assoc))
         probe.start()
         run = ScenarioRun(spec, layout, model, campus, agent, probe, walks, log)
         agent.capacity_of = run.radios.capacity_of  # channel_util against the live cap

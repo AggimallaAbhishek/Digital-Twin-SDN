@@ -5,6 +5,7 @@ description = "GenAI-driven digital twin for intelligent SDN-based wireless netw
 readme = "README.md"
 requires-python = ">=3.11,<3.12"
 dependencies = [
+    "pyarrow==21.0.0",
     "pydantic>=2.8,<3",
     "pyyaml>=6.0,<7",
 ]
@@ -82,6 +83,7 @@ markers = [
 [tool.coverage.run]
 source = ["common", "twin", "ml", "genai", "api", "telemetry", "controller"]
 source_pkgs = [
+    "experiments.batch",
     "testbed.ap_logic",
     "testbed.interference",
     "testbed.scenario_plan",

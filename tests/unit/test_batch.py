@@ -101,3 +101,46 @@ def test_a_run_is_usable_only_if_scenario_and_collector_passed(
     report: dict[str, Any], ok: bool
 ) -> None:
     assert run_ok(report) is ok
+
+
+@pytest.mark.parametrize("version", ["v2", "actions-v1"])
+def test_a_dataset_version_may_carry_a_purpose_prefix(version: str) -> None:
+    raw = yaml.safe_load((ROOT / "experiments" / "batch_v1.yaml").read_text())
+    assert load_batch_config(raw | {"dataset_version": version}).dataset_version == version
+
+
+@pytest.mark.parametrize("version", ["actions", "-v1", "Actions-v1", "actions-v1/../x"])
+def test_other_dataset_versions_are_refused(version: str) -> None:
+    raw = yaml.safe_load((ROOT / "experiments" / "batch_v1.yaml").read_text())
+    with pytest.raises(ValueError, match="dataset_version"):
+        load_batch_config(raw | {"dataset_version": version})
+
+
+def test_a_run_tag_and_loop_mode_name_the_runs_of_a_loop_batch() -> None:
+    raw = yaml.safe_load((ROOT / "experiments" / "batch_v1.yaml").read_text())
+    config = load_batch_config(
+        raw | {"dataset_version": "loopv3-v1", "run_tag": "v3", "loop_mode": "V3"}
+    )
+    assert (config.run_tag, config.loop_mode) == ("v3", "V3")
+    assert plan_runs(config)[0].run_id == "normal-v3-s42"
+
+
+def test_without_a_tag_run_ids_are_unchanged() -> None:
+    raw = yaml.safe_load((ROOT / "experiments" / "batch_v1.yaml").read_text())
+    config = load_batch_config(raw)
+    assert (config.run_tag, config.loop_mode) == (None, None)
+    assert plan_runs(config)[0].run_id == "normal-s42"
+
+
+@pytest.mark.parametrize(
+    ("change", "named"),
+    [
+        ({"run_tag": "V 3"}, "run_tag"),
+        ({"loop_mode": "V4"}, "loop_mode"),
+        ({"loop_mode": "V0"}, "loop_mode"),
+    ],
+)
+def test_bad_loop_settings_are_refused(change: dict[str, Any], named: str) -> None:
+    raw = yaml.safe_load((ROOT / "experiments" / "batch_v1.yaml").read_text())
+    with pytest.raises(ValueError, match=named):
+        load_batch_config(raw | change)

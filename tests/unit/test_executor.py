@@ -6,6 +6,7 @@ the previous config; plus rate limits, all-or-nothing sets and the persistent au
 
 from __future__ import annotations
 
+import dataclasses
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -388,3 +389,85 @@ def test_an_action_id_is_recorded_once(tmp_path: Path) -> None:
     executor.record([action], [_verdict(action)])
     with pytest.raises(ExecutorError, match="already recorded"):
         executor.record([action], [_verdict(action)])
+
+
+# ---------------------------------------------------------------- V2 evaluation bypass (ADR-005)
+
+
+def _v2_executor(
+    tmp_path: Path, kpis: FakeKpis | None = None
+) -> tuple[Executor, FakeActuator, FakeKpis, Clock]:
+    clock, actuator, kpis = Clock(), FakeActuator(), kpis or FakeKpis()
+    v2 = dataclasses.replace(CONFIG, unverified_ok=True)
+    executor = Executor(Ledger(tmp_path / "v2.db"), actuator, kpis, v2, clock)
+    return executor, actuator, kpis, clock
+
+
+def test_v2_applies_what_the_twin_rejected_and_says_so(tmp_path: Path) -> None:
+    executor, actuator, kpis, clock = _v2_executor(tmp_path)
+    action = _action(1, "set_ap_channel")
+    executor.record([action], [_verdict(action, accepted=False)])
+    _apply(executor, kpis, clock, [action.action_id])  # rejected and not approved: applied anyway
+    assert actuator.applied == ["act_t_1"]
+    [record] = executor.history()
+    assert record.status == "applied"
+    assert "V2: applied without the twin" in record.note
+    assert record.verdict.accepted is False  # the twin's opinion stays on record (H2)
+
+
+def test_v2_keeps_rate_limits_and_rollback(tmp_path: Path) -> None:
+    worse = GOOD.model_copy(update={"loss_pct": 5.0})
+    executor, _actuator, kpis, clock = _v2_executor(tmp_path, FakeKpis(after=worse))
+    first, second = _action(1, "set_ap_channel"), _action(2, "set_ap_channel", ap="ap1", channel=11)
+    for a in (first, second):
+        executor.record([a], [_verdict(a, accepted=False)])
+    _apply(executor, kpis, clock, [first.action_id])
+    with pytest.raises(ExecutorError, match="ap1"):  # 1 high-impact action per AP per 2 min
+        executor.apply([second.action_id], STATE)
+    clock.advance(30)
+    assert executor.check() == [("act_t_1", "rolled_back")]
+
+
+def test_without_the_switch_nothing_unverified_applies(tmp_path: Path) -> None:
+    executor, actuator, _, _ = _executor(tmp_path)  # the default: unverified_ok=False
+    action = _action(1, "set_ap_channel")
+    executor.record([action], [_verdict(action, accepted=False)])
+    with pytest.raises(ExecutorError, match="rejected"):
+        executor.apply([action.action_id], STATE)
+    assert actuator.applied == []
+
+
+# ---------------------------------------------------------------- the action's own transient
+
+
+class TransientKpis(FakeKpis):
+    """Worse only while the action settles (a steer re-associates for ~5 s), fine afterwards."""
+
+    def __init__(self, settle_s: float) -> None:
+        super().__init__()
+        self.settle_s = settle_s
+        self.after_windows: list[tuple[datetime, datetime]] = []
+
+    def window(self, start: datetime, end: datetime) -> KPIValues | None:
+        if self.applied_at is None or end <= self.applied_at:
+            return GOOD
+        self.after_windows.append((start, end))
+        settling = start < self.applied_at + timedelta(seconds=self.settle_s)
+        return GOOD.model_copy(update={"loss_pct": 30.0}) if settling else GOOD
+
+
+def test_the_watch_skips_the_actions_own_settling_transient(tmp_path: Path) -> None:
+    kpis = TransientKpis(CONFIG.settle_s)
+    executor, _actuator, _, clock = _executor(tmp_path, kpis=kpis)
+    action = _action(1, "steer_clients")
+    executor.record([action], [_verdict(action, needs_approval=False)])
+    _apply(executor, kpis, clock, [action.action_id])
+    clock.advance(30)
+    assert executor.check() == [("act_t_1", "kept")]  # the re-association blip is not a regression
+    assert kpis.after_windows == [(T0 + timedelta(seconds=10), T0 + timedelta(seconds=30))]
+
+
+def test_settling_may_not_swallow_the_watch(tmp_path: Path) -> None:
+    raw = yaml.safe_load((ROOT / "config" / "executor.yaml").read_text())
+    with pytest.raises(ValueError, match="settle_s"):
+        load_executor_config(raw | {"settle_s": 20})  # more than half of the 30 s watch (N-6)

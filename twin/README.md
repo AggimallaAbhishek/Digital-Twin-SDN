@@ -42,3 +42,12 @@ verdicts = verify(state, actions, context.with_policies(standing))   # one Verdi
 - **KPIs** of the affected flows (P3.4-A): mean throughput, p95 video latency, mean loss; Jain network-wide. **Reject** if a KPI gets > 5% worse while none gets > 5% better (§7.5).
 - **Policies:** a hard constraint may not break (or get worse if already broken); a met objective may not become missed. Jitter isn't predicted, so jitter targets aren't checked.
 - **Impact:** high always needs approval; medium needs it while `config/verify.yaml` says so (until P3.5, P3.4-C). 100% branch coverage.
+
+## Validation (P3.5)
+
+`twin/validation/validate.py`: rebuild the twin state from a run's last 10 s of telemetry, predict, compare with what was measured. **Steady** cases every 30 s (no action); **action** cases at each real action (state before → `apply` → predict; measured 10–30 s after, before the executor's watch could roll it back). Score: per-flow throughput MAPE of video and bulk flows (P3.5-A).
+
+    uv run python -m experiments.analysis.twin_validation --datasets data/v1 data/actions-v1   # -> models/twin/v1/validation.json
+
+- Data: data/v1 (steady state, channel changes, AP failures) and the scripted batch `make validation-batch` (steer, QoS, rate limit, tx power; P3.5-C).
+- The twin now uses each measured video flow's sending rate (P3.5-B); bulk's offered rate is calibrated on the train seed.

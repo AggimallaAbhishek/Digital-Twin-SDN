@@ -20,6 +20,7 @@ import subprocess
 import sys
 import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +36,7 @@ from experiments.batch import (
     run_ok,
 )
 from experiments.shell import git_commit, run, tool
+from experiments.validation_actions import ActionStep, load_schedule
 from telemetry.collector.collector import (
     Collector,
     CollectorConfig,
@@ -110,17 +112,33 @@ def wait_for_agent(url: str, timeout_s: float, scenario: subprocess.Popen[bytes]
     return False
 
 
-def play(plan: RunPlan, run_dir: Path, agent_wait_s: float, commit: str) -> dict[str, Any]:
-    """One run: scenario on the VM + collector on the Mac. Returns the collector report."""
+@dataclass(frozen=True)
+class RunExtras:
+    """What plays alongside a run besides the collector: a P3.5 schedule or a P4.5 loop."""
+
+    steps: list[ActionStep] | None = None
+    loop_mode: str | None = None
+
+
+NO_EXTRAS = RunExtras()
+
+
+def play(
+    plan: RunPlan, run_dir: Path, agent_wait_s: float, commit: str, extras: RunExtras = NO_EXTRAS
+) -> dict[str, Any]:
+    """One run: scenario on the VM + collector on the Mac (+ a P3.5 schedule or P4.5 loop).
+    Returns the collector report."""
+    config = load_collector_config()
+    # built before the VM starts: if it can't be built, no scenario is left running unwatched
+    actor = _actor(plan, extras, run_dir, config)
     run(["make", "--no-print-directory", "vm-clock"], cwd=ROOT, check=True)
     wall0, mono0 = time.time(), time.monotonic()
     ssh = [tool("ssh"), VM, remote_command(plan, commit)]
     scenario = subprocess.Popen(ssh)  # noqa: S603 - fixed argv, no shell
-    config = load_collector_config()
     agent = f"http://{config.vm_host}:{config.agent_port}/aps"
     report: dict[str, Any] = {"run_id": plan.run_id, "split": plan.split, "passed": False}
     if wait_for_agent(agent, agent_wait_s, scenario):
-        report |= _collect(plan, scenario, config)
+        report |= _collect(plan, scenario, config, actor)
     else:
         log.error("%s: AP agent never answered", plan.run_id)
     _wait(scenario, plan)
@@ -135,8 +153,25 @@ def play(plan: RunPlan, run_dir: Path, agent_wait_s: float, commit: str) -> dict
     return report
 
 
+def _actor(
+    plan: RunPlan, extras: RunExtras, run_dir: Path, config: CollectorConfig
+) -> Any:  # Any: an Actor or LoopActor (tick(elapsed_s)), imported only when needed
+    if extras.loop_mode is not None:  # P4.5 / P6: the control loop alongside the run
+        from experiments.loop_actor import LoopActor  # noqa: PLC0415 - live-only dependencies
+
+        return LoopActor(plan.run_id, extras.loop_mode, run_dir, config)
+    if not extras.steps:
+        return None
+    from experiments.validation_actor import Actor  # noqa: PLC0415 - live-only dependencies
+
+    return Actor(plan.run_id, extras.steps, run_dir, config)
+
+
 def _collect(
-    plan: RunPlan, scenario: subprocess.Popen[bytes], config: CollectorConfig
+    plan: RunPlan,
+    scenario: subprocess.Popen[bytes],
+    config: CollectorConfig,
+    actor: Any = None,  # Any: an Actor with tick(elapsed_s), or None
 ) -> dict[str, Any]:
     """Run the collector for the scenario's clock; return its health as report fields."""
     meta = Meta(plan.scenario, plan.run_id)
@@ -146,9 +181,12 @@ def _collect(
     thread.start()
     # The scenario clock starts just after the agent answers: stop collecting before the VM
     # tears the network down, so teardown is not counted as a gap.
-    end = time.monotonic() + load_scenario(plan.scenario).duration_s - END_MARGIN_S
+    started = time.monotonic()
+    end = started + load_scenario(plan.scenario).duration_s - END_MARGIN_S
     while scenario.poll() is None and time.monotonic() < end:
         time.sleep(POLL_S / 4)
+        if actor is not None:
+            actor.tick(time.monotonic() - started)  # ~ scenario time (exact t_s comes on export)
     stop.set()
     thread.join(timeout=JOIN_TIMEOUT_S)
     health = collector.health
@@ -174,11 +212,13 @@ def main(argv: list[str] | None = None) -> int:
     """CLI entry point; 0 when every run passed."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    parser.add_argument("--actions", type=Path, help="P3.5 action schedule (validation batch)")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     logging.getLogger("telemetry.collector").setLevel(logging.ERROR)  # one line per run instead
 
     config = load_batch_config(yaml.safe_load(args.config.read_text()))
+    schedule = load_schedule(yaml.safe_load(args.actions.read_text())) if args.actions else {}
     out = ROOT / "data" / "raw" / config.dataset_version
     commit = git_commit()
     results = []
@@ -190,7 +230,9 @@ def main(argv: list[str] | None = None) -> int:
             report = json.loads((run_dir / "collector.json").read_text())
         else:
             log.info("%s: starting (seed %d, %s)", plan.run_id, plan.seed, plan.split)
-            report = play(plan, run_dir, config.agent_wait_s, commit)
+            steps = schedule.get(plan.scenario)
+            extras = RunExtras(steps, config.loop_mode)
+            report = play(plan, run_dir, config.agent_wait_s, commit, extras)
         ok = run_ok(report)
         print(
             f"BATCH_RUN {plan.run_id} split={plan.split} -> {'PASS' if ok else 'FAIL'}", flush=True

@@ -35,6 +35,7 @@ from common.schemas import (
 from experiments.batch import SPLITS, load_scenario, run_ok
 from experiments.dataset import RunInfo, disruption, label_rows, to_table
 from experiments.shell import git_commit
+from experiments.validation_actions import timed_actions
 
 ROOT = Path(__file__).resolve().parents[1]
 EXPORTED: tuple[type[TelemetryRecord], ...] = (
@@ -85,10 +86,21 @@ def export(version: str) -> dict[str, Any]:
     finally:
         for writer in writers.values():
             writer.close()
+    actions = [line for r in runs for line in _timed_actions(raw / r["run_id"])]
+    if actions:  # a P3.5 validation batch: the actions applied, in scenario time
+        (out / "actions.jsonl").write_text("".join(json.dumps(a) + "\n" for a in actions))
     seconds = sum(load_scenario(r["scenario"]).duration_s for r in runs)
     manifest = _manifest(version, batch, runs, seconds, counts)
     (out / "manifest.json").write_text(json.dumps(manifest, indent=1))
     return manifest
+
+
+def _timed_actions(run_dir: Path) -> list[dict[str, Any]]:
+    path = run_dir / "actions.jsonl"
+    if not path.exists():
+        return []
+    lines = [json.loads(line) for line in path.read_text().splitlines() if line]
+    return timed_actions(lines, scenario_start(run_dir))
 
 
 def _run_rows(

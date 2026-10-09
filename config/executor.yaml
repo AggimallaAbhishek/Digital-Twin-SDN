@@ -2,6 +2,8 @@
 # the loader refuses values that would switch them off in practice.
 watch_s: 30                 # PROJECT_PLAN §8: watch live KPIs this long after applying
 regression_pct: 10          # PROJECT_PLAN §8: roll back if a watched KPI gets this much worse
+settle_s: 10                # compare from this long after the apply: a steer's ~5 s re-association is
+                            # the action's own transient, not a regression (decision P4.4-C)
 noise_floor:                # ... and worse by at least this much in absolute terms (decision P4.4-B)
   throughput_mbps: 0.05
   latency_ms: 1.0

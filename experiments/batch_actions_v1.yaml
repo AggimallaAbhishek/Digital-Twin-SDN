@@ -1,0 +1,8 @@
+# P3.5 validation batch: scenarios with scheduled actions (experiments/actions_v1.yaml).
+# New seeds, so the data/v1 calibration (train seed 42) never sees these runs.
+dataset_version: actions-v1
+scenarios: [normal, lecture_flash_crowd]
+seeds:
+  45: val
+  46: test
+agent_wait_s: 180

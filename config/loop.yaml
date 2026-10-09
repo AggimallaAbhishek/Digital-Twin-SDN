@@ -1,0 +1,5 @@
+# P4.5 control loop (api/loop.py). V1 = plain SDN, V2 = heuristics without the twin (evaluation only,
+# ADR-005), V3 = the full system.
+mode: V3
+period_s: 5          # PROJECT_PLAN §4: one loop every 5 s
+evaluation: false    # V2 needs true (ADR-005); only evaluation batches set it

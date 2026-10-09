@@ -6,8 +6,8 @@ against 4.6 at the AP, so they are not modelled, deviation #12):
 
 - **Capacity** C = ap_capacity_mbps, capped by co-channel APs that are up (twin/radio.py, the
   model the testbed emulates, deviation #7).
-- **Demand** per flow: its app class's offered rate (config/sim.yaml `apps`), cut to its rate
-  limit if it has one.
+- **Demand** per flow: what its source sends, cut to its rate limit if it has one. A measured
+  video flow sends received / (1 - loss); otherwise the class's rate (config/sim.yaml `apps`).
 - **Sharing:** strict priority between OVS queues (1 = priority, then 0 = best effort, then
   2 = background); within a queue, what is left is shared max-min fair (water-filling).
   (The testbed does not provision these queues yet: deviation #11.)
@@ -160,7 +160,7 @@ def _serve_ap(
     rates: dict[str, tuple[float, float, float]] = {}  # flow -> (probe rate, loss, carried)
     for queue in SERVICE_ORDER:
         level = [f for f in flows if f.queue_id == queue]
-        demand = {f.flow_id: _capped(params.apps[f.app_class].offered_mbps, f) for f in level}
+        demand = {f.flow_id: _capped(_offered(f, params), f) for f in level}
         served = _water_fill(demand, left)
         left -= math.fsum(served.values())
         offered_so_far += math.fsum(demand.values())
@@ -172,7 +172,7 @@ def _serve_ap(
             app, carried = params.apps[f.app_class], served[f.flow_id]
             fetch_rate = params.fetch_efficiency * max(0.0, capacity - busy)
             rate = _capped(fetch_rate, f) if app.fetch else carried
-            rates[f.flow_id] = (rate, _loss(app, carried, params), carried)
+            rates[f.flow_id] = (rate, _loss(app, _offered(f, params), carried, params), carried)
     # the probe pings once per station; its replies share the station's highest-priority queue
     # (testbed/qos.py, decision P4.4a-A), so all the station's flows report that queue's latency
     ping_queue: dict[str, int] = {}
@@ -246,8 +246,20 @@ def _mm1k_mean_number(rho: float, k: int) -> float:
     return rho / (1 - rho) - (k + 1) * rho ** (k + 1) / (1 - rho ** (k + 1))
 
 
-def _loss(app: AppModel, carried: float, params: SimParams) -> float:
+def _offered(flow: FlowState, params: SimParams) -> float:
+    """What the flow's source sends. For an inelastic, non-fetch class (video) that has been
+    measured, received / (1 - loss): the scenario may run it at another rate than the profile's
+    (P3.5). Otherwise the class's configured rate: TCP adapts to what it gets, and a web probe
+    reports one fetch's rate, so neither measurement shows what the source wants."""
+    app = params.apps[flow.app_class]
+    measured = flow.throughput_mbps > 0 and flow.loss_pct < 100  # noqa: PLR2004 - percent
+    if app.elastic or app.fetch or not measured:
+        return app.offered_mbps
+    return flow.throughput_mbps / (1 - flow.loss_pct / 100)
+
+
+def _loss(app: AppModel, offered: float, carried: float, params: SimParams) -> float:
     """Inelastic traffic loses the share of what it sends that was not carried."""
-    if app.elastic or app.offered_mbps == 0:
+    if app.elastic or offered == 0:
         return params.base_loss_pct
-    return min(100.0, 100 * (1 - carried / app.offered_mbps) + params.base_loss_pct)
+    return min(100.0, 100 * (1 - carried / offered) + params.base_loss_pct)

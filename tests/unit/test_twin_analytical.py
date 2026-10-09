@@ -225,3 +225,39 @@ def test_a_stations_flows_all_get_the_latency_of_its_ping_queue() -> None:
     assert result.flows["sta1-video"].latency_ms == pytest.approx(1.4940, abs=1e-4)
     assert result.flows["sta1-bulk"].latency_ms == pytest.approx(1.4940, abs=1e-4)
     assert result.flows["sta2-video"].latency_ms > 10  # best effort is saturated
+
+
+def _measured(sta: str, thr: float, loss: float, app: str = "video") -> FlowState:
+    return FlowState(f"{sta}-{app}", sta, app, throughput_mbps=thr, latency_ms=5.0, loss_pct=loss)
+
+
+def test_a_measured_inelastic_flow_offers_what_it_was_seen_sending() -> None:
+    # 0.4 Mbit/s received with no loss: the source sends 0.4, not the profile's 1.0 (P3.5)
+    clients: dict[str, str | None] = {"sta1": "ap1"}
+    result = simulate(_state([_ap("ap1")], clients, [_measured("sta1", 0.4, 0.0)]), RADIO, PARAMS)
+    assert result.flows["sta1-video"].throughput_mbps == pytest.approx(0.4)
+    assert result.flows["sta1-video"].carried_mbps == pytest.approx(0.4)
+
+
+def test_measured_loss_reveals_the_sending_rate() -> None:
+    # 0.75 received at 25% loss: it sends 1.0; on a free AP all of it gets through
+    clients: dict[str, str | None] = {"sta1": "ap1"}
+    result = simulate(_state([_ap("ap1")], clients, [_measured("sta1", 0.75, 25.0)]), RADIO, PARAMS)
+    assert result.flows["sta1-video"].throughput_mbps == pytest.approx(1.0)
+    assert result.flows["sta1-video"].loss_pct == pytest.approx(0.2)
+
+
+@pytest.mark.parametrize(("thr", "loss"), [(0.0, 0.0), (0.0, 100.0)])
+def test_an_unmeasured_or_dead_flow_offers_its_class_default(thr: float, loss: float) -> None:
+    clients: dict[str, str | None] = {"sta1": "ap1"}
+    result = simulate(_state([_ap("ap1")], clients, [_measured("sta1", thr, loss)]), RADIO, PARAMS)
+    assert result.flows["sta1-video"].throughput_mbps == pytest.approx(1.0)
+
+
+def test_bulk_keeps_its_configured_rate_whatever_was_measured() -> None:
+    # TCP adapts to what it gets, so its measured rate does not show what it wants
+    clients: dict[str, str | None] = {"sta1": "ap1"}
+    flows = [_measured("sta1", 0.2, 0.0, app="bulk")]
+    result = simulate(_state([_ap("ap1")], clients, flows), RADIO, PARAMS)
+    configured = PARAMS.apps["bulk"].offered_mbps  # not the 0.2 it was measured at
+    assert result.flows["sta1-bulk"].throughput_mbps == pytest.approx(configured)

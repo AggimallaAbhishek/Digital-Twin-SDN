@@ -3,7 +3,7 @@
 RUN := uv run
 FAST_TESTS := -m "not vm and not llm and not integration"
 
-.PHONY: api qos-vm help setup env hooks fmt lint types imports test test-all check security up down ps logs sync-vm smoke-vm campus-vm controller-vm vm-clock ap-agent-vm mobility-vm traffic-vm scenario-vm scenario-repro-vm collect batch dataset llm-check llm-client-check
+.PHONY: api qos-vm validation-batch help setup env hooks fmt lint types imports test test-all check security up down ps logs sync-vm smoke-vm campus-vm controller-vm vm-clock ap-agent-vm mobility-vm traffic-vm scenario-vm scenario-repro-vm collect batch dataset llm-check llm-client-check
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -116,6 +116,9 @@ batch: sync-vm ## P2.3 every scenario x seed with the collector -> data/raw/<ver
 	@set -a; . ./.env; set +a; $(KEEP_AWAKE) $(RUN) python -m experiments.run_batch --config $(BATCH_CONFIG)
 
 DATASET_VERSION ?= v1
+
+validation-batch: ## P3.5 action batch: scenarios with scheduled, twin-verified actions (~50 min, lid open)
+	@set -a; . ./.env; set +a; $(KEEP_AWAKE) $(RUN) python -m experiments.run_batch --config experiments/batch_actions_v1.yaml --actions experiments/actions_v1.yaml
 
 dataset: ## P2.3 export data/raw/$(DATASET_VERSION)/ (from `make batch`) to data/$(DATASET_VERSION)/*.parquet
 	@set -a; . ./.env; set +a; $(RUN) python -m experiments.export_dataset --version $(DATASET_VERSION)

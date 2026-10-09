@@ -1,0 +1,14 @@
+# P3.5 validation batch (experiments/run_batch.py --actions): actions applied during each scenario,
+# through the twin's verifier and the executor (only accepted ones are applied). Steps are 90 s
+# apart so each is measured (10-30 s after it) before the next, and before the executor's 30 s
+# watch could roll it back.
+normal:
+  - {at_s: 120, type: steer_one, params: {from_ap: ap2, to_ap: ap1}}
+  - {at_s: 210, type: set_qos_queue, params: {match: {zone: lab, app_class: video}, queue_id: 1}}
+  - {at_s: 300, type: rate_limit_flow, params: {flow_id: sta5-bulk, max_mbps: 1.0}}
+  - {at_s: 390, type: set_ap_tx_power, params: {ap: ap4, dbm: 12}}
+  - {at_s: 480, type: steer_one, params: {from_ap: ap4, to_ap: ap3}}
+lecture_flash_crowd:
+  - {at_s: 270, type: heuristic}
+  - {at_s: 360, type: heuristic}
+  - {at_s: 450, type: heuristic}

@@ -1,0 +1,11 @@
+# P4.5 Done when: V3 on the flash crowd, 3 seeds (V1 = data/v1, the same scenario and seeds without
+# the loop). run_tag keeps these run ids apart from data/v1 in InfluxDB.
+dataset_version: loopv3-v1
+scenarios: [lecture_flash_crowd]
+seeds:
+  42: train
+  43: val
+  44: test
+agent_wait_s: 180
+run_tag: v3
+loop_mode: V3

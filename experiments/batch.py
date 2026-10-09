@@ -19,9 +19,11 @@ from common.schemas import Scenario
 
 SPLITS = ("train", "val", "test")
 SCENARIOS_DIR = Path(__file__).resolve().parent / "scenarios"
-_KEYS = {"dataset_version", "scenarios", "seeds", "agent_wait_s"}
+_KEYS = {"dataset_version", "scenarios", "seeds", "agent_wait_s", "run_tag", "loop_mode"}
+LOOP_MODES = ("V1", "V2", "V3")  # P4.5 / P6 variants
 _NAME = re.compile(r"^[a-z0-9_]+$")
-_VERSION = re.compile(r"^v[0-9]+$")
+_VERSION = re.compile(r"^([a-z][a-z0-9]*-)?v[0-9]+$")  # v1, or with a purpose: actions-v1
+_TAG = re.compile(r"^[a-z0-9]+$")
 # Same environment as `make scenario-vm`; 1200 s covers a 10-min scenario plus setup.
 _VM_ENV = "RYU_APP=controller.apps.twin_controller RYU_STARTUP_S=5 TIMEOUT_S=1200"
 _RUN_ON_VM = "~/Digital-Twin-SDN/testbed/run_on_vm.sh"
@@ -35,6 +37,8 @@ class BatchConfig:
     scenarios: tuple[str, ...]
     seeds: dict[int, str]  # seed -> split
     agent_wait_s: float
+    run_tag: str | None = None  # in every run id: scenario-<tag>-s<seed>
+    loop_mode: str | None = None  # P4.5 loop variant played alongside each run
 
 
 @dataclass(frozen=True)
@@ -54,7 +58,7 @@ def load_batch_config(raw: Mapping[str, Any]) -> BatchConfig:
         raise ValueError(f"batch config: unknown keys {sorted(unknown)}")
     version = raw.get("dataset_version")
     if not isinstance(version, str) or not _VERSION.match(version):
-        raise ValueError(f"dataset_version must look like v1, got {version!r}")
+        raise ValueError(f"dataset_version must look like v1 or actions-v1, got {version!r}")
     scenarios = raw.get("scenarios")
     if (
         not isinstance(scenarios, list)
@@ -74,13 +78,23 @@ def load_batch_config(raw: Mapping[str, Any]) -> BatchConfig:
     wait = raw.get("agent_wait_s")
     if not isinstance(wait, int | float) or isinstance(wait, bool) or wait <= 0:
         raise ValueError(f"agent_wait_s must be a number > 0, got {wait!r}")
-    return BatchConfig(version, tuple(scenarios), dict(seeds), float(wait))
+    tag, mode = raw.get("run_tag"), raw.get("loop_mode")
+    if tag is not None and (not isinstance(tag, str) or not _TAG.match(tag)):
+        raise ValueError(f"run_tag must be lowercase letters and digits, got {tag!r}")
+    if mode is not None and mode not in LOOP_MODES:
+        raise ValueError(f"loop_mode must be one of {LOOP_MODES}, got {mode!r}")
+    return BatchConfig(version, tuple(scenarios), dict(seeds), float(wait), tag, mode)
 
 
 def plan_runs(config: BatchConfig) -> list[RunPlan]:
     """Every scenario with every seed, scenario-major (stable order, resumable by run_id)."""
     return [
-        RunPlan(f"{scenario}-s{seed}", scenario, seed, split)
+        RunPlan(
+            f"{scenario}-{config.run_tag}-s{seed}" if config.run_tag else f"{scenario}-s{seed}",
+            scenario,
+            seed,
+            split,
+        )
         for scenario in config.scenarios
         for seed, split in config.seeds.items()
     ]

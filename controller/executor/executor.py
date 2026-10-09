@@ -12,10 +12,11 @@ Safety rules (RULEBOOK T-5, N-6; none can be switched off):
 - A verified set is applied whole: if one action fails, those already applied are reverted.
 - Rate limits: at most 1 high-impact action per AP per `high_impact_per_ap_s`, at most
   `max_actions_per_loop` actions per `loop_s`.
-- After `watch_s`, the live KPIs over the watch window are compared with the window before the
-  apply. A KPI worse by more than `regression_pct` percent **and** by more than its noise floor
-  (decision P4.4-B) rolls the whole set back, last action first. No live KPIs -> roll back:
-  nothing shows the action is safe.
+- After `watch_s`, the live KPIs from `settle_s` to `watch_s` after the apply are compared with
+  the `watch_s` before it (decision P4.4-C: the action's own transient, such as a steered
+  station re-associating for ~5 s, is not a regression). A KPI worse by more than
+  `regression_pct` percent **and** by more than its noise floor (decision P4.4-B) rolls the
+  whole set back, last action first. No live KPIs -> roll back: nothing shows it is safe.
 """
 
 from __future__ import annotations
@@ -64,15 +65,20 @@ class ExecutorConfig:
 
     watch_s: float
     regression_pct: float
+    settle_s: float
     noise_floor: Mapping[str, float]
     high_impact_per_ap_s: float
     max_actions_per_loop: int
     loop_s: float
+    # ADR-005: V2 evaluation runs only. Never read from config/executor.yaml; the P4.5 loop sets
+    # it for mode V2 with evaluation: true. Verdicts are still recorded; limits and rollback hold.
+    unverified_ok: bool = False
 
 
 # (key, smallest, largest): anything outside would switch a safety rule off in practice (N-6)
 _LIMITS = (
     ("watch_s", 1, 300),
+    ("settle_s", 0, 150),
     ("regression_pct", 1, 50),
     ("high_impact_per_ap_s", 60, 3600),
     ("max_actions_per_loop", 1, 10),
@@ -93,6 +99,8 @@ def load_executor_config(raw: Mapping[str, Any]) -> ExecutorConfig:
             or not low <= value <= high
         ):
             raise ValueError(f"{key} must be a number in [{low}, {high}], got {value!r}")
+    if raw["settle_s"] > raw["watch_s"] / 2:
+        raise ValueError("settle_s may be at most half of watch_s, or the watch sees too little")
     floor = raw.get("noise_floor")
     if not isinstance(floor, Mapping) or set(floor) != set(_KPIS):
         raise ValueError(f"noise_floor needs exactly {list(_KPIS)}")
@@ -101,6 +109,7 @@ def load_executor_config(raw: Mapping[str, Any]) -> ExecutorConfig:
     return ExecutorConfig(
         watch_s=float(raw["watch_s"]),
         regression_pct=float(raw["regression_pct"]),
+        settle_s=float(raw["settle_s"]),
         noise_floor={k: float(v) for k, v in floor.items()},
         high_impact_per_ap_s=float(raw["high_impact_per_ap_s"]),
         max_actions_per_loop=int(raw["max_actions_per_loop"]),
@@ -163,6 +172,7 @@ class Executor:
                 record.action_id,
                 "applied",
                 now,
+                _v2_note(record) if self._config.unverified_ok else "",
                 previous=previous,
                 baseline=baseline,
                 applied_at=now,
@@ -182,7 +192,9 @@ class Executor:
             members = [r for r in self._ledger.group(group_id) if r.status == "applied"]
             applied_at = members[0].applied_at
             assert applied_at is not None  # noqa: S101 - selected above for having applied_at
-            after = self._kpis.window(applied_at, applied_at + watch)
+            # from settle_s on: the action's own transient (a steer re-associating) is ignored
+            settle = timedelta(seconds=self._config.settle_s)
+            after = self._kpis.window(applied_at + settle, applied_at + watch)
             problems = _regressions(members[0].baseline, after, self._config)
             if problems:
                 pairs = [(r, r.previous or {}) for r in members]
@@ -220,10 +232,12 @@ class Executor:
         ) > 1:
             raise ExecutorError("apply the whole set the twin verified together")
         for r in records:
-            if r.status == "rejected":
-                raise ExecutorError(f"{r.action_id} was rejected by the twin")
             if r.status in _DONE:
                 raise ExecutorError(f"{r.action_id} was already applied ({r.status})")
+            if self._config.unverified_ok:
+                continue  # ADR-005: V2 applies whatever the twin said
+            if r.status == "rejected":
+                raise ExecutorError(f"{r.action_id} was rejected by the twin")
             if r.verdict.needs_approval and r.approved_by is None:
                 raise ExecutorError(f"{r.action_id} needs operator approval first")
 
@@ -264,6 +278,15 @@ class Executor:
                 )
             else:
                 self._ledger.update(record.action_id, status, now, note)
+
+
+def _v2_note(record: ActionRecord) -> str:
+    twin = (
+        "accepted"
+        if record.verdict.accepted
+        else f"rejected: {'; '.join(record.verdict.violations)}"
+    )
+    return f"V2: applied without the twin (the twin {twin})"
 
 
 def _ap_of(action: Action) -> str | None:

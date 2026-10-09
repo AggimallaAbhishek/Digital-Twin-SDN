@@ -28,6 +28,7 @@ from testbed import ap_agent
 from testbed.checks.ap_agent_check import api
 from testbed.checks.controller_check import Recorder
 from testbed.layout import load_layout
+from testbed.mobility.crowd import station_number
 from testbed.topologies.campus_v1 import DEFAULT_LAYOUT, build_campus, ping_matrix, start_campus
 from testbed.traffic.profiles import flow_id, load_traffic_config_file
 from testbed.traffic.runner import TrafficProbe
@@ -41,6 +42,7 @@ LIMITED_MBPS = 3.0
 LIMIT_MBPS = 1.5
 LOADED = 2  # competing videos on ap1 (campus_v1 has 3 stations there)
 LOG_DIR = Path.home() / "p44a"
+Campus = Any  # testbed/topologies/campus_v1.Campus: Mininet objects, untyped
 
 
 def sample(fid: str, seconds: int) -> float:
@@ -54,18 +56,19 @@ def sample(fid: str, seconds: int) -> float:
 
 
 def clients(ap: str) -> list[str]:
+    """Stations the AP agent reports on `ap`, in station order."""
     _, body = api("GET", "/stations")
     names = [s["sta"] for s in body["stations"] if s["ap"] == ap]
-    return sorted(names, key=lambda n: int(n[3:]))
+    return sorted(names, key=station_number)
 
 
-def tc_classes(campus: Any, agent: ap_agent.ApAgent, ap: str) -> str:
+def tc_classes(campus: Campus, agent: ap_agent.ApAgent, ap: str) -> str:
     node = campus.aps[ap]
     with agent.lock:
         return str(node.cmd(f"tc class show dev {node.wintfs[0].name}"))
 
 
-def check_priority(record: Recorder, campus: Any, agent: ap_agent.ApAgent, target: str) -> None:
+def check_priority(record: Recorder, campus: Campus, agent: ap_agent.ApAgent, target: str) -> None:
     """Steps 1-2: the probe flow loses rate as best effort, keeps it in queue 1."""
     best_effort = sample(target, MEASURE_S)
     record(
@@ -99,7 +102,7 @@ def check_limit(record: Recorder, limited: str) -> None:
 
 
 def check_reset(
-    record: Recorder, campus: Any, agent: ap_agent.ApAgent, target: str, limited: str
+    record: Recorder, campus: Campus, agent: ap_agent.ApAgent, target: str, limited: str
 ) -> None:
     """Step 4: GET /qos lists both flows; resetting them removes the priority classes."""
     status, qos = api("GET", "/qos")

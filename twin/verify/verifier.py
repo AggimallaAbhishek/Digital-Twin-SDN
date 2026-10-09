@@ -19,8 +19,8 @@ decision P3.4-B); a heuristic's single action is a set of one.
 4. **Policies**: a hard constraint may not be broken, or made worse if it already is; an
    objective that was met may not become missed. Measured on the worst flow in scope. Jitter is
    not predicted by the twin, so jitter targets are not checked here.
-5. **Impact** (§8): low applies on acceptance; high always needs approval; medium needs approval
-   while config/verify.yaml says so (until P3.5 measures the twin's error, decision P3.4-C).
+5. **Impact** (§8): low applies on acceptance; high always needs approval; medium applies on
+   acceptance only for the types config/verify.yaml lists, those P3.5 validated (P3.4-C).
 """
 
 from __future__ import annotations
@@ -33,6 +33,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from common.schemas import (
+    IMPACT,
     MAX_STEER_FRACTION,
     MIN_TARGET_RSSI_DBM,
     Action,
@@ -63,14 +64,19 @@ _LOWER_IS_BETTER = {"latency_ms", "loss_pct"}
 class VerifyConfig:
     """config/verify.yaml."""
 
-    medium_needs_approval: bool
+    medium_auto_apply: frozenset[str]  # medium-impact types trusted to apply on acceptance
 
 
 def load_verify_config(raw: Mapping[str, Any]) -> VerifyConfig:
     """Validate a parsed config/verify.yaml."""
-    if set(raw) != {"medium_needs_approval"} or not isinstance(raw["medium_needs_approval"], bool):
-        raise ValueError(f"verify config must be exactly {{medium_needs_approval: bool}}: {raw!r}")
-    return VerifyConfig(medium_needs_approval=raw["medium_needs_approval"])
+    types = raw.get("medium_auto_apply")
+    medium = {kind for kind, impact in IMPACT.items() if impact == "medium"}
+    if set(raw) != {"medium_auto_apply"} or not isinstance(types, list) or not set(types) <= medium:
+        raise ValueError(
+            f"verify config must be exactly {{medium_auto_apply: [medium-impact types]}} "
+            f"(one of {sorted(medium)}): {raw!r}"
+        )
+    return VerifyConfig(medium_auto_apply=frozenset(types))
 
 
 @dataclass(frozen=True)
@@ -122,7 +128,7 @@ def verify(state: TwinState, actions: Sequence[Action], context: VerifyContext) 
 
 def _needs_approval(action: Action, config: VerifyConfig) -> bool:
     impact = impact_of(action)
-    return impact == "high" or (impact == "medium" and config.medium_needs_approval)
+    return impact == "high" or (impact == "medium" and action.type not in config.medium_auto_apply)
 
 
 def _apply_within_bounds(

@@ -77,6 +77,7 @@ class ToolSimulator:
         self._tools = tools
 
     def simulate(self, actions: Sequence[Action]) -> list[dict[str, Any]]:  # Any: JSON
+        """One simulate_in_twin call per action, in order."""
         return [
             self._tools.call(
                 "simulate_in_twin", {"action": a.model_dump(mode="json", by_alias=True)}

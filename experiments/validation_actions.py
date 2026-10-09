@@ -9,16 +9,14 @@ A schedule (experiments/actions_v1.yaml) lists, per scenario, steps at scenario 
 
 experiments/run_batch.py turns each due step into actions on the live twin state, has the twin
 verify them and applies only accepted ones through the executor (CLAUDE.md: nothing reaches the
-network without an accepted Verdict). It logs each step with its UTC time; `timed_actions`
-turns the applied ones into scenario time for the dataset (actions.jsonl), the same clock the
-telemetry rows use.
+network without an accepted Verdict). It logs each step; the dataset export takes the applied
+actions and their apply times from the executor's ledger (experiments/export_dataset.py).
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Any
 
 from common.schemas import ACTION_ADAPTER, IMPACT, Action
@@ -98,16 +96,3 @@ def _strongest_client(state: TwinState, from_ap: str, to_ap: str, radio: RadioPa
         clients,
         key=lambda s: predicted_rssi_dbm(target.position, state.stations[s].position, radio),
     )
-
-
-def timed_actions(lines: Sequence[Mapping[str, Any]], t0: datetime) -> list[dict[str, Any]]:
-    """Applied steps as {run_id, t_s, action}, t_s counted from the scenario start `t0`."""
-    return [
-        {
-            "run_id": line["run_id"],
-            "t_s": round((datetime.fromisoformat(line["utc"]) - t0).total_seconds(), 3),
-            "action": line["action"],
-        }
-        for line in lines
-        if line["applied"]
-    ]

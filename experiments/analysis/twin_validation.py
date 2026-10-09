@@ -23,10 +23,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import pyarrow as pa
 import pyarrow.parquet as pq
 import yaml
 
-from common.schemas import ACTION_ADAPTER, Action, Scenario
+from common.schemas import ACTION_ADAPTER, Scenario
 from experiments.batch import load_scenario
 from experiments.dataset import disruption
 from experiments.shell import git_commit
@@ -46,7 +47,9 @@ from twin.validation.validate import (
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "models" / "twin" / "v1"
 STEP_S, HORIZON_S = 30.0, 30.0
-SETTLE_S, MEASURE_S = 15.0, 30.0  # an AP-down's orphans rejoin after 5 s + ~4 s re-association
+# measured 10-30 s after an action: an AP-down's orphans rejoin after ~9 s, and the executor's
+# watch could roll a batch action back at 30 s
+SETTLE_S, MEASURE_S = 10.0, 20.0
 QUIET_BEFORE_S, QUIET_AFTER_S = 30.0, 60.0  # steady windows this close to a disruption are skipped
 COLUMNS = {
     "ap_stats": ["run_id", "scenario_id", "split", "ts", "t_s", "ap", "channel", "channel_util"],
@@ -68,7 +71,14 @@ def load_runs(dataset: Path) -> list[RunTelemetry]:
     """Every run of a dataset directory (P2.3 parquet layout)."""
     rows: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(lambda: defaultdict(list))
     for name, columns in COLUMNS.items():
-        for row in pq.read_table(dataset / f"{name}.parquet", columns=columns).to_pylist():
+        table = pq.read_table(dataset / f"{name}.parquet", columns=columns)
+        # without the column's time zone, then UTC attached per row: pyarrow converting tz-aware
+        # timestamps row by row took 17 of the script's 19 s
+        naive = table.set_column(
+            table.schema.get_field_index("ts"), "ts", table["ts"].cast(pa.timestamp("ms"))
+        )
+        for row in naive.to_pylist():
+            row["ts"] = row["ts"].replace(tzinfo=UTC)
             rows[row["run_id"]][name].append(row)
     runs = []
     for run_id, tables in sorted(rows.items()):
@@ -120,13 +130,8 @@ def batch_actions(dataset: Path, run_id: str) -> list[Applied]:
     for line in path.read_text().splitlines():
         entry = json.loads(line)
         if entry["run_id"] == run_id:
-            out.append(Applied(entry["t_s"], _action(entry["action"])))
+            out.append(Applied(entry["t_s"], ACTION_ADAPTER.validate_python(entry["action"])))
     return out
-
-
-def _action(raw: dict[str, Any]) -> Action:  # Any: an action as JSON
-    action: Action = ACTION_ADAPTER.validate_python(raw)
-    return action
 
 
 def cases_for(
@@ -135,18 +140,22 @@ def cases_for(
     model: TwinModel,
     duration_s: float,
     quiet: list[float],
-) -> list[Case]:
-    """Steady cases away from disruptions and actions, plus one case set per action."""
+) -> tuple[list[Case], list[dict[str, Any]]]:
+    """Steady cases away from disruptions and actions, plus one case set per action; and the
+    actions that gave no case (reported, not hidden)."""
     busy = quiet + [a.t_s for a in applied]
     times = [
         t
         for t in _steps(STEP_S * 2, duration_s - HORIZON_S, STEP_S)
         if all(not (b - QUIET_BEFORE_S - HORIZON_S < t < b + QUIET_AFTER_S) for b in busy)
     ]
-    cases = steady_cases(run, model, times, HORIZON_S)
+    cases, skipped = steady_cases(run, model, times, HORIZON_S), []
     for a in applied:
-        cases += action_cases(run, a, model, SETTLE_S, MEASURE_S)
-    return cases
+        found = action_cases(run, a, model, SETTLE_S, MEASURE_S)
+        if not found:  # it didn't fit the rebuilt state, or no scored flow was measured
+            skipped.append({"run_id": run.run_id, "t_s": a.t_s, "type": a.action.type})
+        cases += found
+    return cases, skipped
 
 
 def _steps(start: float, stop: float, step: float) -> list[float]:
@@ -183,21 +192,22 @@ def main(argv: list[str] | None = None) -> int:
             applied = scripted_actions(scenario, now) + batch_actions(dataset, run.run_id)
             work.append((run, applied, scenario.duration_s, [onset.at_s] if onset else []))
 
-    def all_cases(params: SimParams) -> list[Case]:
+    def all_cases(params: SimParams) -> tuple[list[Case], list[dict[str, Any]]]:
         model = TwinModel(campus, radio, params)
-        return [
-            c
-            for run, applied, duration, quiet in work
-            for c in cases_for(run, applied, model, duration, quiet)
-        ]
+        cases: list[Case] = []
+        skipped: list[dict[str, Any]] = []
+        for run, applied, duration, quiet in work:
+            found, missed = cases_for(run, applied, model, duration, quiet)
+            cases, skipped = cases + found, skipped + missed
+        return cases, skipped
 
-    before = all_cases(base)
+    before, _ = all_cases(base)
     calibrated = calibrate_bulk([c for c in before if c.split == "train"], base)
-    after = all_cases(calibrated)
+    after, skipped = all_cases(calibrated)
     report: dict[str, Any] = {
         "created": now.isoformat(timespec="seconds"),
         "git_commit": git_commit(),
-        "datasets": [str(d.relative_to(ROOT)) for d in args.datasets],
+        "datasets": [str(d.resolve().relative_to(ROOT)) for d in args.datasets],
         "bulk_offered_mbps": {
             "config": base.apps["bulk"].offered_mbps,
             "calibrated": calibrated.apps["bulk"].offered_mbps,
@@ -205,6 +215,7 @@ def main(argv: list[str] | None = None) -> int:
         "before_calibration": {
             s: summary([c for c in before if c.split == s]) for s in ("train", "val", "test")
         },
+        "actions_without_a_case": skipped,
         "after_calibration": {
             s: summary([c for c in after if c.split == s]) for s in ("train", "val", "test")
         },

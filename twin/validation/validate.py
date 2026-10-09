@@ -116,7 +116,11 @@ def action_cases(
     state = state_at(run, t, model.campus)
     if state is None:
         return []
-    predicted = simulate(apply(state, applied.action), model.radio, model.params)
+    try:
+        after = apply(state, applied.action)
+    except ValueError:  # it fit the live state, not this one (e.g. a station mid re-association)
+        return []
+    predicted = simulate(after, model.radio, model.params)
     measured = _medians(run, t + settle_s, t + settle_s + measure_s)
     return _cases(run, (applied.action.type, t), state, predicted, measured)
 

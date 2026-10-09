@@ -159,12 +159,12 @@ def _actor(
     if extras.loop_mode is not None:  # P4.5 / P6: the control loop alongside the run
         from experiments.loop_actor import LoopActor  # noqa: PLC0415 - live-only dependencies
 
-        return LoopActor(plan.run_id, extras.loop_mode, run_dir, config)
+        return LoopActor(plan.run_id, extras.loop_mode, run_dir)
     if not extras.steps:
         return None
     from experiments.validation_actor import Actor  # noqa: PLC0415 - live-only dependencies
 
-    return Actor(plan.run_id, extras.steps, run_dir, config)
+    return Actor(plan.run_id, extras.steps, run_dir)
 
 
 def _collect(

@@ -4,10 +4,12 @@ watch_s: 30                 # PROJECT_PLAN §8: watch live KPIs this long after 
 regression_pct: 10          # PROJECT_PLAN §8: roll back if a watched KPI gets this much worse
 settle_s: 10                # compare from this long after the apply: a steer's ~5 s re-association is
                             # the action's own transient, not a regression (decision P4.4-C)
-noise_floor:                # ... and worse by at least this much in absolute terms (decision P4.4-B)
-  throughput_mbps: 0.05
-  latency_ms: 1.0
-  loss_pct: 0.5
+noise_floor:                # ... and worse by more than this in absolute terms (decision P4.4-B): the
+                            # 95th percentile of natural worsening in no-action windows (data/v1 train);
+                            # false rollbacks 25% -> 11% on held-out windows (Jain kept at 0.02)
+  throughput_mbps: 0.18
+  latency_ms: 10.9
+  loss_pct: 0.72
   jain: 0.02
 high_impact_per_ap_s: 120   # PROJECT_PLAN §8: at most 1 high-impact action per AP per 2 minutes
 max_actions_per_loop: 3     # PROJECT_PLAN §8: at most N actions per loop ...

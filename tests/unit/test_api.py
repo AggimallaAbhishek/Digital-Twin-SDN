@@ -198,7 +198,8 @@ def test_intents_are_off_until_the_flag_is_on(tmp_path: Path) -> None:
 
 def test_approve_and_apply_need_the_operator_token(tmp_path: Path) -> None:
     client, actuator = _client(tmp_path)
-    client.post("/twin/simulate", json={"actions": [_action(*EVERY_TYPE[3])]})  # medium: approval
+    # a channel change is high impact: it always needs an operator (PROJECT_PLAN §8)
+    client.post("/twin/simulate", json={"actions": [_action(*EVERY_TYPE[5])]})
     assert client.post("/actions/act_api_1/approve", json={"by": "x"}).status_code == 401
     wrong = {"X-Operator-Token": "nope"}
     assert client.post("/actions/act_api_1/apply", headers=wrong).status_code == 401

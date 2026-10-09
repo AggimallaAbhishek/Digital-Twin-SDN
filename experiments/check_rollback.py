@@ -22,15 +22,10 @@ import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 
-import yaml
-
+from api.wiring import agent_url, build_executor, load_yaml
 from common.influx import InfluxConnection
 from common.schemas import ACTION_ADAPTER, KPIValues, Verdict
-from controller.executor.actuator import AgentActuator
-from controller.executor.executor import Executor, load_executor_config
-from controller.executor.ledger import Ledger
-from controller.executor.live_kpis import InfluxKpis
-from telemetry.collector.collector import load_collector_config
+from controller.executor.executor import load_executor_config
 from twin.state.model import TwinState
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -45,16 +40,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--run-id", required=True)
     args = parser.parse_args(argv)
 
-    config = load_executor_config(yaml.safe_load((ROOT / "config" / "executor.yaml").read_text()))
-    agent = load_collector_config()
-    base = f"http://{agent.vm_host}:{agent.agent_port}"
+    config = load_executor_config(load_yaml("executor.yaml"))
+    base = agent_url()
     LEDGER.unlink(missing_ok=True)
-    executor = Executor(
-        Ledger(LEDGER),
-        AgentActuator(base),
-        InfluxKpis(InfluxConnection.from_env(), args.run_id),
-        config,
-    )
+    executor = build_executor(InfluxConnection.from_env(), args.run_id, LEDGER)
     now = datetime.now(UTC)
     action = ACTION_ADAPTER.validate_python(
         {

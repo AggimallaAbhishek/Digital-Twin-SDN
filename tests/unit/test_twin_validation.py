@@ -120,3 +120,18 @@ def test_summary_groups_by_kind_and_app_class() -> None:
     assert table["steady/video"] == {"mape": pytest.approx(0.1), "n": 2}
     assert table["set_ap_channel/video"] == {"mape": pytest.approx(0.5), "n": 1}
     assert table["steady/bulk"] == {"mape": pytest.approx(0.0), "n": 1}
+
+
+def test_an_action_that_does_not_fit_the_rebuilt_state_gives_no_case() -> None:
+    # the live state said sta9 was on ap1; the telemetry rebuilt here has no sta9: skip, no crash
+    steer = ACTION_ADAPTER.validate_python(
+        {
+            "action_id": "act_v_2",
+            "type": "steer_clients",
+            "source": "operator",
+            "reason": "validation",
+            "created_at": T0,
+            "params": {"from_ap": "ap1", "to_ap": "ap2", "stations": ["sta9"]},
+        }
+    )
+    assert action_cases(_run(0.4, 0.3), Applied(30, steer), MODEL, settle_s=5, measure_s=20) == []

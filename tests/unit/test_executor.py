@@ -205,7 +205,8 @@ def test_an_action_that_keeps_kpis_is_kept_after_the_watch(tmp_path: Path) -> No
 
 
 def test_a_regression_rolls_back_to_the_previous_config(tmp_path: Path) -> None:
-    worse = GOOD.model_copy(update={"latency_ms": 12.0})  # +20% and +2 ms: past both thresholds
+    # +12 ms (+120%): past both the 10% rule and the 10.9 ms latency noise floor (P4.4-B)
+    worse = GOOD.model_copy(update={"latency_ms": 22.0})
     executor, actuator, kpis, clock = _executor(tmp_path, kpis=FakeKpis(after=worse))
     action = _action(1)
     executor.record([action], [_verdict(action)])

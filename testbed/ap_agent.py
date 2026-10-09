@@ -85,6 +85,9 @@ class ApAgent:
         self._capacity_mbps: dict[str, float] = {}
         # P4.4a: per-flow QoS, enforced by the tc tree on every AP's downlink (testbed/qos.py)
         self._flow_qos: dict[str, qos.FlowQos] = {}
+        # the tc commands each AP last ran: an unchanged tree is not rebuilt, because a rebuild
+        # (tc qdisc del root) drops that AP's queued packets
+        self._rendered: dict[str, list[str]] = {}
         self.flow_endpoints: Callable[[], dict[str, tuple[str, int]]] = dict  # TrafficProbe
         # P4.4: AP admin state goes through the scenario runner (hostapd + orphan rejoin)
         self.admin_handler: Callable[[str, str], Record] | None = None
@@ -177,14 +180,17 @@ class ApAgent:
         return {"ts": _now(), "flows": flows}
 
     def set_flow_queue(self, flow_id: str, body: Any) -> Record:
+        """POST /flows/{flow}/queue: put a flow in strict-priority queue 0, 1 or 2 (P4.4a)."""
         queue = ap_logic.parse_queue_request(body)
         return self._set_flow_qos(ap_logic.check_flow_id(flow_id), queue=queue)
 
     def set_flow_limit(self, flow_id: str, body: Any) -> Record:
+        """POST /flows/{flow}/limit: cap a flow's downlink rate, or null to lift the cap."""
         limit = ap_logic.parse_limit_request(body)
         return self._set_flow_qos(ap_logic.check_flow_id(flow_id), limit=limit, set_limit=True)
 
     def set_admin(self, name: str, body: Any) -> Record:
+        """POST /aps/{ap}/admin: take an AP down or up through the scenario runner (P4.4)."""
         self._ap(name)
         state = ap_logic.parse_admin_request(body)
         if self.admin_handler is None:
@@ -228,8 +234,12 @@ class ApAgent:
         ap = self._aps[name]
         rules = qos.flow_rules(self._flow_qos, self.flow_endpoints())
         cap = self._capacity_mbps.get(name)
-        for command in qos.tc_tree(ap.wintfs[0].name, cap, self._nominal_mbps, rules):
+        commands = qos.tc_tree(ap.wintfs[0].name, cap, self._nominal_mbps, rules)
+        if commands == self._rendered.get(name):
+            return
+        for command in commands:
             ap.cmd(command)
+        self._rendered[name] = commands
 
     # ------------------------------------------------------------------ writes
     def set_channel(self, name: str, body: Any) -> Record:

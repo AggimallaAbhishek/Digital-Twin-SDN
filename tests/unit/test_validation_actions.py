@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -11,7 +11,6 @@ from experiments.validation_actions import (
     ActionStep,
     actions_for,
     load_schedule,
-    timed_actions,
 )
 from ml.optimizer.heuristics import HeuristicConfig
 from twin.radio import RadioParams
@@ -100,22 +99,3 @@ def test_a_heuristic_step_asks_the_optimizer() -> None:
 def test_steer_one_with_no_client_gives_no_action() -> None:
     step = ActionStep(120, "steer_one", {"from_ap": "ap2", "to_ap": "ap1"})
     assert actions_for(step, STATE, RADIO, HEURISTICS, "normal-s45") == []
-
-
-def test_applied_actions_get_their_scenario_time() -> None:
-    t0 = TS
-    lines = [
-        {
-            "run_id": "normal-s45",
-            "utc": (t0 + timedelta(seconds=120.5)).isoformat(),
-            "applied": True,
-            "action": {"x": 1},
-        },
-        {
-            "run_id": "normal-s45",
-            "utc": (t0 + timedelta(seconds=240)).isoformat(),
-            "applied": False,
-            "action": {"x": 2},
-        },
-    ]
-    assert timed_actions(lines, t0) == [{"run_id": "normal-s45", "t_s": 120.5, "action": {"x": 1}}]

@@ -38,9 +38,11 @@ def recoveries(dataset: Path, rule: RecoveryRule) -> dict[str, dict[str, Any]]:
         "kpi": ["run_id", "scenario_id", "t_s", "app_class", "latency_ms"],
     }
     for name, cols in columns.items():
-        for row in pq.read_table(dataset / f"{name}.parquet", columns=cols).to_pylist():
-            if row["scenario_id"] == SCENARIO:
-                rows[row["run_id"]][name].append(row)
+        only = [("scenario_id", "==", SCENARIO)]
+        for row in pq.read_table(
+            dataset / f"{name}.parquet", columns=cols, filters=only
+        ).to_pylist():
+            rows[row["run_id"]][name].append(row)
     scenario = load_scenario(SCENARIO)
     onset = disruption(scenario)
     assert onset is not None  # noqa: S101 - the flash crowd always has one

@@ -25,7 +25,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Annotated, Any
 
-from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from common.schemas import Action, Identifier, Verdict
@@ -47,9 +48,11 @@ class TwinSimulator:
         self._state, self._context = state, context
 
     def verdicts(self, actions: Sequence[Action]) -> list[Verdict]:
+        """The joint Verdicts for `actions` on the twin's current state."""
         return verify(self._state(), actions, self._context)
 
     def simulate(self, actions: Sequence[Action]) -> list[dict[str, Any]]:  # Any: JSON
+        """The same Verdicts as JSON (the intent engine's Simulator protocol)."""
         return [v.model_dump(mode="json") for v in self.verdicts(actions)]
 
 
@@ -68,14 +71,20 @@ class Services:
 
 
 class SimulateRequest(BaseModel):
+    """Body of POST /twin/simulate: one set of actions, verified together."""
+
     actions: Annotated[list[Action], Field(min_length=1, max_length=20)]
 
 
 class IntentRequest(BaseModel):
+    """Body of POST /intents: the operator's words."""
+
     text: Annotated[str, Field(min_length=1, max_length=1000)]
 
 
 class ApproveRequest(BaseModel):
+    """Body of POST /actions/{id}/approve: who approves."""
+
     by: Annotated[str, Field(min_length=1, max_length=64)]
 
 
@@ -90,11 +99,10 @@ def create_app(services: Services) -> FastAPI:
         if token is None or not hmac.compare_digest(token, services.operator_token):
             raise HTTPException(401, "missing or wrong X-Operator-Token")
 
-    def record(actions: Sequence[Action], verdicts: Sequence[Verdict]) -> None:
-        try:
-            executor.record(actions, verdicts)
-        except ExecutorError as exc:
-            raise HTTPException(409, str(exc)) from exc
+    @app.exception_handler(ExecutorError)
+    def refused(request: Request, exc: ExecutorError) -> JSONResponse:
+        """The executor refused (no verdict, needs approval, rate limit ...): 409 with why."""
+        return JSONResponse(status_code=409, content={"detail": str(exc)})
 
     @app.get("/topology")
     def topology() -> dict[str, Any]:  # Any: JSON
@@ -123,7 +131,7 @@ def create_app(services: Services) -> FastAPI:
         if not services.sim_enabled:
             raise HTTPException(503, "the twin simulator is off (config/sim.yaml enabled: false)")
         verdicts = services.simulator.verdicts(body.actions)
-        record(body.actions, verdicts)
+        executor.record(body.actions, verdicts)
         return {"verdicts": [v.model_dump(mode="json") for v in verdicts]}
 
     @app.post("/intents")
@@ -136,7 +144,7 @@ def create_app(services: Services) -> FastAPI:
             verdicts = [
                 Verdict.model_validate(result.verdicts[a.action_id]) for a in result.actions
             ]
-            record(result.actions, verdicts)
+            executor.record(result.actions, verdicts)
         return {
             "policy": result.policy.model_dump(mode="json", by_alias=True)
             if result.policy
@@ -155,10 +163,7 @@ def create_app(services: Services) -> FastAPI:
         x_operator_token: Annotated[str | None, Header()] = None,
     ) -> dict[str, Any]:  # Any: JSON
         require_operator(x_operator_token)
-        try:
-            executor.approve(action_id, body.by)
-        except ExecutorError as exc:
-            raise HTTPException(409, str(exc)) from exc
+        executor.approve(action_id, body.by)
         return {"action_id": action_id, "status": "approved"}
 
     @app.post("/actions/{action_id}/apply")
@@ -166,11 +171,8 @@ def create_app(services: Services) -> FastAPI:
         action_id: Identifier, x_operator_token: Annotated[str | None, Header()] = None
     ) -> dict[str, Any]:  # Any: JSON
         require_operator(x_operator_token)
-        try:
-            ids = executor.group_of(action_id)
-            executor.apply(ids, services.state())
-        except ExecutorError as exc:
-            raise HTTPException(409, str(exc)) from exc
+        ids = executor.group_of(action_id)
+        executor.apply(ids, services.state())
         return {"applied": ids}
 
     @app.get("/actions")

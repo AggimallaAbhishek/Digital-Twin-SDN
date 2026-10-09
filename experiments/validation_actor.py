@@ -4,67 +4,36 @@ At each due step: rebuild the twin state from InfluxDB (twin/state/sync.py), tur
 actions (experiments/validation_actions.py), have the verifier judge them together, record the
 verdicts in the executor, approve the ones that need it as the batch's operator, and apply the
 set only if every verdict accepted it. The executor's watch and rollback stay on. Every step is
-logged to <run_dir>/actions.jsonl with its UTC time, whether it was applied, and why not.
+logged (applied or not, and why); the executor's ledger (<run_dir>/actions.db) is the record the
+dataset export reads.
 """
 
 from __future__ import annotations
 
-import json
 import logging
-from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
-import yaml
-
+from api.wiring import build_executor, build_twin, load_yaml
 from common.influx import InfluxConnection
-from controller.executor.actuator import AgentActuator
-from controller.executor.executor import Executor, ExecutorError, load_executor_config
-from controller.executor.ledger import Ledger
-from controller.executor.live_kpis import InfluxKpis
+from controller.executor.executor import ExecutorError
 from experiments.validation_actions import ActionStep, actions_for
 from ml.optimizer.heuristics import load_heuristic_config
-from telemetry.collector.collector import CollectorConfig
-from twin.radio import load_radio_params
-from twin.sim.analytical import load_sim_params
-from twin.state.builder import load_campus_aps
-from twin.state.sync import TwinSync, load_sync_config
-from twin.verify.verifier import VerifyContext, load_verify_config, verify
+from twin.verify.verifier import verify
 
 log = logging.getLogger("experiments.validation_actor")
-ROOT = Path(__file__).resolve().parents[1]
 OPERATOR = "validation-batch"
-
-
-def _yaml(name: str) -> Any:  # Any: parsed YAML, validated by each config loader
-    return yaml.safe_load((ROOT / "config" / name).read_text())
 
 
 class Actor:
     """Applies one run's scheduled steps when they fall due."""
 
-    def __init__(
-        self, run_id: str, steps: list[ActionStep], run_dir: Path, agent: CollectorConfig
-    ) -> None:
-        campus_raw = _yaml("campus_v1.yaml")
-        campus = load_campus_aps(campus_raw)
-        self._radio = load_radio_params(campus_raw)
+    def __init__(self, run_id: str, steps: list[ActionStep], run_dir: Path) -> None:
         conn = InfluxConnection.from_env()
-        self._run_id, self._steps, self._log = run_id, list(steps), run_dir / "actions.jsonl"
-        self._sync = TwinSync(conn, campus, run_id, load_sync_config(_yaml("twin.yaml")))
-        self._context = VerifyContext(
-            campus,
-            self._radio,
-            load_sim_params(_yaml("sim.yaml")),
-            load_verify_config(_yaml("verify.yaml")),
-        )
-        self._heuristics = load_heuristic_config(_yaml("optimizer.yaml"))
-        self._executor = Executor(
-            Ledger(run_dir / "actions.db"),
-            AgentActuator(f"http://{agent.vm_host}:{agent.agent_port}"),
-            InfluxKpis(conn, run_id),
-            load_executor_config(_yaml("executor.yaml")),
-        )
+        twin = build_twin(conn, run_id)
+        self._run_id, self._steps = run_id, list(steps)
+        self._sync, self._context, self._radio = twin.sync, twin.context, twin.radio
+        self._heuristics = load_heuristic_config(load_yaml("optimizer.yaml"))
+        self._executor = build_executor(conn, run_id, run_dir / "actions.db")
 
     def tick(self, elapsed_s: float) -> None:
         """Run every step due by `elapsed_s` seconds into the scenario; finish due watches."""
@@ -77,7 +46,7 @@ class Actor:
         state = self._sync.refresh()
         actions = actions_for(step, state, self._radio, self._heuristics, self._run_id)
         if not actions:
-            self._write(step, None, False, "no action for this state")
+            self._log(step, False, "no action for this state")
             return
         verdicts = verify(state, actions, self._context)
         self._executor.record(actions, verdicts)
@@ -93,21 +62,9 @@ class Actor:
                 note = str(exc)
         else:
             note = "; ".join(x for v in verdicts for x in v.violations)
-        for action in actions:
-            self._write(step, action.model_dump(mode="json", by_alias=True), applied, note)
+        self._log(step, applied, note)
 
-    def _write(self, step: ActionStep, action: object, applied: bool, note: str) -> None:
-        line = {
-            "run_id": self._run_id,
-            "utc": datetime.now(UTC).isoformat(),
-            "step_at_s": step.at_s,
-            "step": step.type,
-            "applied": applied,
-            "note": note,
-            "action": action,
-        }
-        with self._log.open("a") as f:
-            f.write(json.dumps(line) + "\n")
+    def _log(self, step: ActionStep, applied: bool, note: str) -> None:
         log.info(
             "%s: step %s at %g s -> applied=%s %s",
             self._run_id,

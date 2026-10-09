@@ -141,12 +141,20 @@ class Ledger:
 
     def records(self, status: str | None = None) -> list[ActionRecord]:
         """Every action in the order it was verified, optionally only those in `status`."""
-        rows = self._db.execute("SELECT * FROM actions ORDER BY seq").fetchall()
-        return [r for r in map(_record, rows) if status is None or r.status == status]
+        if status is None:
+            rows = self._db.execute("SELECT * FROM actions ORDER BY seq").fetchall()
+        else:  # filtered in SQL: the loop asks for "applied" every 5 s tick
+            rows = self._db.execute(
+                "SELECT * FROM actions WHERE status = ? ORDER BY seq", (status,)
+            ).fetchall()
+        return [_record(r) for r in rows]
 
     def applied_since(self, since: datetime) -> list[ActionRecord]:
         """Actions applied after `since` (whatever happened to them afterwards)."""
-        return [r for r in self.records() if r.applied_at is not None and r.applied_at > since]
+        rows = self._db.execute(
+            "SELECT * FROM actions WHERE applied_at IS NOT NULL ORDER BY seq"
+        ).fetchall()
+        return [r for r in map(_record, rows) if r.applied_at is not None and r.applied_at > since]
 
     def events(self, action_id: str) -> list[Event]:
         rows = self._db.execute(

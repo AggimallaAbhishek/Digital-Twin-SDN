@@ -23,6 +23,7 @@ import logging
 import threading
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Any
 
 from common.schemas import Action
@@ -33,6 +34,9 @@ from twin.verify.verifier import VerifyContext, verify
 
 log = logging.getLogger("api.loop")
 MODES = ("V1", "V2", "V3")
+# A proposal identical to one just rolled back is not tried again for this long (decision
+# P4.5-C): otherwise the heuristics re-propose it and the loop applies, rolls back, re-applies.
+COOLDOWN_S = 120.0
 
 
 @dataclass(frozen=True)
@@ -75,13 +79,23 @@ class Loop:
         self._config, self._state, self._executor = config, state, executor
         self._context, self._heuristics = context, heuristics
         self._waiting: set[str] = set()  # proposals recorded and waiting for an operator
+        self._applied: dict[str, str] = {}  # action_id -> signature, for the cooldown
+        self._cooling: dict[str, datetime] = {}  # signature -> may be tried again after this
+        self._to_cool: list[str] = []  # rolled back, cooldown not started yet
 
     def tick(self) -> list[tuple[str, str]]:
         """One loop: (action_id, what happened) for every action touched this tick."""
         events = self._executor.check()
+        # remembered even when this tick stops early because another action is still watched
+        self._to_cool += [
+            self._applied[a] for a, o in events if o == "rolled_back" and a in self._applied
+        ]
         if self._config.mode == "V1" or self._executor.history("applied"):
             return events
         state = self._state()
+        for signature in self._to_cool:  # the cooldown starts now: a little later, never sooner
+            self._cooling[signature] = state.ts + timedelta(seconds=COOLDOWN_S)
+        self._to_cool.clear()
         for action in propose(state, self._heuristics, self._context.radio):
             outcome = self._handle(action, state)
             if outcome is not None:
@@ -100,7 +114,8 @@ class Loop:
 
     def _handle(self, action: Action, state: TwinState) -> str | None:
         signature = f"{action.type}:{action.params.model_dump_json()}"
-        if signature in self._waiting:
+        cooling_until = self._cooling.get(signature)
+        if signature in self._waiting or (cooling_until is not None and state.ts < cooling_until):
             return None
         [verdict] = verify(state, [action], self._context)
         try:
@@ -117,4 +132,5 @@ class Loop:
             self._executor.apply([action.action_id], state)
         except ExecutorError as exc:  # a rate limit: the next tick may try again
             return f"not applied: {exc}"
+        self._applied[action.action_id] = signature
         return "applied"

@@ -3,7 +3,7 @@
 RUN := uv run
 FAST_TESTS := -m "not vm and not llm and not integration"
 
-.PHONY: api qos-vm validation-batch help setup env hooks fmt lint types imports test test-all check security up down ps logs sync-vm smoke-vm campus-vm controller-vm vm-clock ap-agent-vm mobility-vm traffic-vm scenario-vm scenario-repro-vm collect batch dataset llm-check llm-client-check
+.PHONY: api qos-vm validation-batch loop-batch help setup env hooks fmt lint types imports test test-all check security up down ps logs sync-vm smoke-vm campus-vm controller-vm vm-clock ap-agent-vm mobility-vm traffic-vm scenario-vm scenario-repro-vm collect batch dataset llm-check llm-client-check
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -105,7 +105,7 @@ SCENARIO_ID ?= $(SCENARIO)
 RUN_ID ?= $(SCENARIO_ID)-manual
 
 api: ## P3.6 API on 127.0.0.1:8000 (config/api.yaml; needs `make up`, OPERATOR_TOKEN in .env for approvals)
-	@set -a; . ./.env; set +a; $(RUN) uvicorn api.main:app --factory --host 127.0.0.1 --port 8000
+	@set -a; . ./.env; set +a; $(RUN) python -m api.main
 
 collect: ## P2.1 collector: VM -> InfluxDB (SCENARIO_ID=, RUN_ID=, optional DURATION_S=; needs `make up`)
 	@set -a; . ./.env; set +a; $(KEEP_AWAKE) $(RUN) python -m telemetry.collector.collector --scenario-id $(SCENARIO_ID) --run-id $(RUN_ID) $(if $(DURATION_S),--duration-s $(DURATION_S))
@@ -119,6 +119,9 @@ DATASET_VERSION ?= v1
 
 validation-batch: ## P3.5 action batch: scenarios with scheduled, twin-verified actions (~50 min, lid open)
 	@set -a; . ./.env; set +a; $(KEEP_AWAKE) $(RUN) python -m experiments.run_batch --config experiments/batch_actions_v1.yaml --actions experiments/actions_v1.yaml
+
+loop-batch: ## P4.5 the flash crowd with the V3 loop, 3 seeds (~40 min, lid open); V1 = data/v1
+	@set -a; . ./.env; set +a; $(KEEP_AWAKE) $(RUN) python -m experiments.run_batch --config experiments/batch_loop_v3.yaml
 
 dataset: ## P2.3 export data/raw/$(DATASET_VERSION)/ (from `make batch`) to data/$(DATASET_VERSION)/*.parquet
 	@set -a; . ./.env; set +a; $(RUN) python -m experiments.export_dataset --version $(DATASET_VERSION)

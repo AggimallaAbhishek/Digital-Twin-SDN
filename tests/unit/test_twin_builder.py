@@ -100,3 +100,19 @@ def test_an_empty_tx_power_cell_means_unknown_power() -> None:
     row = {**_ap("ap1", 1), "tx_power_dbm": None}  # parse_flux_csv turns "" into None
     state = build_state(Snapshot([row], [], []), CAMPUS, NOW, stale_s=5)
     assert state.aps["ap1"].tx_power_dbm is None
+
+
+def test_an_incomplete_ap_row_is_ignored_in_favour_of_the_last_complete_one() -> None:
+    # found live (V3 loop, seed 43): an ap_stats row came back with an empty channel_util cell
+    complete = _ap("ap1", 2, util=0.4)
+    broken = {**_ap("ap1", 1), "channel_util": None}
+    state = build_state(Snapshot([complete, broken], [], []), CAMPUS, NOW, stale_s=5)
+    assert state.aps["ap1"].util == 0.4
+    assert state.aps["ap1"].up
+
+
+def test_an_ap_with_only_incomplete_rows_counts_as_not_reporting() -> None:
+    broken = {**_ap("ap1", 1), "channel": None}
+    state = build_state(Snapshot([broken, _ap("ap2", 1)], [], []), CAMPUS, NOW, stale_s=5)
+    assert not state.aps["ap1"].up
+    assert state.aps["ap1"].channel == 1  # the configured channel

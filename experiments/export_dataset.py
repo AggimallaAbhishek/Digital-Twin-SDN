@@ -32,10 +32,10 @@ from common.schemas import (
     StationStats,
     TelemetryRecord,
 )
+from controller.executor.ledger import Ledger
 from experiments.batch import SPLITS, load_scenario, run_ok
 from experiments.dataset import RunInfo, disruption, label_rows, to_table
 from experiments.shell import git_commit
-from experiments.validation_actions import timed_actions
 
 ROOT = Path(__file__).resolve().parents[1]
 EXPORTED: tuple[type[TelemetryRecord], ...] = (
@@ -50,12 +50,27 @@ QUERY_TIMEOUT_S = 120
 
 
 def scenario_start(run_dir: Path) -> datetime:
-    """UTC time the scenario clock started (events.jsonl `started` event, P2.3)."""
-    for line in (run_dir / "events.jsonl").read_text().splitlines():
-        event = json.loads(line)
-        if event["kind"] == "started":
-            return datetime.fromisoformat(event["utc"])
-    raise ValueError(f"{run_dir}/events.jsonl has no started event")
+    """UTC time the scenario clock started (events.jsonl `started` event, P2.3). The last one:
+    a run directory can also hold the start of an earlier attempt that was killed."""
+    events = [json.loads(line) for line in (run_dir / "events.jsonl").read_text().splitlines()]
+    starts = [e["utc"] for e in events if e["kind"] == "started"]
+    if not starts:
+        raise ValueError(f"{run_dir}/events.jsonl has no started event")
+    return datetime.fromisoformat(starts[-1])
+
+
+def ledger_actions(ledger: Ledger, run_id: str, t0: datetime) -> list[dict[str, Any]]:
+    """Actions the run's executor applied, with `t_s` = when it applied them (before the radio
+    reacted: a steer takes ~5 s), counted from the scenario start `t0`."""
+    return [
+        {
+            "run_id": run_id,
+            "t_s": round((r.applied_at - t0).total_seconds(), 3),
+            "action": r.action.model_dump(mode="json", by_alias=True),
+        }
+        for r in ledger.records()
+        if r.applied_at is not None
+    ]
 
 
 def export(version: str) -> dict[str, Any]:
@@ -96,11 +111,10 @@ def export(version: str) -> dict[str, Any]:
 
 
 def _timed_actions(run_dir: Path) -> list[dict[str, Any]]:
-    path = run_dir / "actions.jsonl"
+    path = run_dir / "actions.db"  # the executor's ledger: the source of truth for applies
     if not path.exists():
         return []
-    lines = [json.loads(line) for line in path.read_text().splitlines() if line]
-    return timed_actions(lines, scenario_start(run_dir))
+    return ledger_actions(Ledger(path), run_dir.name, scenario_start(run_dir))
 
 
 def _run_rows(

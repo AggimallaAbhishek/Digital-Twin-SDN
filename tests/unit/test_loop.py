@@ -12,7 +12,7 @@ import pytest
 import yaml
 
 from api import loop as api_loop
-from api.loop import Loop, load_loop_config
+from api.loop import COOLDOWN_S, Loop, load_loop_config
 from common.schemas import Action, KPIValues
 from controller.executor.executor import Executor, load_executor_config
 from controller.executor.ledger import Ledger
@@ -83,7 +83,8 @@ def _loop(
         executor_config = dataclasses.replace(executor_config, unverified_ok=True)  # ADR-005
     executor = Executor(Ledger(tmp_path / "l.db"), actuator, SteadyKpis(), executor_config, clock)
     verify_config = dataclasses.replace(
-        load_verify_config(_yaml("verify.yaml")), medium_needs_approval=medium_needs_approval
+        load_verify_config(_yaml("verify.yaml")),
+        medium_auto_apply=frozenset() if medium_needs_approval else frozenset({"steer_clients"}),
     )
     context = VerifyContext(CAMPUS, RADIO, load_sim_params(_yaml("sim.yaml")), verify_config)
     current = state or _crowded()
@@ -232,3 +233,47 @@ def test_run_ticks_until_stopped_and_survives_a_failing_tick(
     monkeypatch.setattr(loop, "_config", dataclasses.replace(loop._config, period_s=0.001))
     loop.run(stop)
     assert len(calls) == 2
+
+
+class WorseKpis:
+    """Live KPIs that always look worse after an action: every watch rolls back."""
+
+    def window(self, start: datetime, end: datetime) -> KPIValues:
+        return GOOD if end <= T0 else GOOD.model_copy(update={"loss_pct": 9.0})
+
+
+def test_a_rolled_back_proposal_is_not_retried_during_the_cooldown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    loop, actuator, clock = _loop(tmp_path, "V3", medium_needs_approval=False)
+    monkeypatch.setattr(loop._executor, "_kpis", WorseKpis())
+    loop.tick()  # the steer is applied ...
+    clock.now += timedelta(seconds=30)
+    events = loop.tick()  # ... rolled back after its watch, and the same steer not tried again
+    assert [o for _, o in events] == ["rolled_back"]
+    clock.now += timedelta(seconds=COOLDOWN_S - 1)  # the cooldown counts from the rollback
+    assert loop.tick() == []  # still cooling down
+    clock.now += timedelta(seconds=2)
+    assert [o for _, o in loop.tick()] == ["applied"]  # cooldown over: it may be tried again
+    assert actuator.applied == ["steer_clients", "steer_clients"]
+
+
+def test_a_rollback_seen_while_another_action_is_watched_still_cools_down(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # found live (V3, seed 43): a steer rolled back while a second steer was still being
+    # watched; that tick returned early and the first steer was re-applied 47 s later
+    loop, actuator, clock = _loop(tmp_path, "V3", medium_needs_approval=False)
+    [(first_id, _)] = loop.tick()  # the steer is applied
+    signature = loop._applied[first_id]
+    executor = loop._executor
+    monkeypatch.setattr(executor, "check", lambda: [(first_id, "rolled_back")])
+    monkeypatch.setattr(executor, "history", lambda status=None: ["another action, watched"])
+    clock.now += timedelta(seconds=30)
+    loop.tick()  # sees the rollback, then returns early: something else is still watched
+    monkeypatch.setattr(executor, "check", lambda: [])
+    monkeypatch.setattr(executor, "history", lambda status=None: [])
+    clock.now += timedelta(seconds=45)
+    assert loop.tick() == []  # 75 s after the rollback: still cooling down, not re-applied
+    assert signature in loop._cooling
+    assert actuator.applied == ["steer_clients"]

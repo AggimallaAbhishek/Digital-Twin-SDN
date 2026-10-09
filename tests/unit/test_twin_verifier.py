@@ -88,7 +88,7 @@ def test_a_steer_that_relieves_a_crowded_ap_is_accepted_with_its_kpis() -> None:
     assert verdict.predicted.jain == pytest.approx(36 / 78)  # clients 5, 1, 0
     assert verdict.sim_mode == "analytical"
     assert verdict.impact == "medium"
-    assert verdict.needs_approval  # medium needs approval until P3.5 (config/verify.yaml)
+    assert not verdict.needs_approval  # steering is validated (P3.5): config/verify.yaml
 
 
 def test_moving_onto_a_neighbours_channel_is_rejected_as_a_regression() -> None:
@@ -220,14 +220,30 @@ def test_low_impact_actions_need_no_approval() -> None:
     assert (verdict.impact, verdict.needs_approval) == ("low", False)
 
 
-def test_medium_impact_auto_applies_once_the_config_allows_it() -> None:
-    config = load_verify_config({"medium_needs_approval": False})
+def test_a_medium_type_off_the_auto_apply_list_needs_approval() -> None:
+    config = load_verify_config({"medium_auto_apply": ["set_ap_tx_power"]})
     context = VerifyContext(CAMPUS, RADIO, CONTEXT.sim, config)
     [verdict] = verify(_state(CROWDED), [STEER_ONE], context)
-    assert (verdict.impact, verdict.needs_approval) == ("medium", False)
+    assert (verdict.impact, verdict.needs_approval) == ("medium", True)
 
 
-@pytest.mark.parametrize("raw", [{}, {"medium_needs_approval": "yes"}, {"x": 1}])
+def test_the_shipped_config_auto_applies_the_types_validated_in_p35() -> None:
+    assert CONTEXT.config.medium_auto_apply == {
+        "steer_clients",
+        "rate_limit_flow",
+        "set_ap_tx_power",
+    }
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        {},
+        {"medium_auto_apply": "steer_clients"},
+        {"medium_auto_apply": ["set_ap_channel"]},  # high impact: always needs approval
+        {"medium_auto_apply": ["steer_clients"], "x": 1},
+    ],
+)
 def test_a_bad_verify_config_is_refused(raw: dict[str, Any]) -> None:
     with pytest.raises(ValueError, match="verify config"):
         load_verify_config(raw)

@@ -1,2 +1,6 @@
 # P3.4 verifier (twin/verify/verifier.py).
-medium_needs_approval: true   # PROJECT_PLAN §8: until P3.5 measures the twin's error per action type
+# Medium-impact types that apply when the twin accepts them, without an operator: the ones P3.5
+# validated (test MAPE: steer 3.3% over 84 cases, rate limit and tx power under 2% on video;
+# models/twin/v1/validation.json, decision P3.4-C). Others, and every high-impact action, need
+# operator approval.
+medium_auto_apply: [steer_clients, rate_limit_flow, set_ap_tx_power]

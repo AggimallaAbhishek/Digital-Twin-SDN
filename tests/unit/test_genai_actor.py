@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import threading
 from pathlib import Path
@@ -290,3 +291,10 @@ def test_the_scenario_comes_from_the_run_id() -> None:
     assert genai_live.scenario_of("ap_failure-s43") == "ap_failure"
     with pytest.raises(ValueError, match="scenario"):
         genai_live.scenario_of("moon-s1")
+
+
+def test_unicode_spaces_in_an_answer_count_as_spaces() -> None:
+    # found live: gpt-oss writes "channel\u202f11" (narrow no-break space)
+    reply = _reply("Move ap3 to channel\u202f11.", ["simulate_in_twin"], [ACCEPTED_FIX])
+    question = dataclasses.replace(QUESTION, keywords=("channel 11",))
+    assert score_answer(question, reply)["keyword"] is True

@@ -24,8 +24,8 @@ from typing import Any, Protocol
 from genai.llm.client import ChatMessage, LLMResult, ToolCall, ToolTurn
 from genai.tools.tools import ToolLayer, proposal
 
-PROMPT = Path(__file__).resolve().parents[1] / "prompts" / "copilot_v1.md"
-PROMPT_VERSION = "copilot_v1"
+PROMPT = Path(__file__).resolve().parents[1] / "prompts" / "copilot_v2.md"
+PROMPT_VERSION = "copilot_v2"  # v1: channel changes not checked (P5.5 live q3)
 READS = ("get_topology", "get_metrics", "get_alerts")
 CUT = " ...(cut)"
 MIN_TOOL_CHARS = 100
@@ -176,4 +176,5 @@ def _reply(
         "evidence": evidence,
         "suggested_actions": suggested,
         "model": model,
+        "prompt_version": PROMPT_VERSION,
     }

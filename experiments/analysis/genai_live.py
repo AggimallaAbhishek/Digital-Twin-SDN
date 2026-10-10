@@ -32,7 +32,7 @@ OUT = ROOT / "models" / "genai" / "v1" / "live.json"
 
 def score_answer(question: Question, reply: dict[str, Any]) -> dict[str, Any]:
     """Each criterion, and whether all of them hold (`fix` is None when not asked for)."""
-    answer = reply["answer"].lower()
+    answer = " ".join(reply["answer"].lower().split())  # any Unicode space (e.g. \u202f) -> " "
     used = {e["tool"] for e in reply["evidence"]}
     fix = None
     if question.fix is not None:

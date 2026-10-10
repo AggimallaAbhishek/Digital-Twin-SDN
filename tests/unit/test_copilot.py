@@ -71,6 +71,7 @@ def test_the_answer_comes_with_the_tool_evidence_behind_it() -> None:
     assert reply["evidence"][0]["result"] == {"alerts": []}
     assert reply["suggested_actions"] == []
     assert reply["model"] == "scripted"
+    assert reply["prompt_version"] == "copilot_v2"  # which prompt answered, for the eval
     # the tool results went back to the model, one tool message per call
     second = llm.seen[1]
     assert [m["role"] for m in second] == ["system", "user", "assistant", "tool", "tool"]

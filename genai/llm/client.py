@@ -251,7 +251,8 @@ class LLMClient:
         )
 
     def _log(self, route: _Route, attempt: int, reply: _Reply, error: str) -> None:
-        """One JSON line per model call. Sizes only: prompt and reply text are never logged."""
+        """One JSON line per model call: sizes and the tool calls the model asked for (L-5).
+        Prompt and reply text are never logged."""
         entry = {
             "ts": datetime.now(UTC).isoformat(),
             "model": route.model,
@@ -262,6 +263,7 @@ class LLMClient:
             "prompt_tokens": reply.prompt_tokens,
             "completion_tokens": reply.completion_tokens,
             "latency_s": round(reply.latency_s, 3),
+            "tool_calls": [{"name": c.name, "arguments": c.arguments} for c in reply.tool_calls],
             "valid": not error,
             "error": error,
             "cost_usd": 0.0,  # Ollama (cloud and local) has no per-call charge

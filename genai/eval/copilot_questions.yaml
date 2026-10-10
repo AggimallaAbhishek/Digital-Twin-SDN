@@ -24,14 +24,15 @@ questions:
     at_s: 270
     question: Video calls in the corridor have become choppy. What is the cause?
     entity: ap3
-    keywords: [channel, interference, co-channel, cochannel]
+    # not plain "channel": it matches "channel utilization" in an answer that only blames load
+    keywords: [interference, co-channel, cochannel, same channel, channel 1, shares channel]
     tools: [get_topology]
   - id: q4_corridor_fix
     scenario: cochannel_interference
     at_s: 360
     question: What change would fix the corridor's Wi-Fi? Check it in the digital twin first.
     entity: ap3
-    keywords: [channel]
+    keywords: [channel 6, channel 11, interference, co-channel]
     tools: [simulate_in_twin]
     fix: {type: set_ap_channel, ap: ap3}
   - id: q5_hall_latency

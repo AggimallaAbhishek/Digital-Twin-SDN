@@ -103,7 +103,7 @@ Each response is validated against the shared schemas on arrival, and invalid re
 3. Runs the collector for the scenario's duration.
 4. Copies the run's manifest and logs back.
 
-A run during which the host slept is detected (the VM's clock falls behind) and marked failed, and re-running the batch repeats only failed runs. The same runner can play a schedule of actions, the control loop or the GenAI evaluation alongside a run. These are used for twin validation and for the evaluation (Chapter 6).
+A run during which the host slept is detected (the VM's clock falls behind) and marked failed, and re-running the batch repeats only failed runs. The same runner can play a schedule of actions, the control loop or the GenAI evaluation alongside a run. These are used for twin validation and for the evaluation (Chapter 6). In those evaluation runs the features being measured are switched on whatever their configuration flags say (the simulator, the copilot, the alert monitor), because they are measured before their flags may be turned on. Nothing applies their proposals: the GenAI runs hold no operator token (ADR-005 and its addenda).
 
 **Dataset.** The training dataset (`data/v1`) is the first batch: 4 scenarios × 3 seeds, 10 minutes each, so **12 runs and 2 hours of telemetry**. It is split by run, not by time window: seed 42 is training, 43 validation and 44 test. No run is split across sets, and every scenario appears in every split. The export writes one Parquet file per measurement:
 

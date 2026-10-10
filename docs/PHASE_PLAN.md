@@ -91,6 +91,8 @@ Use this process for any change to scope, schedule, contracts or technology choi
 - **MCP server for the P5.2 tools** (2026-10-08): the plan allows MCP and/or plain tools; plain Python tools are enough for the agent. Add an MCP server only if the dashboard or Claude Code needs the tools.
 - **Scope-level rate limits** (2026-10-08, P5.3 review): a throughput cap compiles to per-flow `rate_limit_flow` actions, so a flow that starts later is not capped. A rate limit that matches by zone/app class (like `QosMatch`) needs a `common/schemas.py` change → ADR + Abhishek's approval.
 - **One action-id helper in `common/`** (2026-10-08, P5.3 review): `genai/intent/compiler.py` and `ml/optimizer/heuristics.py` build `act_<ts>_<n>_<hash>` ids the same way; genai and ml can't import each other. Moving it to `common/` needs an ADR.
+- **`llm.copilot` action source** (2026-10-10, P5.5): copilot and root-cause proposals are recorded with `source: llm.intent`, the only LLM value of `ActionSource`. A separate source would tell them apart in the audit log; it is a `common/schemas.py` change (ADR + Abhishek's approval).
+- **Stronger offline root-cause model** (2026-10-10, P5.6): the local fallback `qwen2.5:3b` diagnoses 2 of 9 replayed faults (cloud 9 of 9). Options: a larger local model if RAM allows, or a rule-based first guess from the evidence summary that the model only explains.
 
 | Date | Idea | Raised by | Notes |
 |---|---|---|---|

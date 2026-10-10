@@ -15,7 +15,6 @@ a refused call goes back to the model as {"error": ...} for it to correct.
 from __future__ import annotations
 
 import json
-import uuid
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -23,12 +22,11 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from genai.llm.client import ChatMessage, LLMResult, ToolCall, ToolTurn
-from genai.tools.tools import ToolLayer
+from genai.tools.tools import ToolLayer, proposal
 
 PROMPT = Path(__file__).resolve().parents[1] / "prompts" / "copilot_v1.md"
 PROMPT_VERSION = "copilot_v1"
 READS = ("get_topology", "get_metrics", "get_alerts")
-SOURCE = "llm.intent"  # the LLM layer's action source (common/schemas.py ActionSource)
 CUT = " ...(cut)"
 MIN_TOOL_CHARS = 100
 SIMULATE_SPEC = {
@@ -156,14 +154,8 @@ class Copilot:
         if call.name != "simulate_in_twin":
             return {"error": f"unknown tool {call.name!r}"}
         args = call.arguments
-        action = {
-            "action_id": f"act_copilot_{uuid.uuid4().hex[:12]}",
-            "type": args.get("type"),
-            "source": SOURCE,
-            "reason": args.get("reason") or "copilot proposal",
-            "created_at": self._clock().isoformat(),
-            "params": args.get("params"),
-        }
+        reason = args.get("reason") or "copilot proposal"
+        action = proposal("copilot", args.get("type"), args.get("params"), reason, self._clock())
         verdict = self._tools.call("simulate_in_twin", {"action": action})
         if "error" not in verdict:
             suggested.append({"action": action, "verdict": verdict})

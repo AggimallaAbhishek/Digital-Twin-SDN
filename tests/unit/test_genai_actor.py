@@ -11,7 +11,7 @@ import pytest
 import yaml
 
 from experiments.analysis import genai_live
-from experiments.analysis.genai_live import score_answer
+from experiments.analysis.genai_live import audit_gate, score_answer
 from experiments.genai_actor import QUESTIONS, GenAIActor, Question, load_questions
 
 
@@ -251,4 +251,42 @@ def test_the_live_results_are_scored_per_question_and_alert(tmp_path: Path) -> N
         "copilot_questions": 2,
         "rca_correct": 1,
         "rca_alerts": 1,
+        "llm_actions": 0,
+        "llm_actions_with_verdict_in_audit_log": 0,
+        "llm_proposals_refused_as_invalid": 0,
     }
+
+
+def test_every_llm_action_must_have_its_verdict_in_the_audit_log() -> None:  # P5 exit gate
+    def proposal(action_id: str, verdict: dict[str, Any]) -> dict[str, Any]:
+        return {"action": {"action_id": action_id}, "verdict": verdict}
+
+    entries: list[dict[str, Any]] = [
+        {
+            "kind": "question",
+            "reply": _reply("x", [], [proposal("act_copilot_1", {"accepted": True})]),
+        },
+        {
+            "kind": "rca",
+            "report": {
+                "suggested_actions": [
+                    proposal("act_rca_1", {"accepted": False}),
+                    proposal("act_rca_2", {"error": "invalid arguments"}),  # never became an action
+                ]
+            },
+        },
+        {"kind": "question", "error": "LLMUnavailableError: down"},
+    ]
+    in_log = {"act_copilot_1"}
+    assert audit_gate(entries, in_log.__contains__) == {
+        "llm_actions": 2,
+        "llm_actions_with_verdict_in_audit_log": 1,
+        "llm_proposals_refused_as_invalid": 1,
+    }
+
+
+def test_the_scenario_comes_from_the_run_id() -> None:
+    assert genai_live.scenario_of("cochannel_interference-genai-s44") == "cochannel_interference"
+    assert genai_live.scenario_of("ap_failure-s43") == "ap_failure"
+    with pytest.raises(ValueError, match="scenario"):
+        genai_live.scenario_of("moon-s1")

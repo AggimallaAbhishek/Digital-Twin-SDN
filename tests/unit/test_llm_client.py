@@ -332,3 +332,17 @@ def test_tool_turns_fall_back_to_the_local_model(tmp_path: Path) -> None:
     assert transport.requests[1][1]["tools"] == TOOLS
     entry = json.loads((tmp_path / "llm_calls.jsonl").read_text().splitlines()[-1])
     assert (entry["schema"], entry["valid"]) == ("tools", True)
+
+
+def test_tool_calls_are_logged(tmp_path: Path) -> None:  # RULEBOOK L-5
+    transport = FakeTransport({CLOUD: [_calls(("get_alerts", {"since_s": 300}))]})
+    _client(transport, tmp_path).complete_tools(MESSAGES, TOOLS, prompt_version="t/v1")
+    entry = json.loads((tmp_path / "llm_calls.jsonl").read_text().splitlines()[-1])
+    assert entry["tool_calls"] == [{"name": "get_alerts", "arguments": {"since_s": 300}}]
+
+
+def test_json_calls_log_no_tool_calls(tmp_path: Path) -> None:
+    transport = FakeTransport({CLOUD: [json.dumps({"value": 42})]})
+    _client(transport, tmp_path).complete_json(MESSAGES, Answer, prompt_version="t/v1")
+    entry = json.loads((tmp_path / "llm_calls.jsonl").read_text().splitlines()[-1])
+    assert entry["tool_calls"] == []

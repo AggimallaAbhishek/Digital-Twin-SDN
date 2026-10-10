@@ -221,6 +221,7 @@ def test_alerts_answer_503_while_the_monitor_is_off(tmp_path: Path) -> None:
     client, _ = _client(tmp_path, alerts=None)
     assert client.get("/alerts").status_code == 503
     assert client.get("/alerts", params={"since": 0}).status_code == 503
+    assert "config/api.yaml" in client.get("/alerts").json()["detail"]
 
 
 @pytest.mark.parametrize(

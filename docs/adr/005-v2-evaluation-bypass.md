@@ -22,6 +22,15 @@ Two experiment scripts also act outside the normal operator flow. Both are CLI t
 - **`experiments/check_rollback.py`** (P4.4 Done when "deliberate bad action rolled back") records an accepted verdict for an action the twin would reject, then approves it as `rollback-check`. That is the point of the check: it stands in for a twin miss, so the rollback path can be shown on the live testbed.
 - **`experiments/validation_actor.py`** (P3.5 validation batch) approves, as `validation-batch`, the **medium**-impact actions of a set the twin accepted. It never approves a high-impact action: a set containing one is skipped (`batch_approvals`, tested), because PROJECT_PLAN §8 says high impact always needs a real operator.
 
+## Addendum (2026-10-10, P5.5/P5.6 code review): GenAI evaluation harnesses
+
+Two more evaluation harnesses build the API in-process with feature flags (RULEBOOK B-5) switched on whatever `config/*.yaml` says, because the features are measured before their flags may be turned on (M3). Neither can change the network: they hold no operator token, the copilot has no `apply_action`, and `apply` in the HTTP backend only proposes (decision P5.5-A).
+
+- **`experiments/genai_actor.py`** (P5.5/P5.6 live eval, `make genai-batch`) turns on the twin simulator, the alert monitor and `POST /chat` for the batch run it plays alongside. Every verdict lands in that run's ledger (`<run_dir>/actions.db`); `make genai-live` counts them for the Phase 5 exit gate.
+- **`experiments/analysis/rca_eval.py`** (P5.6 replay eval) turns on the twin simulator over a replayed data/v1 run; its executor has an actuator that refuses to apply anything.
+
+Results from these harnesses are reported as coming from evaluation runs with the flags forced on.
+
 ## Consequences
 
 - **Positive:** H2 is measured, not estimated. The audit log of a V2 run shows each action the twin would have rejected next to what it actually did to the KPIs.

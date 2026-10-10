@@ -14,7 +14,9 @@ through the API: it is not a tool, so the LLM cannot approve its own actions (T-
 from __future__ import annotations
 
 import copy
+import uuid
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Annotated, Any
 
 from pydantic import BaseModel, Field, ValidationError
@@ -22,6 +24,7 @@ from pydantic import BaseModel, Field, ValidationError
 from common.schemas import Action, Contract, Verdict
 from genai.tools.backend import Backend
 
+LLM_SOURCE = "llm.intent"  # the LLM layer's action source (common/schemas.py ActionSource)
 ActionId = Annotated[str, Field(pattern=r"^act_[A-Za-z0-9_]+$", max_length=64)]
 
 
@@ -57,6 +60,21 @@ class ApplyArgs(Contract):
     """Arguments of apply_action."""
 
     action_id: ActionId = Field(description="id of an action with an accepted twin verdict")
+
+
+def proposal(
+    origin: str, kind: Any, params: Any, reason: str, at: datetime
+) -> dict[str, Any]:  # Any: unvalidated model output; simulate_in_twin validates it (L-6)
+    """An LLM-proposed action as JSON: the model names type, params and reason; the id, source
+    and time are stamped here (decision P5.5-B). `origin` (copilot, rca) prefixes the id."""
+    return {
+        "action_id": f"act_{origin}_{uuid.uuid4().hex[:12]}",
+        "type": kind,
+        "source": LLM_SOURCE,
+        "reason": reason,
+        "created_at": at.isoformat(),
+        "params": params,
+    }
 
 
 @dataclass(frozen=True)

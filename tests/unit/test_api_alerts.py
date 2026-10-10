@@ -149,3 +149,19 @@ def test_less_than_one_window_of_telemetry_raises_nothing() -> None:
     )
     assert monitor.tick() is None
     assert detector.seen == []
+
+
+def test_rows_with_empty_feature_cells_are_ignored() -> None:
+    # found live (genai batch): an ap_stats row arrived with an empty channel_util cell (None)
+    def gappy(start: datetime, end: datetime) -> tuple[list[Any], list[Any], list[Any]]:
+        ap, sta, kpi = _rows(start, end)
+        ap[0] = ap[0] | {"channel_util": None}
+        kpi[0] = kpi[0] | {"latency_ms": None}
+        return ap, sta, kpi
+
+    monitor, detector, _ = _monitor(0.7, rows=gappy)
+    complete, reference, _ = _monitor(0.7)
+    assert monitor.tick() is not None
+    complete.tick()
+    # the same features as without those two rows (the other rows of their bins carry them)
+    assert detector.seen == reference.seen

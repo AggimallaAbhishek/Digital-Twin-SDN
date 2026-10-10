@@ -33,6 +33,9 @@ from twin.state.builder import load_campus_aps
 log = logging.getLogger("api.alerts")
 Rows = list[dict[str, Any]]  # Any: telemetry columns
 RowSource = Callable[[datetime, datetime], tuple[Rows, Rows, Rows]]  # ap, sta, kpi in [start, end)
+# fields the P4.2 features read; a live row with an empty cell for one of them is ignored, as the
+# twin builder does (found live: an ap_stats row with no channel_util)
+NEEDED = {"ap": ("ap", "channel_util", "n_clients"), "kpi": ("loss_pct", "latency_ms")}
 THRESHOLD_FILE = ROOT / "models" / "anomaly" / "v1" / "metrics.json"
 QUERY_TIMEOUT_S = 5.0
 
@@ -74,10 +77,19 @@ class AlertMonitor:
         if not ap and not sta and not kpi:
             return None  # no telemetry at all (testbed down): nothing to judge
 
-        def relative(rows: Rows) -> Rows:
-            return [r | {"t_s": (r["ts"] - start).total_seconds()} for r in rows]
+        def relative(rows: Rows, needed: tuple[str, ...] = ()) -> Rows:
+            complete = (r for r in rows if all(r.get(k) is not None for k in needed))
+            return [r | {"t_s": (r["ts"] - start).total_seconds()} for r in complete]
 
-        run = RunRows("live", "live", "live", None, relative(ap), relative(sta), relative(kpi))
+        run = RunRows(
+            "live",
+            "live",
+            "live",
+            None,
+            relative(ap, NEEDED["ap"]),
+            relative(sta),
+            relative(kpi, NEEDED["kpi"]),
+        )
         found = windows(run, self._aps, self._step, self._window)
         if not found:
             return None  # less than one window of data yet

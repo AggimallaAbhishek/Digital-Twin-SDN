@@ -13,7 +13,6 @@ suggested fix goes through the normal twin check (`simulate_in_twin`); nothing i
 from __future__ import annotations
 
 import json
-import uuid
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -24,11 +23,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from genai.llm.client import LLMResult
 from genai.rca.evidence import gather
 from genai.tools.backend import Backend
-from genai.tools.tools import ToolLayer
+from genai.tools.tools import ToolLayer, proposal
 
 PROMPT = Path(__file__).resolve().parents[1] / "prompts" / "rca_v1.md"
 PROMPT_VERSION = "rca_v1"
-SOURCE = "llm.intent"  # the LLM layer's action source (common/schemas.py ActionSource)
 RCA_DOCS = ("docs/scenario.md", "docs/runbooks/services.md", "docs/dataset.md")
 Category = Literal["ap_down", "cochannel_interference", "congestion", "bad_action", "other"]
 
@@ -91,14 +89,7 @@ def explain(  # noqa: PLR0913 - the alert, its sources and the clock
     report = result.value
     suggested = []
     for s in report.suggested_actions:
-        action = {
-            "action_id": f"act_rca_{uuid.uuid4().hex[:12]}",
-            "type": s.type,
-            "source": SOURCE,
-            "reason": s.reason,
-            "created_at": clock().isoformat(),
-            "params": s.params,
-        }
+        action = proposal("rca", s.type, s.params, s.reason, clock())
         suggested.append(
             {"action": action, "verdict": tools.call("simulate_in_twin", {"action": action})}
         )

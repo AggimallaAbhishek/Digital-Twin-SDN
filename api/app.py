@@ -74,7 +74,7 @@ class Services:
     intents: IntentEngine | None  # None while config/intent.yaml is off
     metrics: Metrics
     clock: Callable[[], datetime]
-    alerts: Alerts | None = None  # None while the alert monitor is off (no dataset to fit on)
+    alerts: Alerts | None = None  # None while the alert monitor is off (flag, or no dataset)
     chat: Chat | None = None  # None while config/copilot.yaml is off
 
 
@@ -205,7 +205,9 @@ def create_app(services: Services) -> FastAPI:
     @app.get("/alerts")
     def alerts(since: Annotated[int, Query(ge=0, le=MAX_WINDOW_S)] = 300) -> dict[str, Any]:
         if services.alerts is None:
-            raise HTTPException(503, "the alert monitor is off (no dataset to fit the detector)")
+            raise HTTPException(
+                503, "the alert monitor is off (config/api.yaml alerts: false, or no data/v1)"
+            )
         return {"alerts": services.alerts(since)}
 
     return app

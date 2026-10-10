@@ -26,6 +26,10 @@ PER_AP = ("util_mean", "util_max", "clients_mean", "clients_delta", "silent")
 NETWORK = ("unassociated", "loss_mean", "latency_p95")
 P95 = 0.95
 Row = dict[str, Any]  # a dataset row: column -> value (str, float, None)
+# fields the features read; a row with an empty cell for one of them is skipped (live telemetry
+# can have one, decision P5.6-C; the dataset is validated and never does)
+AP_FIELDS = ("ap", "channel_util", "n_clients")
+KPI_FIELDS = ("loss_pct", "latency_ms")
 
 
 @dataclass(frozen=True)
@@ -78,11 +82,16 @@ def windows(run: RunRows, aps: Sequence[str], step_s: float, window_s: float) ->
 def _bin_rows(run: RunRows, step_s: float) -> dict[str, dict[int, list[Row]]]:
     """Rows by series ("ap:<name>", "sta", "kpi"), then by time bin."""
     bins: dict[str, dict[int, list[Row]]] = defaultdict(lambda: defaultdict(list))
-    keyed = [(f"ap:{r['ap']}", r) for r in run.ap_rows]
-    keyed += [("sta", r) for r in run.sta_rows] + [("kpi", r) for r in run.kpi_rows]
+    keyed = [(f"ap:{r['ap']}", r) for r in run.ap_rows if _complete(r, AP_FIELDS)]
+    keyed += [("sta", r) for r in run.sta_rows]
+    keyed += [("kpi", r) for r in run.kpi_rows if _complete(r, KPI_FIELDS)]
     for key, row in keyed:
         bins[key][int(row["t_s"] // step_s)].append(row)
     return bins
+
+
+def _complete(row: Row, fields: Sequence[str]) -> bool:
+    return all(row.get(f) is not None for f in fields)
 
 
 def _ap_features(rows: dict[int, list[Row]], span: range) -> list[float]:

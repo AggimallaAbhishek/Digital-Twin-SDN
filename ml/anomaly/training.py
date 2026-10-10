@@ -36,6 +36,12 @@ COLUMNS = {
 TRAIN = "train"
 
 
+def onset_of(ap_rows: Sequence[dict[str, Any]]) -> float | None:
+    """A run's disruption onset: its first stress-labelled second, or None (decision P2.3-C)."""
+    stress = [r["t_s"] for r in ap_rows if r["phase"] == "stress"]
+    return min(stress) if stress else None
+
+
 def load_runs(dataset: Path) -> list[RunRows]:
     """Every run of a dataset directory, with its onset (first stress-labelled second, or None)."""
     by_run: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(lambda: defaultdict(list))
@@ -45,13 +51,12 @@ def load_runs(dataset: Path) -> list[RunRows]:
     runs = []
     for run_id, rows in sorted(by_run.items()):
         first = rows["ap_stats"][0]
-        stress = [r["t_s"] for r in rows["ap_stats"] if r["phase"] == "stress"]
         runs.append(
             RunRows(
                 run_id,
                 first["scenario_id"],
                 first["split"],
-                min(stress) if stress else None,
+                onset_of(rows["ap_stats"]),
                 rows["ap_stats"],
                 rows["sta_stats"],
                 rows["kpi"],

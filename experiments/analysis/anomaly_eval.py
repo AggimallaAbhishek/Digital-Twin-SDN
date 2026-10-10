@@ -18,52 +18,18 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-import pyarrow.parquet as pq
 import yaml
 
 from experiments.batch import load_scenario
 from experiments.dataset import disruption
 from experiments.shell import git_commit
-from ml.anomaly.detector import Detector
-from ml.anomaly.features import RunRows, Window, feature_names, windows
+from ml.anomaly.features import Window, windows
 from ml.anomaly.metrics import best_threshold, detection_delays, precision_recall_f1
+from ml.anomaly.training import fit_from_runs, load_runs, normal_windows
 from twin.state.builder import load_campus_aps
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "models" / "anomaly" / "v1"
-COLUMNS = {
-    "ap_stats": ["run_id", "scenario_id", "split", "t_s", "ap", "channel_util", "n_clients"],
-    "sta_stats": ["run_id", "t_s", "sta", "ap"],
-    "kpi": ["run_id", "t_s", "loss_pct", "latency_ms"],
-}
-
-
-def load_runs(dataset: Path) -> list[RunRows]:
-    """Every run's rows from the dataset, with its disruption onset."""
-    tables = {
-        name: pq.read_table(dataset / f"{name}.parquet", columns=cols).to_pylist()
-        for name, cols in COLUMNS.items()
-    }
-    by_run: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(lambda: defaultdict(list))
-    for name, rows in tables.items():
-        for row in rows:
-            by_run[row["run_id"]][name].append(row)
-    runs = []
-    for run_id, rows in sorted(by_run.items()):
-        first = rows["ap_stats"][0]
-        onset = disruption(load_scenario(first["scenario_id"]))
-        runs.append(
-            RunRows(
-                run_id,
-                first["scenario_id"],
-                first["split"],
-                onset.at_s if onset else None,
-                rows["ap_stats"],
-                rows["sta_stats"],
-                rows["kpi"],
-            )
-        )
-    return runs
 
 
 def _scores(labels: list[bool], flags: list[bool]) -> dict[str, float]:
@@ -76,15 +42,25 @@ def main() -> int:
     config: dict[str, Any] = yaml.safe_load((ROOT / "config" / "anomaly.yaml").read_text())
     campus = yaml.safe_load((ROOT / "config" / "campus_v1.yaml").read_text())
     aps = sorted(load_campus_aps(campus).positions)
-    runs = load_runs(ROOT / config["dataset"])
-    onsets = {r.run_id: r.onset_s for r in runs}
+    runs = load_runs(ROOT / config["dataset"])  # shared with the live monitor (training.py)
+    # detection delay counts from the scripted event, not the first stress-labelled sample
+    scripted = {r.run_id: disruption(load_scenario(r.scenario_id)) for r in runs}
+    onsets = {run_id: d.at_s if d else None for run_id, d in scripted.items()}
     all_windows = [w for r in runs for w in windows(r, aps, config["step_s"], config["window_s"])]
     split: dict[str, list[Window]] = defaultdict(list)
     for w in all_windows:
         split[w.split].append(w)
 
-    normal = [w.features for w in split["train"] if not w.stress]
-    detector = Detector.fit(normal, feature_names(aps), config["seed"], config["n_estimators"])
+    step_s, window_s = config["step_s"], config["window_s"]
+    normal = normal_windows(runs, aps, step_s, window_s)
+    detector = fit_from_runs(
+        runs,
+        aps,
+        step_s=step_s,
+        window_s=window_s,
+        seed=config["seed"],
+        n_estimators=config["n_estimators"],
+    )
     val_scores = detector.score([w.features for w in split["val"]])
     threshold = best_threshold(val_scores, [w.stress for w in split["val"]])
 

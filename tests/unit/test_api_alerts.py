@@ -117,7 +117,8 @@ def test_live_rows_are_one_runs_three_measurements_of_the_window() -> None:
 
 
 def test_no_dataset_turns_the_alerts_off(tmp_path: Path) -> None:
-    assert build_alert_monitor(_rows, Clock(), root=tmp_path) is None
+    assert build_alert_monitor(_rows, Clock(), dataset=tmp_path) is None
+    assert build_alert_monitor(_rows, Clock(), threshold_file=tmp_path / "none.json") is None
 
 
 class NoWaitStop(threading.Event):

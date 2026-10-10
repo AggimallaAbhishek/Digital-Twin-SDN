@@ -38,6 +38,7 @@ from genai.llm.client import LLM_CONFIG, LLMClient
 from genai.rca.explainer import explain
 from genai.tools.http_backend import HttpBackend
 from genai.tools.tools import ToolLayer
+from ml.anomaly.training import onset_of
 from twin.radio import load_radio_params
 from twin.sim.analytical import load_sim_params
 from twin.state.builder import Snapshot, build_state, load_campus_aps
@@ -86,10 +87,8 @@ def load_replay(dataset: Path, run_id: str) -> Replay:
     }
     ap, sta, kpi = (tables[n].to_pylist() for n in ("ap_stats", "sta_stats", "kpi"))
     first = min(ap, key=lambda r: r["t_s"])
-    stress = [r["t_s"] for r in ap if r["phase"] == "stress"]
     start = first["ts"] - timedelta(seconds=first["t_s"])
-    onset = min(stress) if stress else None
-    return Replay(run_id, first["scenario_id"], onset, start, ap, sta, kpi)
+    return Replay(run_id, first["scenario_id"], onset_of(ap), start, ap, sta, kpi)
 
 
 class _NoActuator:

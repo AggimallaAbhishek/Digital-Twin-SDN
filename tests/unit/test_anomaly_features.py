@@ -99,3 +99,15 @@ def test_p95_latency_uses_nearest_rank() -> None:
 def test_a_run_shorter_than_one_window_has_none() -> None:
     short = _run(ap_rows=[_ap(0, "ap1", 0.1, 1)], sta_rows=[], kpi_rows=[])
     assert windows(short, APS, step_s=5, window_s=30) == []
+
+
+def test_rows_missing_a_feature_field_are_skipped() -> None:
+    # live telemetry can have an empty cell (found live, P5.6-C); the dataset never does
+    base = _run()
+    gappy = _run(
+        ap_rows=[base.ap_rows[0] | {"channel_util": None}, *base.ap_rows[1:]],
+        kpi_rows=[base.kpi_rows[0] | {"latency_ms": None}, *base.kpi_rows[1:]],
+    )
+    assert [w.features for w in windows(gappy, APS, 5, 30)] == [
+        w.features for w in windows(base, APS, 5, 30)
+    ]

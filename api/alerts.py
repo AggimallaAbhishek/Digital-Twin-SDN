@@ -1,6 +1,6 @@
 """P5.6 live anomaly alerts: the P4.2 detector over the newest window of live telemetry.
 
-    monitor = build_alert_monitor(conn, run_id)    # None (with a log line) if data/v1 is missing
+    monitor = build_alert_monitor(influx_rows(conn, run_id), clock)   # None if data/v1 is missing
     monitor.tick()                                 # every step_s: score the last window_s
     monitor.recent(300)                            # alerts of the last 5 minutes (GET /alerts)
 
@@ -14,6 +14,7 @@ so no pickled model is ever loaded.
 
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import threading
@@ -26,6 +27,7 @@ from typing import Any, Protocol
 from api.wiring import ROOT, load_yaml
 from common.influx import InfluxConnection, parse_flux_csv, query_csv, rows_query
 from common.schemas import MEASUREMENTS, APStats, KPIRecord, StationStats, TelemetryRecord
+from ml.anomaly.detector import Detector
 from ml.anomaly.features import RunRows, windows
 from ml.anomaly.training import fit_from_runs, load_runs
 from twin.state.builder import load_campus_aps
@@ -33,9 +35,6 @@ from twin.state.builder import load_campus_aps
 log = logging.getLogger("api.alerts")
 Rows = list[dict[str, Any]]  # Any: telemetry columns
 RowSource = Callable[[datetime, datetime], tuple[Rows, Rows, Rows]]  # ap, sta, kpi in [start, end)
-# fields the P4.2 features read; a live row with an empty cell for one of them is ignored, as the
-# twin builder does (found live: an ap_stats row with no channel_util)
-NEEDED = {"ap": ("ap", "channel_util", "n_clients"), "kpi": ("loss_pct", "latency_ms")}
 THRESHOLD_FILE = ROOT / "models" / "anomaly" / "v1" / "metrics.json"
 QUERY_TIMEOUT_S = 5.0
 
@@ -77,18 +76,17 @@ class AlertMonitor:
         if not ap and not sta and not kpi:
             return None  # no telemetry at all (testbed down): nothing to judge
 
-        def relative(rows: Rows, needed: tuple[str, ...] = ()) -> Rows:
-            complete = (r for r in rows if all(r.get(k) is not None for k in needed))
-            return [r | {"t_s": (r["ts"] - start).total_seconds()} for r in complete]
+        def relative(rows: Rows) -> Rows:
+            return [r | {"t_s": (r["ts"] - start).total_seconds()} for r in rows]
 
         run = RunRows(
             "live",
             "live",
             "live",
             None,
-            relative(ap, NEEDED["ap"]),
+            relative(ap),
             relative(sta),
-            relative(kpi, NEEDED["kpi"]),
+            relative(kpi),
         )
         found = windows(run, self._aps, self._step, self._window)
         if not found:
@@ -144,25 +142,28 @@ def influx_rows(
 
 
 def build_alert_monitor(
-    rows: RowSource, clock: Callable[[], datetime], root: Path = ROOT
+    rows: RowSource,
+    clock: Callable[[], datetime],
+    *,
+    dataset: Path | None = None,
+    threshold_file: Path = THRESHOLD_FILE,
 ) -> AlertMonitor | None:
-    """The live monitor, its detector refitted from config/anomaly.yaml's dataset (about 2 s);
+    """The live monitor, its detector fitted from `dataset` (default: config/anomaly.yaml's);
     None, logged, when that dataset or the chosen threshold is missing."""
     config = load_yaml("anomaly.yaml")
-    dataset = root / config["dataset"]
-    threshold_file = root / THRESHOLD_FILE.relative_to(ROOT)
+    dataset = dataset or ROOT / config["dataset"]
     if not (dataset / "ap_stats.parquet").exists() or not threshold_file.exists():
         log.warning("alerts off: %s or %s is missing", dataset, threshold_file)
         return None
-    aps = sorted(load_campus_aps(load_yaml("campus_v1.yaml")).positions)
+    aps = tuple(sorted(load_campus_aps(load_yaml("campus_v1.yaml")).positions))
     step_s, window_s = float(config["step_s"]), float(config["window_s"])
-    detector = fit_from_runs(
-        load_runs(dataset),
+    detector = _fit(
+        dataset,
         aps,
         step_s=step_s,
         window_s=window_s,
         seed=int(config["seed"]),
-        n_estimators=int(config["n_estimators"]),
+        trees=int(config["n_estimators"]),
     )
     threshold = float(json.loads(threshold_file.read_text())["threshold"])
     return AlertMonitor(
@@ -174,3 +175,19 @@ def build_alert_monitor(
         step_s=step_s,
         window_s=window_s,
     )
+
+
+@functools.cache
+def _fit(  # noqa: PLR0913 - the detector's settings travel as given in config/anomaly.yaml
+    dataset: Path,
+    aps: tuple[str, ...],
+    *,
+    step_s: float,
+    window_s: float,
+    seed: int,
+    trees: int,
+) -> Detector:
+    """The detector for these settings, fitted once per process (about 2 s; the replay eval
+    and the batch actor build a monitor per run)."""
+    runs = load_runs(dataset)
+    return fit_from_runs(runs, aps, step_s=step_s, window_s=window_s, seed=seed, n_estimators=trees)

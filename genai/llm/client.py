@@ -139,9 +139,9 @@ class LLMClient:
         self, messages: Sequence[Message], schema: type[T], *, prompt_version: str
     ) -> LLMResult[T]:
         """Ask for JSON matching `schema`; return the validated instance."""
-        fmt = schema.model_json_schema()
+        extra = {"format": schema.model_json_schema()}
         conversation = list(messages)
-        route, reply = self._first_reply(conversation, fmt, prompt_version, schema.__name__)
+        route, reply = self._first_reply(conversation, extra, prompt_version, schema.__name__)
         attempts = 1 + self._config.max_repair_retries
         attempt = 1
         while True:
@@ -158,14 +158,14 @@ class LLMClient:
                     {"role": "user", "content": _repair_prompt(exc)},
                 ]
                 attempt += 1
-                reply = self._send_or_unavailable(route, conversation, fmt, attempt=attempt)
+                reply = self._send_or_unavailable(route, conversation, extra, attempt=attempt)
             else:
                 self._log(route, attempt, reply, error="")
                 return LLMResult(value=value, model=route.model, fell_back=route.fell_back)
 
     def complete_text(self, messages: Sequence[Message], *, prompt_version: str) -> LLMResult[str]:
         """Ask for a free-text reply (explanations, chat). Same fallback and logging."""
-        route, reply = self._first_reply(list(messages), None, prompt_version, "text")
+        route, reply = self._first_reply(list(messages), {}, prompt_version, "text")
         self._log(route, 1, reply, error="")
         return LLMResult(value=reply.content, model=route.model, fell_back=route.fell_back)
 
@@ -177,7 +177,8 @@ class LLMClient:
         prompt_version: str,
     ) -> LLMResult[ToolTurn]:
         """One tool-calling turn: the tool calls the model asks for, or its final answer."""
-        route, reply = self._first_reply(list(messages), None, prompt_version, "tools", tools)
+        extra = {"tools": list(tools)}
+        route, reply = self._first_reply(list(messages), extra, prompt_version, "tools")
         self._log(route, 1, reply, error="")
         turn = ToolTurn(reply.content, list(reply.tool_calls))
         return LLMResult(value=turn, model=route.model, fell_back=route.fell_back)
@@ -185,33 +186,29 @@ class LLMClient:
     def _first_reply(
         self,
         conversation: Sequence[ChatMessage],
-        fmt: dict[str, Any] | None,
+        extra: dict[str, Any],
         prompt_version: str,
         schema: str,
-        tools: Sequence[dict[str, Any]] | None = None,
     ) -> tuple[_Route, _Reply]:
         """Main model first; on a transport failure, the fallback model once (ADR-001)."""
         cfg = self._config
         route = _Route(cfg.model, False, cfg.cloud_timeout_s, prompt_version, schema)
         try:
-            return route, self._send(route, conversation, fmt, attempt=1, tools=tools)
+            return route, self._send(route, conversation, extra, attempt=1)
         except TransportError:
             route = _Route(cfg.fallback_model, True, cfg.timeout_s, prompt_version, schema)
-            return route, self._send_or_unavailable(
-                route, conversation, fmt, attempt=1, tools=tools
-            )
+            return route, self._send_or_unavailable(route, conversation, extra, attempt=1)
 
     def _send_or_unavailable(
         self,
         route: _Route,
         conversation: Sequence[ChatMessage],
-        fmt: dict[str, Any] | None,
+        extra: dict[str, Any],
         *,
         attempt: int,
-        tools: Sequence[dict[str, Any]] | None = None,
     ) -> _Reply:
         try:
-            return self._send(route, conversation, fmt, attempt=attempt, tools=tools)
+            return self._send(route, conversation, extra, attempt=attempt)
         except TransportError as exc:
             raise LLMUnavailableError(f"{route.model} unreachable: {exc}") from exc
 
@@ -219,22 +216,18 @@ class LLMClient:
         self,
         route: _Route,
         conversation: Sequence[ChatMessage],
-        fmt: dict[str, Any] | None,
+        extra: dict[str, Any],
         *,
         attempt: int,
-        tools: Sequence[dict[str, Any]] | None = None,
     ) -> _Reply:
-        payload: dict[str, Any] = {
+        """One request; `extra` adds the request kind's fields (`format` for JSON, `tools`)."""
+        payload: dict[str, Any] = extra | {
             "model": route.model,
             "messages": list(conversation),
             "stream": False,
             "options": {"temperature": self._config.temperature},
             "keep_alive": self._config.keep_alive,
         }
-        if fmt is not None:
-            payload["format"] = fmt
-        if tools is not None:
-            payload["tools"] = list(tools)
         start = time.monotonic()
         try:
             raw = self._transport("/api/chat", payload, route.timeout_s)

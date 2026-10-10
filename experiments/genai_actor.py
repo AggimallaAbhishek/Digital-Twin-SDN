@@ -10,8 +10,8 @@ explainer only propose). During the run:
 
 - each of the scenario's questions (genai/eval/copilot_questions.yaml) is sent to POST /chat
   once its `at_s` has passed;
-- the alert monitor ticks every 5 s, and the first alert after the scenario's disruption is
-  handed to the root-cause explainer (genai/rca/).
+- the alert monitor ticks every 5 s on its own thread, and the first alert after the
+  scenario's disruption is handed to the root-cause explainer (genai/rca/).
 
 LLM calls take seconds, so they run in one worker thread and the collector loop never waits.
 Every result goes to <run_dir>/genai.jsonl (experiments/analysis/genai_live.py scores it).
@@ -38,19 +38,17 @@ from api.app import Services, TwinSimulator, create_app
 from api.metrics import influx_metrics
 from api.wiring import ROOT, build_executor, build_twin, load_yaml
 from common.influx import InfluxConnection
-from experiments.batch import load_scenario
+from experiments.batch import SCENARIOS_DIR, load_scenario
 from experiments.dataset import disruption
-from experiments.inprocess import inprocess_send
+from experiments.inprocess import inprocess
 from genai.agent.copilot import Copilot, load_copilot_config
 from genai.llm.client import LLMClient
 from genai.rca.explainer import explain
-from genai.tools.http_backend import HttpBackend
 from genai.tools.tools import ToolLayer
 
 log = logging.getLogger("experiments.genai_actor")
 QUESTIONS = ROOT / "genai" / "eval" / "copilot_questions.yaml"
-SCENARIOS = ("ap_failure", "cochannel_interference", "lecture_flash_crowd", "normal")
-MONITOR_S = 5.0
+SCENARIOS = tuple(sorted(p.stem for p in SCENARIOS_DIR.glob("*.yaml")))
 Reply = dict[str, Any]  # Any: JSON
 
 
@@ -95,50 +93,36 @@ def load_questions(raw: Mapping[str, Any]) -> list[Question]:
 class GenAIActor:
     """Asks the questions when due and explains the first alert after the onset."""
 
-    def __init__(  # noqa: PLR0913 - the run's schedule and its three live parts
+    def __init__(  # noqa: PLR0913 - the run's schedule and its four live parts
         self,
         questions: list[Question],
         onset_s: float | None,
         *,
-        tick_monitor: Callable[[], Reply | None],
+        alerts_since: Callable[[float], list[Reply]],
         ask: Callable[[str], Reply],
         explain: Callable[[Reply], Reply],
+        submit: Callable[[Callable[[], None]], None],
         log: Path,
-        background: bool = True,
     ) -> None:
         self._pending = sorted(questions, key=lambda q: q.at_s)
-        self._onset, self._tick_monitor, self._ask, self._explain = (
-            onset_s,
-            tick_monitor,
-            ask,
-            explain,
-        )
-        self._log, self._lock = log, threading.Lock()
-        self._next_monitor, self._explained = 0.0, False
-        self._jobs: queue.Queue[Callable[[], None]] | None = None
-        if background:
-            self._jobs = queue.Queue()
-            threading.Thread(target=_work, args=(self._jobs,), daemon=True).start()
+        self._onset, self._alerts_since = onset_s, alerts_since
+        self._ask, self._explain, self._submit_job = ask, explain, submit
+        self._log, self._lock, self._explained = log, threading.Lock(), False
 
     def tick(self, elapsed_s: float) -> None:
-        """Called by run_batch while the run plays (elapsed_s ~ scenario time)."""
+        """Called by run_batch while the run plays (elapsed_s ~ scenario time). Cheap: the LLM
+        jobs run elsewhere (`submit`) and alerts are read from the monitor's memory."""
         while self._pending and self._pending[0].at_s <= elapsed_s:
             q = self._pending.pop(0)
             entry: Reply = {"kind": "question", "id": q.id, "question": q.question}
             self._submit(entry, elapsed_s, "reply", functools.partial(self._ask, q.question))
-        if elapsed_s < self._next_monitor:
+        if self._explained or self._onset is None or elapsed_s <= self._onset:
             return
-        self._next_monitor = elapsed_s + MONITOR_S
-        try:
-            alert = self._tick_monitor()
-        except Exception:  # a failed telemetry query must not stop the run
-            log.exception("alert monitor tick failed")
-            return
-        after_onset = self._onset is not None and elapsed_s > self._onset
-        if alert is not None and after_onset and not self._explained:
+        alerts = self._alerts_since(elapsed_s - self._onset)
+        if alerts:
             self._explained = True
-            rca: Reply = {"kind": "rca", "alert": alert}
-            self._submit(rca, elapsed_s, "report", functools.partial(self._explain, alert))
+            rca: Reply = {"kind": "rca", "alert": alerts[0]}
+            self._submit(rca, elapsed_s, "report", functools.partial(self._explain, alerts[0]))
 
     def _submit(self, entry: Reply, elapsed_s: float, key: str, job: Callable[[], Reply]) -> None:
         def run() -> None:
@@ -151,20 +135,32 @@ class GenAIActor:
             with self._lock, self._log.open("a") as f:
                 f.write(json.dumps(line, default=str) + "\n")
 
-        if self._jobs is None:
-            run()
-        else:
-            self._jobs.put(run)
+        self._submit_job(run)
 
 
-def _work(jobs: queue.Queue[Callable[[], None]]) -> None:
-    """The worker thread: run the LLM jobs one at a time, for the rest of the process."""
-    while True:
-        jobs.get()()
+class Worker:
+    """One thread running jobs in order until `stop` is set and nothing is left."""
+
+    def __init__(self, stop: threading.Event) -> None:
+        self._jobs: queue.Queue[Callable[[], None]] = queue.Queue()
+        self._stop = stop
+        self.thread = threading.Thread(target=self._work, daemon=True)
+        self.thread.start()
+
+    def submit(self, job: Callable[[], None]) -> None:
+        self._jobs.put(job)
+
+    def _work(self) -> None:
+        while not (self._stop.is_set() and self._jobs.empty()):
+            try:
+                self._jobs.get(timeout=0.5)()
+            except queue.Empty:
+                continue
 
 
 def build_actor(run_id: str, scenario: str, run_dir: Path) -> GenAIActor:
-    """The live actor for one batch run (InfluxDB from .env, the LLM from config/llm.yaml)."""
+    """The live actor for one batch run (InfluxDB from .env, the LLM from config/llm.yaml).
+    Its monitor and worker threads stop when the scenario ends."""
     conn = InfluxConnection.from_env()
     twin = build_twin(conn, run_id)
 
@@ -176,10 +172,9 @@ def build_actor(run_id: str, scenario: str, run_dir: Path) -> GenAIActor:
         raise ValueError("the alert monitor needs data/v1 to fit its detector")
     client = LLMClient.from_config()
     copilot = load_copilot_config(load_yaml("copilot.yaml"))
-    backend_box: list[Any] = []  # the backend needs the app, the app's /chat needs the backend
 
-    def chat(question: str) -> Reply:
-        return Copilot(client, ToolLayer(backend_box[0]), copilot).ask(question)
+    def chat(question: str) -> Reply:  # `backend` is bound below, before any request
+        return Copilot(client, ToolLayer(backend), copilot).ask(question)
 
     services = Services(
         state=twin.sync.refresh,
@@ -193,9 +188,7 @@ def build_actor(run_id: str, scenario: str, run_dir: Path) -> GenAIActor:
         alerts=monitor.recent,
         chat=chat,
     )
-    send = inprocess_send(create_app(services))
-    backend = HttpBackend("http://inprocess", send=send)
-    backend_box.append(backend)
+    backend, send = inprocess(create_app(services))
 
     def ask(question: str) -> Reply:
         status, body = send("POST", "/chat", {"question": question})
@@ -207,14 +200,18 @@ def build_actor(run_id: str, scenario: str, run_dir: Path) -> GenAIActor:
     def rca(alert: Reply) -> Reply:
         return explain(client, backend, ToolLayer(backend), alert, clock=clock)
 
-    onset = disruption(load_scenario(scenario))
+    plan = load_scenario(scenario)
+    stop = threading.Event()
+    threading.Thread(target=monitor.run, args=(stop,), daemon=True).start()
+    threading.Timer(plan.duration_s, stop.set).start()
+    onset = disruption(plan)
     raw = yaml.safe_load(QUESTIONS.read_text())
-    questions = [q for q in load_questions(raw) if q.scenario == scenario]
     return GenAIActor(
-        questions,
+        [q for q in load_questions(raw) if q.scenario == scenario],
         onset.at_s if onset else None,
-        tick_monitor=monitor.tick,
+        alerts_since=monitor.recent,
         ask=ask,
         explain=rca,
+        submit=Worker(stop).submit,
         log=run_dir / "genai.jsonl",
     )

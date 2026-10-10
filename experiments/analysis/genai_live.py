@@ -15,6 +15,8 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import unicodedata
+from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -28,11 +30,17 @@ from experiments.genai_actor import QUESTIONS, SCENARIOS, Question, load_questio
 
 RAW = ROOT / "data" / "raw" / "genai-v1"
 OUT = ROOT / "models" / "genai" / "v1" / "live.json"
+GATE_KEYS = (
+    "llm_actions",
+    "llm_actions_with_verdict_in_audit_log",
+    "llm_proposals_refused_as_invalid",
+)
 
 
 def score_answer(question: Question, reply: dict[str, Any]) -> dict[str, Any]:
     """Each criterion, and whether all of them hold (`fix` is None when not asked for)."""
-    answer = " ".join(reply["answer"].lower().split())  # any Unicode space (e.g. \u202f) -> " "
+    # NFKC folds look-alikes (e.g. "\u202f" narrow no-break space -> " "); split() the rest
+    answer = " ".join(unicodedata.normalize("NFKC", reply["answer"]).lower().split())
     used = {e["tool"] for e in reply["evidence"]}
     fix = None
     if question.fix is not None:
@@ -60,11 +68,8 @@ def audit_gate(entries: list[dict[str, Any]], in_log: Callable[[str], bool]) -> 
         for s in (e.get("reply") or e.get("report") or {}).get("suggested_actions", [])
     ]
     actions = [s["action"]["action_id"] for s in proposals if "error" not in s["verdict"]]
-    return {
-        "llm_actions": len(actions),
-        "llm_actions_with_verdict_in_audit_log": sum(in_log(a) for a in actions),
-        "llm_proposals_refused_as_invalid": len(proposals) - len(actions),
-    }
+    counts = (len(actions), sum(in_log(a) for a in actions), len(proposals) - len(actions))
+    return dict(zip(GATE_KEYS, counts, strict=True))
 
 
 def scenario_of(run_id: str) -> str:
@@ -83,7 +88,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     questions = {q.id: q for q in load_questions(yaml.safe_load(QUESTIONS.read_text()))}
     answers, reports = [], []
-    gate = dict.fromkeys(audit_gate([], bool), 0)
+    gate: Counter[str] = Counter()
     for log in sorted(args.raw.glob("*/genai.jsonl")):
         run_id = log.parent.name
         entries = [json.loads(line) for line in log.read_text().splitlines()]
@@ -93,8 +98,7 @@ def main(argv: list[str] | None = None) -> int:
         def in_log(action_id: str, ledger: Ledger | None = ledger) -> bool:
             return ledger is not None and ledger.get(action_id) is not None
 
-        for key, n in audit_gate(entries, in_log).items():
-            gate[key] += n
+        gate.update(audit_gate(entries, in_log))
         for entry in entries:
             base = {"run_id": run_id, "elapsed_s": entry["elapsed_s"], "error": entry.get("error")}
             if entry["kind"] == "question":
@@ -110,7 +114,7 @@ def main(argv: list[str] | None = None) -> int:
         "copilot_questions": len(answers),
         "rca_correct": sum(r["correct"] for r in reports),
         "rca_alerts": len(reports),
-    } | gate
+    } | {k: gate[k] for k in GATE_KEYS}  # every key, also when a count is 0
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(
         json.dumps({"summary": summary, "answers": answers, "rca": reports}, indent=1)

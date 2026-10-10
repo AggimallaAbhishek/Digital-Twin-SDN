@@ -43,14 +43,22 @@ class Twin:
     context: VerifyContext
 
 
+def verify_context() -> VerifyContext:
+    """What the verifier needs from config: campus layout, radio model, simulator, rules."""
+    campus_raw = load_yaml("campus_v1.yaml")
+    return VerifyContext(
+        load_campus_aps(campus_raw),
+        load_radio_params(campus_raw),
+        load_sim_params(load_yaml("sim.yaml")),
+        load_verify_config(load_yaml("verify.yaml")),
+    )
+
+
 def build_twin(conn: InfluxConnection, run_id: str) -> Twin:
     """The twin mirroring `run_id`'s telemetry (nothing is queried until sync.refresh())."""
-    campus_raw = load_yaml("campus_v1.yaml")
-    campus, radio = load_campus_aps(campus_raw), load_radio_params(campus_raw)
-    sim = load_sim_params(load_yaml("sim.yaml"))
-    sync = TwinSync(conn, campus, run_id, load_sync_config(load_yaml("twin.yaml")))
-    context = VerifyContext(campus, radio, sim, load_verify_config(load_yaml("verify.yaml")))
-    return Twin(campus, radio, sim, sync, context)
+    context = verify_context()
+    sync = TwinSync(conn, context.campus, run_id, load_sync_config(load_yaml("twin.yaml")))
+    return Twin(context.campus, context.radio, context.sim, sync, context)
 
 
 def agent_url() -> str:

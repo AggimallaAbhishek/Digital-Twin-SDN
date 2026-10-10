@@ -23,9 +23,6 @@ class Backend(Protocol):
     def alerts(self, since_s: int) -> list[dict[str, Any]]:
         """Anomaly alerts from the last `since_s` seconds."""
 
-    def recent_actions(self, limit: int) -> list[dict[str, Any]]:
-        """The newest `limit` entries of the executor's audit log (not an LLM tool: P5.6 input)."""
-
     def simulate(self, action: Action) -> Verdict:
         """The twin verifier's verdict for `action` (no side effects)."""
 

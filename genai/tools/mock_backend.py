@@ -1,9 +1,10 @@
 """Mock backend for the tool layer (P5.2 until the live API, Oct 20): recorded VM responses.
 
-Topology and AP data come from tests/fixtures/ap_agent and ryu; metrics from the KPI probe and AP
-stats fixtures; there are no alerts yet (P4.2). The twin is faked deterministically: every
-action is accepted with a small predicted gain, and its impact class and approval rule are the
-real ones (common/schemas.py impact_of). Like the real executor, apply() re-checks the verdict.
+Topology (in the live /topology shape) and AP data come from tests/fixtures/ap_agent; metrics
+from the KPI probe and AP stats fixtures; there are no alerts. The twin is faked
+deterministically: every action is accepted with a small predicted gain, and its impact class
+and approval rule are the real ones (common/schemas.py impact_of). Like the real executor,
+apply() re-checks the verdict.
 """
 
 from __future__ import annotations
@@ -35,10 +36,38 @@ class MockBackend:
         self._series = [(datetime.fromisoformat(r["ts"]), r) for r in rows]
 
     def topology(self) -> dict[str, Any]:
-        aps = self._json("ap_agent/ap_agent_aps.json")["aps"]
-        stations = self._json("ap_agent/ap_agent_stations.json")["stations"]
-        switches = [s["dpid"] for s in self._json("ryu/ryu_topology.json")["switches"]]
-        return {"aps": aps, "stations": stations, "switches": switches, "links": []}
+        """The recorded network in the shape of the live GET /topology (the twin state)."""
+        util = {
+            a["ap"]: a["channel_util"] for a in self._json("ap_agent/ap_agent_ap_stats.json")["aps"]
+        }
+        aps = [
+            {
+                "name": a["ap"],
+                "position": [a["x"], a["y"]],
+                "channel": a["channel"],
+                "up": True,
+                "util": util.get(a["ap"], 0.0),
+                "tx_power_dbm": a["tx_power_dbm"],
+            }
+            for a in self._json("ap_agent/ap_agent_aps.json")["aps"]
+        ]
+        stations = [
+            {"name": s["sta"], "position": [s["x"], s["y"]], "ap": s["ap"], "zone": None}
+            for s in self._json("ap_agent/ap_agent_stations.json")["stations"]
+        ]
+        latest = {r["flow_id"]: r for _, r in self._series if "flow_id" in r}
+        flows = [
+            {
+                "flow_id": f,
+                "sta": f.split("-")[0],
+                "app_class": r["app_class"],
+                "throughput_mbps": r["throughput_mbps"],
+                "latency_ms": r["latency_ms"],
+                "loss_pct": r["loss_pct"],
+            }
+            for f, r in sorted(latest.items())
+        ]
+        return {"aps": aps, "stations": stations, "flows": flows}
 
     def metrics(self, entity: str, metric: str, window_s: int) -> list[dict[str, Any]]:
         mine = [
@@ -53,9 +82,6 @@ class MockBackend:
         return [{"ts": r["ts"], "value": r[metric]} for t, r in mine if t >= since]
 
     def alerts(self, since_s: int) -> list[dict[str, Any]]:
-        return []
-
-    def recent_actions(self, limit: int) -> list[dict[str, Any]]:
         return []
 
     def simulate(self, action: Action) -> Verdict:

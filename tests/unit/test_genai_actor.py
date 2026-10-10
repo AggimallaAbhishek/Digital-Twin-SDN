@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import dataclasses
+import functools
 import json
 import threading
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +15,7 @@ import yaml
 
 from experiments.analysis import genai_live
 from experiments.analysis.genai_live import audit_gate, score_answer
-from experiments.genai_actor import QUESTIONS, GenAIActor, Question, load_questions
+from experiments.genai_actor import QUESTIONS, GenAIActor, Question, Worker, load_questions
 
 
 def _questions() -> list[Question]:
@@ -39,13 +41,16 @@ def test_bad_questions_are_refused() -> None:
 
 
 class Fakes:
-    def __init__(self, alerts: list[dict[str, Any] | None], fail: bool = False) -> None:
-        self.alerts, self.fail = alerts, fail
+    def __init__(self, fail: bool = False) -> None:
+        self.raised: list[dict[str, Any]] = []  # alerts the monitor holds
+        self.since: list[float] = []
+        self.fail = fail
         self.asked: list[str] = []
         self.explained: list[dict[str, Any]] = []
 
-    def tick_monitor(self) -> dict[str, Any] | None:
-        return self.alerts.pop(0) if self.alerts else None
+    def alerts_since(self, seconds: float) -> list[dict[str, Any]]:
+        self.since.append(seconds)
+        return list(self.raised)
 
     def ask(self, question: str) -> dict[str, Any]:
         if self.fail:
@@ -58,16 +63,20 @@ class Fakes:
         return {"likely_causes": [{"category": "ap_down", "entity": "ap2"}]}
 
 
+def _run_now(job: Callable[[], None]) -> None:
+    job()
+
+
 def _actor(tmp_path: Path, fakes: Fakes) -> GenAIActor:
     questions = [q for q in _questions() if q.scenario == "ap_failure"]
     return GenAIActor(
         questions,
         onset_s=240,
-        tick_monitor=fakes.tick_monitor,
+        alerts_since=fakes.alerts_since,
         ask=fakes.ask,
         explain=fakes.explain,
+        submit=_run_now,  # jobs inline, so the test sees them
         log=tmp_path / "genai.jsonl",
-        background=False,  # run jobs inline so the test sees them
     )
 
 
@@ -76,7 +85,7 @@ def _log(tmp_path: Path) -> list[dict[str, Any]]:
 
 
 def test_questions_are_asked_once_when_due(tmp_path: Path) -> None:
-    fakes = Fakes([])
+    fakes = Fakes()
     actor = _actor(tmp_path, fakes)
     for t in (100, 299, 300, 305, 390, 400):
         actor.tick(t)
@@ -89,12 +98,15 @@ def test_questions_are_asked_once_when_due(tmp_path: Path) -> None:
 
 
 def test_the_first_alert_after_the_onset_is_explained_once(tmp_path: Path) -> None:
-    early = {"ts": "t1", "entity": "ap1"}
-    first, second = {"ts": "t2", "entity": "ap2"}, {"ts": "t3", "entity": "ap1"}
-    fakes = Fakes([early, None, first, second])
+    fakes = Fakes()
     actor = _actor(tmp_path, fakes)
-    for t in (200, 245, 250, 255, 260):  # monitor ticks every 5 s
-        actor.tick(t)
+    actor.tick(200)  # before the onset: the monitor's alerts are not even read
+    actor.tick(245)  # nothing raised since the onset yet
+    first, second = {"ts": "t2", "entity": "ap2"}, {"ts": "t3", "entity": "ap1"}
+    fakes.raised = [first, second]
+    actor.tick(250)
+    actor.tick(255)
+    assert fakes.since == [5, 10]  # only alerts raised since the onset count
     assert fakes.explained == [first]
     [entry] = [e for e in _log(tmp_path) if e["kind"] == "rca"]
     assert entry["alert"] == first
@@ -102,12 +114,22 @@ def test_the_first_alert_after_the_onset_is_explained_once(tmp_path: Path) -> No
 
 
 def test_a_failing_job_is_logged_and_the_run_goes_on(tmp_path: Path) -> None:
-    fakes = Fakes([], fail=True)
-    actor = _actor(tmp_path, fakes)
+    actor = _actor(tmp_path, Fakes(fail=True))
     actor.tick(300)
     actor.tick(390)
     errors = [e["error"] for e in _log(tmp_path)]
     assert errors == ["RuntimeError: no model"] * 2
+
+
+def test_the_worker_runs_jobs_in_order_and_ends_with_the_run() -> None:
+    stop, done = threading.Event(), list[int]()
+    worker = Worker(stop)
+    for n in range(3):
+        worker.submit(functools.partial(done.append, n))
+    stop.set()  # the run ended: what is queued still runs, then the thread ends
+    worker.thread.join(timeout=5)
+    assert not worker.thread.is_alive()
+    assert done == [0, 1, 2]
 
 
 QUESTION = Question(
@@ -169,48 +191,6 @@ def test_each_criterion_can_fail_the_answer(
     result = score_answer(QUESTION, _reply(answer, tools, suggested))
     assert result[failed] is False
     assert result["correct"] is False
-
-
-def test_a_failing_monitor_tick_is_logged_and_the_run_goes_on(tmp_path: Path) -> None:
-    calls = []
-
-    def broken() -> dict[str, Any] | None:
-        calls.append(1)
-        raise OSError("influx down")
-
-    actor = GenAIActor(
-        [],
-        240,
-        tick_monitor=broken,
-        ask=Fakes([]).ask,
-        explain=Fakes([]).explain,
-        log=tmp_path / "genai.jsonl",
-        background=False,
-    )
-    actor.tick(250)
-    actor.tick(255)
-    assert len(calls) == 2
-
-
-def test_jobs_run_on_the_worker_thread(tmp_path: Path) -> None:
-    done = threading.Event()
-    fakes = Fakes([])
-
-    def ask(question: str) -> dict[str, Any]:
-        done.set()
-        return fakes.ask(question)
-
-    questions = [q for q in _questions() if q.id == "q1_lab_outage"]
-    actor = GenAIActor(
-        questions,
-        240,
-        tick_monitor=fakes.tick_monitor,
-        ask=ask,
-        explain=fakes.explain,
-        log=tmp_path / "genai.jsonl",
-    )
-    actor.tick(300)
-    assert done.wait(5)
 
 
 def test_a_fix_needs_exactly_type_and_ap() -> None:

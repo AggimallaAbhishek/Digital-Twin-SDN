@@ -21,8 +21,7 @@ from typing import Annotated, Any, Literal, Protocol
 from pydantic import BaseModel, ConfigDict, Field
 
 from genai.llm.client import LLMResult
-from genai.rca.evidence import gather
-from genai.tools.backend import Backend
+from genai.rca.evidence import EvidenceSource, gather
 from genai.tools.tools import ToolLayer, proposal
 
 PROMPT = Path(__file__).resolve().parents[1] / "prompts" / "rca_v1.md"
@@ -70,19 +69,18 @@ class ReportClient(Protocol):
     ) -> LLMResult[RCAReport]: ...
 
 
-def explain(  # noqa: PLR0913 - the alert, its sources and the clock
+def explain(
     client: ReportClient,
-    backend: Backend,
+    backend: EvidenceSource,
     tools: ToolLayer,
     alert: dict[str, Any],
     *,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
-    prompt: Path = PROMPT,
 ) -> dict[str, Any]:  # Any: JSON
     """The root-cause report for `alert`; LLM errors propagate (better no report than a guess)."""
     evidence = gather(backend, alert)
     messages = [
-        {"role": "system", "content": prompt.read_text()},
+        {"role": "system", "content": PROMPT.read_text()},
         {"role": "user", "content": f"Evidence:\n{json.dumps(evidence, default=str)}"},
     ]
     result = client.complete_json(messages, RCAReport, prompt_version=PROMPT_VERSION)

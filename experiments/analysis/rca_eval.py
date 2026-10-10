@@ -16,6 +16,7 @@ category and names the AP at fault (EXPECTED).
 from __future__ import annotations
 
 import argparse
+import bisect
 import json
 import logging
 from collections.abc import Callable
@@ -29,22 +30,19 @@ import pyarrow.parquet as pq
 from api.alerts import Rows, build_alert_monitor
 from api.app import Services, TwinSimulator, create_app
 from api.metrics import measurement_for, series
-from api.wiring import ROOT, load_yaml
+from api.wiring import ROOT, load_yaml, verify_context
 from common.schemas import Action, KPIValues
 from controller.executor.executor import Executor, load_executor_config
 from controller.executor.ledger import Ledger
-from experiments.inprocess import inprocess_backend
+from experiments.inprocess import inprocess
 from genai.llm.client import LLM_CONFIG, LLMClient
 from genai.rca.explainer import explain
 from genai.tools.http_backend import HttpBackend
 from genai.tools.tools import ToolLayer
 from ml.anomaly.training import onset_of
-from twin.radio import load_radio_params
-from twin.sim.analytical import load_sim_params
-from twin.state.builder import Snapshot, build_state, load_campus_aps
+from twin.state.builder import Snapshot, build_state
 from twin.state.model import TwinState
 from twin.state.sync import load_sync_config
-from twin.verify.verifier import VerifyContext, load_verify_config
 
 log = logging.getLogger("experiments.rca_eval")
 DATASET = ROOT / "data" / "v1"
@@ -70,13 +68,34 @@ class Replay:
     sta: Rows
     kpi: Rows
 
+    def __post_init__(self) -> None:
+        for name in ("ap", "sta", "kpi"):  # sorted once, so each window is two bisects
+            object.__setattr__(self, name, sorted(getattr(self, name), key=_ts))
+
     def rows(self, start: datetime, end: datetime) -> tuple[Rows, Rows, Rows]:
         """ap, sta and kpi rows in [start, end), like the live Influx query."""
 
         def cut(rows: Rows) -> Rows:
-            return [r for r in rows if start <= r["ts"] < end]
+            return rows[
+                bisect.bisect_left(rows, start, key=_ts) : bisect.bisect_left(rows, end, key=_ts)
+            ]
 
         return cut(self.ap), cut(self.sta), cut(self.kpi)
+
+
+def _ts(row: dict[str, Any]) -> datetime:
+    ts: datetime = row["ts"]
+    return ts
+
+
+class Clock:
+    """The replay's clock: what `now` is for the monitor, the API and the explainer."""
+
+    def __init__(self, now: datetime) -> None:
+        self.now = now
+
+    def __call__(self) -> datetime:
+        return self.now
 
 
 def load_replay(dataset: Path, run_id: str) -> Replay:
@@ -108,20 +127,13 @@ class _NoKpis:
 
 def backend_for(replay: Replay, clock: Callable[[], datetime], ledger: Path) -> HttpBackend:
     """The HTTP backend over a real API app serving `replay` as of `clock()`."""
-    campus_raw = load_yaml("campus_v1.yaml")
-    campus = load_campus_aps(campus_raw)
     sync = load_sync_config(load_yaml("twin.yaml"))
-    context = VerifyContext(
-        campus,
-        load_radio_params(campus_raw),
-        load_sim_params(load_yaml("sim.yaml")),
-        load_verify_config(load_yaml("verify.yaml")),
-    )
+    context = verify_context()
 
     def state() -> TwinState:
         now = clock()
         rows = replay.rows(now - timedelta(seconds=sync.sync_window_s), now)
-        return build_state(Snapshot(*rows), campus, now, sync.ap_stale_s)
+        return build_state(Snapshot(*rows), context.campus, now, sync.ap_stale_s)
 
     def metrics(entity: str, metric: str, window_s: int) -> list[dict[str, Any]]:
         measurement, tag = measurement_for(entity)
@@ -147,7 +159,8 @@ def backend_for(replay: Replay, clock: Callable[[], datetime], ledger: Path) -> 
         metrics=metrics,
         clock=clock,
     )
-    return inprocess_backend(create_app(services))
+    backend, _ = inprocess(create_app(services))
+    return backend
 
 
 def score(scenario: str, report: dict[str, Any]) -> bool:
@@ -158,27 +171,26 @@ def score(scenario: str, report: dict[str, Any]) -> bool:
 
 def evaluate(replay: Replay, client: LLMClient, ledger: Path) -> dict[str, Any]:
     """The first alert after the onset of `replay`, and the explainer's report on it."""
-    clock = [replay.start]
-    monitor = build_alert_monitor(replay.rows, lambda: clock[0])
+    clock = Clock(replay.start + timedelta(seconds=30))  # the first whole window
+    monitor = build_alert_monitor(replay.rows, clock)
     if monitor is None or replay.onset_s is None:
         raise ValueError(f"{replay.run_id}: no detector or no fault to explain")
     end = max(r["ts"] for r in replay.ap)
     early, alert = 0, None
-    clock[0] = replay.start + timedelta(seconds=30)
-    while alert is None and clock[0] <= end:
+    while alert is None and clock.now <= end:
         found = monitor.tick()
-        after_onset = clock[0] - replay.start > timedelta(seconds=replay.onset_s)
+        after_onset = clock.now - replay.start > timedelta(seconds=replay.onset_s)
         if found is not None and not after_onset:
             early += 1  # a false alert before the fault: noted, not explained
         elif found is not None:
             alert = found
-        clock[0] += timedelta(seconds=TICK_S)
+        clock.now += timedelta(seconds=TICK_S)
     if alert is None:
         return {"run_id": replay.run_id, "alert": None, "correct": False, "early_alerts": early}
-    clock[0] = datetime.fromisoformat(alert["ts"])
-    backend = backend_for(replay, lambda: clock[0], ledger)
-    report = explain(client, backend, ToolLayer(backend), alert, clock=lambda: clock[0])
-    delay = (clock[0] - replay.start).total_seconds() - replay.onset_s
+    clock.now = datetime.fromisoformat(alert["ts"])
+    backend = backend_for(replay, clock, ledger)
+    report = explain(client, backend, ToolLayer(backend), alert, clock=clock)
+    delay = (clock.now - replay.start).total_seconds() - replay.onset_s
     return {
         "run_id": replay.run_id,
         "scenario": replay.scenario_id,

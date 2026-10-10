@@ -14,17 +14,13 @@ from fastapi.testclient import TestClient
 from genai.tools.http_backend import HttpBackend, Send
 
 
-def inprocess_send(app: FastAPI) -> Send:
-    """(method, path, JSON body) -> (status, JSON reply), straight to `app`."""
+def inprocess(app: FastAPI) -> tuple[HttpBackend, Send]:
+    """An HttpBackend whose requests go straight to `app`, and the raw sender (for routes the
+    backend has no method for, such as POST /chat)."""
     client = TestClient(app)
 
     def send(method: str, path: str, body: dict[str, Any] | None) -> tuple[int, Any]:
         response = client.request(method, path, json=body)
         return response.status_code, response.json()
 
-    return send
-
-
-def inprocess_backend(app: FastAPI) -> HttpBackend:
-    """HttpBackend whose requests go straight to `app`."""
-    return HttpBackend("http://inprocess", send=inprocess_send(app))
+    return HttpBackend("http://inprocess", send=send), send

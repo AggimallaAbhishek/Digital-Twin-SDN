@@ -21,6 +21,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
+from common.schemas import IMPACT
 from genai.llm.client import ChatMessage, LLMResult, ToolCall, ToolTurn
 from genai.tools.tools import ToolLayer, proposal
 
@@ -40,14 +41,8 @@ SIMULATE_SPEC = {
             "properties": {
                 "type": {
                     "type": "string",
-                    "enum": [
-                        "steer_clients",
-                        "set_ap_tx_power",
-                        "set_ap_channel",
-                        "set_qos_queue",
-                        "rate_limit_flow",
-                        "ap_admin_state",
-                    ],
+                    # every allow-listed type but reroute_flow: campus_v1 is a tree (deviation #9)
+                    "enum": sorted(t for t in IMPACT if t != "reroute_flow"),
                 },
                 "params": {"type": "object", "description": "the type's parameters"},
                 "reason": {"type": "string", "description": "why, in one sentence"},
@@ -106,10 +101,9 @@ class Copilot:
         tools: ToolLayer,
         config: CopilotConfig,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
-        prompt: Path = PROMPT,
     ) -> None:
         self._client, self._tools, self._config, self._clock = client, tools, config, clock
-        self._system = prompt.read_text()
+        self._system = PROMPT.read_text()
         self._specs = [s for s in tools.specs() if s["function"]["name"] in READS]
         self._specs.append(SIMULATE_SPEC)
 
@@ -140,7 +134,9 @@ class Copilot:
                 }
             )
             for call in turn.tool_calls:
-                result = self._run(call, suggested)
+                result, suggestion = self._run(call)
+                if suggestion is not None:
+                    suggested.append(suggestion)
                 evidence.append({"tool": call.name, "arguments": call.arguments, "result": result})
                 messages.append(
                     {"role": "tool", "tool_name": call.name, "content": self._cut(result)}
@@ -148,18 +144,17 @@ class Copilot:
         answer = f"I could not finish within {self._config.max_steps} steps; the evidence so far:"
         return _reply(answer, evidence, suggested, model)
 
-    def _run(self, call: ToolCall, suggested: list[dict[str, Any]]) -> dict[str, Any]:
+    def _run(self, call: ToolCall) -> tuple[dict[str, Any], dict[str, Any] | None]:
+        """The tool's result, and the suggestion it makes (a proposal the twin judged)."""
         if call.name in READS:
-            return self._tools.call(call.name, call.arguments)
+            return self._tools.call(call.name, call.arguments), None
         if call.name != "simulate_in_twin":
-            return {"error": f"unknown tool {call.name!r}"}
+            return {"error": f"unknown tool {call.name!r}"}, None
         args = call.arguments
         reason = args.get("reason") or "copilot proposal"
         action = proposal("copilot", args.get("type"), args.get("params"), reason, self._clock())
         verdict = self._tools.call("simulate_in_twin", {"action": action})
-        if "error" not in verdict:
-            suggested.append({"action": action, "verdict": verdict})
-        return verdict
+        return verdict, None if "error" in verdict else {"action": action, "verdict": verdict}
 
     def _cut(self, result: dict[str, Any]) -> str:
         """The tool result for the model, cut to max_tool_chars (the evidence keeps it whole)."""

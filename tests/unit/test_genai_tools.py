@@ -88,9 +88,13 @@ def test_unknown_tools_cannot_be_called(tools: ToolLayer) -> None:
 # ------------------------------------------------------------------ reads
 def test_topology_lists_the_campus(tools: ToolLayer) -> None:
     topology = tools.call("get_topology", {})
-    assert [ap["ap"] for ap in topology["aps"]] == ["ap1", "ap2", "ap3", "ap4"]
+    # the shape of the live GET /topology (the twin state), so consumers see one shape
+    assert set(topology) == {"aps", "stations", "flows"}
+    assert [ap["name"] for ap in topology["aps"]] == ["ap1", "ap2", "ap3", "ap4"]
+    assert all(ap["up"] for ap in topology["aps"])
     assert len(topology["stations"]) == 20
-    assert {"switches", "links"} <= set(topology)
+    assert {"name", "ap", "position"} <= set(topology["stations"][0])
+    assert {"flow_id", "sta", "loss_pct", "latency_ms"} <= set(topology["flows"][0])
 
 
 def test_metrics_return_a_series_for_a_flow(tools: ToolLayer) -> None:

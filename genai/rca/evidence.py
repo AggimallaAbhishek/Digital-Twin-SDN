@@ -13,9 +13,7 @@ from __future__ import annotations
 import statistics
 from collections.abc import Iterable
 from datetime import datetime, timedelta
-from typing import Any
-
-from genai.tools.backend import Backend
+from typing import Any, Protocol
 
 WINDOW_S = 300  # the 5 minutes before the alert
 RECENT_S = 60  # "now": the last minute before the alert
@@ -24,23 +22,31 @@ WORST_FLOWS = 5
 RECENT_ACTIONS = 5
 
 
-def gather(backend: Backend, alert: dict[str, Any]) -> dict[str, Any]:  # Any: JSON
+class EvidenceSource(Protocol):
+    """What the evidence is read from: the API's reads plus the audit log (HttpBackend)."""
+
+    def topology(self) -> dict[str, Any]: ...
+
+    def metrics(self, entity: str, metric: str, window_s: int) -> list[dict[str, Any]]: ...
+
+    def recent_actions(self, limit: int) -> list[dict[str, Any]]: ...
+
+
+def gather(backend: EvidenceSource, alert: dict[str, Any]) -> dict[str, Any]:  # Any: JSON
     """The evidence for `alert` (its `ts` is the time the window ends at)."""
     at = datetime.fromisoformat(alert["ts"])
     topology = backend.topology()
-    stations = topology.get("stations", [])
+    stations = topology["stations"]  # the GET /topology shape (the twin state)
     aps = []
     for a in topology["aps"]:
-        name = str(a.get("name", a.get("ap")))
-        mine = [s["name"] for s in stations if s.get("ap") == name]
-        aps.append(_ap(backend, name, bool(a.get("up", True)), at) | {"stations": _by_number(mine)})
-    flows = sorted(topology.get("flows", []), key=lambda f: (-f["loss_pct"], -f["latency_ms"]))[
-        :WORST_FLOWS
-    ]
+        mine = [s["name"] for s in stations if s["ap"] == a["name"]]
+        aps.append(_ap(backend, a["name"], a["up"], at) | {"stations": _by_number(mine)})
+    worst = sorted(topology["flows"], key=lambda f: (-f["loss_pct"], -f["latency_ms"]))
+    flows = worst[:WORST_FLOWS]
     return {
         "alert": alert,
         "aps": aps,
-        "unassociated_stations": _by_number(s["name"] for s in stations if s.get("ap") is None),
+        "unassociated_stations": _by_number(s["name"] for s in stations if s["ap"] is None),
         "worst_flows": [
             {k: f[k] for k in ("flow_id", "throughput_mbps", "latency_ms", "loss_pct")}
             for f in flows
@@ -49,7 +55,7 @@ def gather(backend: Backend, alert: dict[str, Any]) -> dict[str, Any]:  # Any: J
     }
 
 
-def _ap(backend: Backend, ap: str, up: bool, at: datetime) -> dict[str, Any]:  # Any: JSON
+def _ap(backend: EvidenceSource, ap: str, up: bool, at: datetime) -> dict[str, Any]:  # Any: JSON
     split = at - timedelta(seconds=RECENT_S)
     series = {m: _points(backend, ap, m) for m in ("channel_util", "n_clients", "channel")}
 
@@ -77,7 +83,7 @@ def _by_number(names: Iterable[str]) -> list[str]:
     return sorted(names, key=lambda n: int("".join(c for c in n if c.isdigit()) or 0))
 
 
-def _points(backend: Backend, ap: str, metric: str) -> list[tuple[datetime, float]]:
+def _points(backend: EvidenceSource, ap: str, metric: str) -> list[tuple[datetime, float]]:
     return sorted(
         (datetime.fromisoformat(p["ts"]), float(p["value"]))
         for p in backend.metrics(ap, metric, WINDOW_S)

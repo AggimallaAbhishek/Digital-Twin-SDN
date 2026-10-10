@@ -1,0 +1,43 @@
+# P5.5 Done when: the copilot answers 5 diagnostic questions with live evidence; proposed actions
+# go through simulate_in_twin. Asked during live runs (experiments/genai_actor.py) at `at_s`
+# seconds of the scenario, after its disruption (experiments/scenarios/*.yaml).
+# Correct (experiments/analysis/genai_live.py): the answer names `entity` and one of `keywords`
+# (case-insensitive), the copilot called every tool in `tools`, and, with `fix`, it suggested an
+# action of that type on that AP that the twin accepted.
+questions:
+  - id: q1_lab_outage
+    scenario: ap_failure
+    at_s: 300
+    question: Several lab users say their Wi-Fi dropped about a minute ago. What happened?
+    entity: ap2
+    keywords: [down, offline, failed, failure, not up, not reporting, stopped]
+    tools: [get_topology]
+  - id: q2_busiest_after_failure
+    scenario: ap_failure
+    at_s: 390
+    question: Which access point is the most loaded right now, and why?
+    entity: ap1
+    keywords: [ap2, clients, rejoin, moved, joined, load, util]
+    tools: [get_topology]
+  - id: q3_corridor_video
+    scenario: cochannel_interference
+    at_s: 270
+    question: Video calls in the corridor have become choppy. What is the cause?
+    entity: ap3
+    keywords: [channel, interference, co-channel, cochannel]
+    tools: [get_topology]
+  - id: q4_corridor_fix
+    scenario: cochannel_interference
+    at_s: 360
+    question: What change would fix the corridor's Wi-Fi? Check it in the digital twin first.
+    entity: ap3
+    keywords: [channel]
+    tools: [simulate_in_twin]
+    fix: {type: set_ap_channel, ap: ap3}
+  - id: q5_hall_latency
+    scenario: lecture_flash_crowd
+    at_s: 300
+    question: Why is video latency so high in the lecture hall right now?
+    entity: ap1
+    keywords: [clients, crowd, congest, overload, busy, students, users]
+    tools: [get_topology]

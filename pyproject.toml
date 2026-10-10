@@ -133,6 +133,18 @@ source_modules = ["controller"]
 forbidden_modules = ["ml", "genai", "api", "testbed", "telemetry"]
 
 [[tool.importlinter.contracts]]
+name = "executor uses only twin state types and the QoS flow match (ADR-006)"
+type = "forbidden"
+source_modules = ["controller.executor"]
+forbidden_modules = ["twin.sim.analytical", "twin.state.sync", "twin.state.builder", "twin.radio", "twin.validation"]
+
+[[tool.importlinter.contracts]]
+name = "the Ryu app never imports the twin"
+type = "forbidden"
+source_modules = ["controller.apps"]
+forbidden_modules = ["twin"]
+
+[[tool.importlinter.contracts]]
 name = "telemetry depends only on common"
 type = "forbidden"
 source_modules = ["telemetry"]

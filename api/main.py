@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Mapping
+import threading
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -17,12 +18,16 @@ from typing import Any
 import uvicorn
 from fastapi import FastAPI
 
+from api.alerts import build_alert_monitor, influx_rows
 from api.app import Services, TwinSimulator, create_app
 from api.metrics import influx_metrics
 from api.wiring import ROOT, build_executor, build_twin, load_yaml
 from common.influx import InfluxConnection
+from genai.agent.copilot import Copilot, CopilotConfig, load_copilot_config
 from genai.intent.engine import IntentEngine, load_intent_config
 from genai.llm.client import LLMClient
+from genai.tools.http_backend import HttpBackend
+from genai.tools.tools import ToolLayer
 
 LOCALHOST = ("127.0.0.1", "localhost", "::1")  # RULEBOOK §14: the API binds to localhost only
 MAX_PORT = 65535
@@ -36,11 +41,12 @@ class ApiConfig:
     ledger: str
     host: str
     port: int
+    alerts: bool  # the live anomaly alert monitor (api/alerts.py), B-5 flag
 
 
 def load_api_config(raw: Mapping[str, Any]) -> ApiConfig:
     """Validate config/api.yaml; ValueError names the bad field."""
-    keys = {"run_id", "ledger", "host", "port"}
+    keys = {"run_id", "ledger", "host", "port", "alerts"}
     if set(raw) - keys:
         raise ValueError(f"api config: unknown keys {sorted(set(raw) - keys)}")
     if not isinstance(raw.get("run_id"), str) or not re.fullmatch(
@@ -54,11 +60,14 @@ def load_api_config(raw: Mapping[str, Any]) -> ApiConfig:
     port = raw.get("port")
     if not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= MAX_PORT:
         raise ValueError(f"port must be 1-65535, got {port!r}")
-    return ApiConfig(raw["run_id"], raw["ledger"], raw["host"], port)
+    if not isinstance(raw.get("alerts"), bool):
+        raise ValueError(f"alerts must be true or false, got {raw.get('alerts')!r}")
+    return ApiConfig(raw["run_id"], raw["ledger"], raw["host"], port, raw["alerts"])
 
 
 def build_services() -> Services:
-    """Services for the live system (no network until a request needs it)."""
+    """Services for the live system. Only the alert monitor's thread queries InfluxDB on its
+    own (every 5 s, read-only); everything else waits for a request."""
     api = load_api_config(load_yaml("api.yaml"))
     conn = InfluxConnection.from_env()
     twin = build_twin(conn, api.run_id)
@@ -73,6 +82,10 @@ def build_services() -> Services:
     def clock() -> datetime:
         return datetime.now(UTC)
 
+    copilot = load_copilot_config(load_yaml("copilot.yaml"))
+    monitor = build_alert_monitor(influx_rows(conn, api.run_id), clock) if api.alerts else None
+    if monitor is not None:  # watches until the process exits (daemon thread)
+        threading.Thread(target=monitor.run, args=(threading.Event(),), daemon=True).start()
     return Services(
         state=twin.sync.refresh,
         simulator=simulator,
@@ -82,7 +95,19 @@ def build_services() -> Services:
         intents=intents,
         metrics=influx_metrics(conn, api.run_id, clock),
         clock=clock,
+        alerts=monitor.recent if monitor is not None else None,
+        chat=_chat(copilot) if copilot.enabled else None,
     )
+
+
+def _chat(config: CopilotConfig) -> Callable[[str], dict[str, Any]]:
+    """POST /chat: each question gets a fresh tool session over the API (its own verdicts)."""
+    client = LLMClient.from_config()
+
+    def ask(question: str) -> dict[str, Any]:  # Any: JSON
+        return Copilot(client, ToolLayer(HttpBackend(config.api_url)), config).ask(question)
+
+    return ask
 
 
 def app() -> FastAPI:

@@ -17,6 +17,7 @@ from genai.llm.client import (
     LLMConfig,
     LLMOutputError,
     LLMUnavailableError,
+    ToolCall,
     TransportError,
     ollama_transport,
 )
@@ -43,8 +44,9 @@ class FakeTransport:
         reply = self.replies[payload["model"]].pop(0)
         if isinstance(reply, Exception):
             raise reply
+        message = reply if isinstance(reply, dict) else {"role": "assistant", "content": reply}
         return {
-            "message": {"role": "assistant", "content": reply},
+            "message": message,
             "prompt_eval_count": 11,
             "eval_count": 7,
         }
@@ -274,3 +276,59 @@ def test_ollama_transport_wraps_a_non_json_reply(monkeypatch: pytest.MonkeyPatch
 
     with pytest.raises(TransportError, match="not JSON"):
         ollama_transport("http://ollama.test")("/api/chat", {}, 15)
+
+
+TOOLS = [{"type": "function", "function": {"name": "get_alerts", "parameters": {}}}]
+
+
+def _calls(*calls: tuple[str, Any]) -> dict[str, Any]:
+    """An Ollama assistant message asking for tool calls."""
+    return {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [{"function": {"name": n, "arguments": a}} for n, a in calls],
+    }
+
+
+def test_tool_calls_are_returned_with_their_arguments(tmp_path: Path) -> None:
+    reply = _calls(("get_alerts", {"since_s": 300}), ("get_topology", "{}"))
+    transport = FakeTransport({CLOUD: [reply]})
+    result = _client(transport, tmp_path).complete_tools(MESSAGES, TOOLS, prompt_version="t/v1")
+    assert result.value.tool_calls == [
+        ToolCall("get_alerts", {"since_s": 300}),
+        ToolCall("get_topology", {}),  # some models send the arguments as a JSON string
+    ]
+    [(path, payload, _)] = transport.requests
+    assert path == "/api/chat"
+    assert payload["tools"] == TOOLS
+    assert "format" not in payload
+
+
+def test_a_final_answer_has_no_tool_calls(tmp_path: Path) -> None:
+    transport = FakeTransport({CLOUD: ["ap2 is down."]})
+    result = _client(transport, tmp_path).complete_tools(MESSAGES, TOOLS, prompt_version="t/v1")
+    assert result.value.content == "ap2 is down."
+    assert result.value.tool_calls == []
+
+
+def test_unreadable_tool_arguments_are_kept_for_the_tool_layer_to_refuse(tmp_path: Path) -> None:
+    transport = FakeTransport(
+        {CLOUD: [_calls(("get_alerts", "{since_s: 3"), ("get_alerts", "[3]"))]}
+    )
+    result = _client(transport, tmp_path).complete_tools(MESSAGES, TOOLS, prompt_version="t/v1")
+    assert result.value.tool_calls == [
+        ToolCall("get_alerts", {"unparsed": "{since_s: 3"}),
+        ToolCall("get_alerts", {"unparsed": [3]}),
+    ]
+
+
+def test_tool_turns_fall_back_to_the_local_model(tmp_path: Path) -> None:
+    transport = FakeTransport(
+        {CLOUD: [TransportError("down")], LOCAL: [_calls(("get_alerts", {}))]}
+    )
+    result = _client(transport, tmp_path).complete_tools(MESSAGES, TOOLS, prompt_version="t/v1")
+    assert result.fell_back is True
+    assert result.value.tool_calls == [ToolCall("get_alerts", {})]
+    assert transport.requests[1][1]["tools"] == TOOLS
+    entry = json.loads((tmp_path / "llm_calls.jsonl").read_text().splitlines()[-1])
+    assert (entry["schema"], entry["valid"]) == ("tools", True)

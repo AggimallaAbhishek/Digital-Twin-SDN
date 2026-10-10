@@ -7,9 +7,11 @@ from typing import Any
 
 import pytest
 
+from common.schemas import Impact, KPIValues, Verdict
 from experiments.validation_actions import (
     ActionStep,
     actions_for,
+    batch_approvals,
     load_schedule,
 )
 from ml.optimizer.heuristics import HeuristicConfig
@@ -99,3 +101,39 @@ def test_a_heuristic_step_asks_the_optimizer() -> None:
 def test_steer_one_with_no_client_gives_no_action() -> None:
     step = ActionStep(120, "steer_one", {"from_ap": "ap2", "to_ap": "ap1"})
     assert actions_for(step, STATE, RADIO, HEURISTICS, "normal-s45") == []
+
+
+def _verdict_for(
+    action_id: str, impact: Impact, needs_approval: bool, accepted: bool = True
+) -> Verdict:
+    kpis = KPIValues(throughput_mbps=1, latency_ms=1, loss_pct=0, jain=1)
+    return Verdict(
+        action_id=action_id,
+        accepted=accepted,
+        predicted=kpis,
+        baseline=kpis,
+        violations=[] if accepted else ["worse"],
+        impact=impact,
+        needs_approval=needs_approval,
+        sim_mode="analytical",
+        sim_time_ms=1,
+    )
+
+
+def test_the_batch_approves_medium_impact_actions_that_need_it() -> None:
+    verdicts = [_verdict_for("act_a1", "medium", True), _verdict_for("act_a2", "low", False)]
+    assert batch_approvals(verdicts) == (["act_a1"], "")
+
+
+def test_the_batch_never_approves_a_high_impact_action() -> None:
+    # PROJECT_PLAN §8: high impact always needs an operator; the batch is not one (ADR-005)
+    verdicts = [_verdict_for("act_a1", "medium", True), _verdict_for("act_a2", "high", True)]
+    approve, refusal = batch_approvals(verdicts)
+    assert approve == []
+    assert "act_a2" in refusal
+    assert "high impact" in refusal
+
+
+def test_a_rejected_set_is_not_approved() -> None:
+    verdicts = [_verdict_for("act_a1", "medium", True, accepted=False)]
+    assert batch_approvals(verdicts) == ([], "rejected by the twin: worse")

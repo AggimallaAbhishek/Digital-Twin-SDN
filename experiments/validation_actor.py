@@ -16,7 +16,7 @@ from pathlib import Path
 from api.wiring import build_executor, build_twin, load_yaml
 from common.influx import InfluxConnection
 from controller.executor.executor import ExecutorError
-from experiments.validation_actions import ActionStep, actions_for
+from experiments.validation_actions import ActionStep, actions_for, batch_approvals
 from ml.optimizer.heuristics import load_heuristic_config
 from twin.verify.verifier import verify
 
@@ -50,18 +50,16 @@ class Actor:
             return
         verdicts = verify(state, actions, self._context)
         self._executor.record(actions, verdicts)
-        note, applied = "", False
-        if all(v.accepted for v in verdicts):
+        approve, note = batch_approvals(verdicts)
+        applied = False
+        if not note:
             try:
-                for a, v in zip(actions, verdicts, strict=True):
-                    if v.needs_approval:
-                        self._executor.approve(a.action_id, by=OPERATOR)
+                for action_id in approve:
+                    self._executor.approve(action_id, by=OPERATOR)
                 self._executor.apply([a.action_id for a in actions], state)
                 applied = True
             except ExecutorError as exc:
                 note = str(exc)
-        else:
-            note = "; ".join(x for v in verdicts for x in v.violations)
         self._log(step, applied, note)
 
     def _log(self, step: ActionStep, applied: bool, note: str) -> None:

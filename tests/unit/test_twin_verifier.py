@@ -227,12 +227,8 @@ def test_a_medium_type_off_the_auto_apply_list_needs_approval() -> None:
     assert (verdict.impact, verdict.needs_approval) == ("medium", True)
 
 
-def test_the_shipped_config_auto_applies_the_types_validated_in_p35() -> None:
-    assert CONTEXT.config.medium_auto_apply == {
-        "steer_clients",
-        "rate_limit_flow",
-        "set_ap_tx_power",
-    }
+def test_the_shipped_config_auto_applies_only_well_validated_types() -> None:
+    assert CONTEXT.config.medium_auto_apply == {"steer_clients"}  # P3.4-C (review update)
 
 
 @pytest.mark.parametrize(

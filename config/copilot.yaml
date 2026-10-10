@@ -1,0 +1,5 @@
+# P5.5 copilot (genai/agent/copilot.py) behind POST /chat. Uses the LLM of config/llm.yaml.
+enabled: false                    # RULEBOOK B-5: off until the GenAI exit gate (M3, Oct 24) passes
+api_url: http://127.0.0.1:8000    # the P3.6 API its tools call (config/api.yaml host and port)
+max_steps: 8                      # model turns per question before it must stop
+max_tool_chars: 6000              # a tool result is cut to this for the model (kept whole as evidence)

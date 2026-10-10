@@ -1,6 +1,7 @@
 # P3.4 verifier (twin/verify/verifier.py).
-# Medium-impact types that apply when the twin accepts them, without an operator: the ones P3.5
-# validated (test MAPE: steer 3.3% over 84 cases, rate limit and tx power under 2% on video;
-# models/twin/v1/validation.json, decision P3.4-C). Others, and every high-impact action, need
-# operator approval.
-medium_auto_apply: [steer_clients, rate_limit_flow, set_ap_tx_power]
+# Medium-impact types that apply when the twin accepts them, without an operator (decision P3.4-C):
+# only those with enough validation evidence. Steering: 3.3% MAPE on the held-out test split over
+# 39 cases from 6 steers in 2 runs (models/twin/v1/validation.json). Rate limits and tx power had
+# 3 test cases each, and no rate limit actually bound (bulk is modelled below the 1 Mbit/s floor),
+# so they still need an operator, like every high-impact action.
+medium_auto_apply: [steer_clients]

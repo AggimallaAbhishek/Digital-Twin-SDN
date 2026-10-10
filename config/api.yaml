@@ -3,3 +3,4 @@ run_id: live                # the run the twin mirrors: the collector's --run-id
 ledger: logs/actions.db     # the executor's audit ledger (gitignored)
 host: 127.0.0.1             # RULEBOOK §14: localhost only
 port: 8000
+alerts: false               # live anomaly alerts (api/alerts.py, GET /alerts); B-5 flag

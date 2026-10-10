@@ -89,7 +89,7 @@ Dependencies point **one way**. A module may import only from the modules listed
 | `common/` | standard library, Pydantic | any project module |
 | `testbed/` | `common` | everything else |
 | `controller/` (Ryu app) | `common` (copied/vendored if Python versions differ) | `twin`, `ml`, `genai`, `api` |
-| `controller/executor/` | `common`, `twin.verify` (types only) | `ml`, `genai` |
+| `controller/executor/` | `common`, `twin.verify` (types only), `twin.state.model` and `twin.sim.apply` (read-only: state types and the QoS flow match, ADR-006) | `ml`, `genai`, the rest of `twin` |
 | `telemetry/` | `common` | `twin`, `ml`, `genai`, `api` |
 | `twin/` | `common` | `ml`, `genai`, `api`, `controller` |
 | `ml/` | `common`, `twin` (state + sim, for the RL env) | `genai`, `api`, `controller` |

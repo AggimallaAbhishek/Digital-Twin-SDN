@@ -129,7 +129,21 @@ def test_without_a_tag_run_ids_are_unchanged() -> None:
     raw = yaml.safe_load((ROOT / "experiments" / "batch_v1.yaml").read_text())
     config = load_batch_config(raw)
     assert (config.run_tag, config.loop_mode) == (None, None)
+    assert config.genai_eval is False
     assert plan_runs(config)[0].run_id == "normal-s42"
+
+
+def test_the_genai_batch_plays_the_genai_eval() -> None:
+    config = load_batch_config(
+        yaml.safe_load((ROOT / "experiments" / "batch_genai_v1.yaml").read_text())
+    )
+    assert config.genai_eval is True
+    assert config.loop_mode is None  # the network is left alone: the copilot only proposes
+    assert [r.run_id for r in plan_runs(config)] == [
+        "ap_failure-genai-s44",
+        "cochannel_interference-genai-s44",
+        "lecture_flash_crowd-genai-s44",
+    ]
 
 
 @pytest.mark.parametrize(
@@ -138,6 +152,7 @@ def test_without_a_tag_run_ids_are_unchanged() -> None:
         ({"run_tag": "V 3"}, "run_tag"),
         ({"loop_mode": "V4"}, "loop_mode"),
         ({"loop_mode": "V0"}, "loop_mode"),
+        ({"genai_eval": "yes"}, "genai_eval"),
     ],
 )
 def test_bad_loop_settings_are_refused(change: dict[str, Any], named: str) -> None:

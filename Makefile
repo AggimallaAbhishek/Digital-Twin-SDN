@@ -3,7 +3,7 @@
 RUN := uv run
 FAST_TESTS := -m "not vm and not llm and not integration"
 
-.PHONY: api qos-vm validation-batch loop-batch help setup env hooks fmt lint types imports test test-all check security up down ps logs sync-vm smoke-vm campus-vm controller-vm vm-clock ap-agent-vm mobility-vm traffic-vm scenario-vm scenario-repro-vm collect batch dataset llm-check llm-client-check
+.PHONY: api qos-vm validation-batch loop-batch genai-batch genai-live rca-replay help setup env hooks fmt lint types imports test test-all check security up down ps logs sync-vm smoke-vm campus-vm controller-vm vm-clock ap-agent-vm mobility-vm traffic-vm scenario-vm scenario-repro-vm collect batch dataset llm-check llm-client-check
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -122,6 +122,15 @@ validation-batch: ## P3.5 action batch: scenarios with scheduled, twin-verified 
 
 loop-batch: ## P4.5 the flash crowd with the V3 loop, 3 seeds (~40 min, lid open); V1 = data/v1
 	@set -a; . ./.env; set +a; $(KEEP_AWAKE) $(RUN) python -m experiments.run_batch --config experiments/batch_loop_v3.yaml
+
+genai-batch: ## P5.5/P5.6 copilot questions + root-cause on live faults, seed 44 (~35 min, lid open)
+	@set -a; . ./.env; set +a; $(KEEP_AWAKE) $(RUN) python -m experiments.run_batch --config experiments/batch_genai_v1.yaml
+
+genai-live: ## P5.5/P5.6 score the genai batch -> models/genai/v1/live.json
+	$(RUN) python -m experiments.analysis.genai_live
+
+rca-replay: ## P5.6 root-cause eval on replayed data/v1 faults -> models/genai/v1/rca_replay.json
+	$(RUN) python -m experiments.analysis.rca_eval
 
 dataset: ## P2.3 export data/raw/$(DATASET_VERSION)/ (from `make batch`) to data/$(DATASET_VERSION)/*.parquet
 	@set -a; . ./.env; set +a; $(RUN) python -m experiments.export_dataset --version $(DATASET_VERSION)

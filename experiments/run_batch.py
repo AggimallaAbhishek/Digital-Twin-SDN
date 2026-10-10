@@ -114,10 +114,12 @@ def wait_for_agent(url: str, timeout_s: float, scenario: subprocess.Popen[bytes]
 
 @dataclass(frozen=True)
 class RunExtras:
-    """What plays alongside a run besides the collector: a P3.5 schedule or a P4.5 loop."""
+    """What plays alongside a run besides the collector: a P3.5 schedule, a P4.5 loop or the
+    P5.5 / P5.6 GenAI eval."""
 
     steps: list[ActionStep] | None = None
     loop_mode: str | None = None
+    genai_eval: bool = False
 
 
 NO_EXTRAS = RunExtras()
@@ -160,6 +162,10 @@ def _actor(
         from experiments.loop_actor import LoopActor  # noqa: PLC0415 - live-only dependencies
 
         return LoopActor(plan.run_id, extras.loop_mode, run_dir)
+    if extras.genai_eval:  # P5.5 / P5.6: the copilot and the explainer alongside the run
+        from experiments.genai_actor import build_actor  # noqa: PLC0415 - live-only dependencies
+
+        return build_actor(plan.run_id, plan.scenario, run_dir)
     if not extras.steps:
         return None
     from experiments.validation_actor import Actor  # noqa: PLC0415 - live-only dependencies
@@ -231,7 +237,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             log.info("%s: starting (seed %d, %s)", plan.run_id, plan.seed, plan.split)
             steps = schedule.get(plan.scenario)
-            extras = RunExtras(steps, config.loop_mode)
+            extras = RunExtras(steps, config.loop_mode, config.genai_eval)
             report = play(plan, run_dir, config.agent_wait_s, commit, extras)
         ok = run_ok(report)
         print(

@@ -9,11 +9,14 @@
     POST /actions/{id}/approve        {"by": "..."}       operator token required
     POST /actions/{id}/apply          the whole verified set the action belongs to; token required
     GET  /actions?status=             the executor's audit log
+    POST /chat                        {"question": "..."} -> copilot answer and evidence (P5.5)
+    GET  /alerts?since=               live anomaly alerts of the last `since` s (api/alerts.py)
 
-Feature flags (RULEBOOK B-5): /twin/simulate and /intents answer 503 until config/sim.yaml and
-config/intent.yaml are on. Approve and apply need `X-Operator-Token` = OPERATOR_TOKEN
-(RULEBOOK §14); with no token configured they are refused. Nothing here applies an action
-without the executor's checks (verdict, approval, rate limits, rollback).
+Feature flags (RULEBOOK B-5): /twin/simulate, /intents and /chat answer 503 until
+config/sim.yaml, config/intent.yaml and config/copilot.yaml are on. Approve and apply need
+`X-Operator-Token` = OPERATOR_TOKEN (RULEBOOK §14); with no token configured they are refused.
+Nothing here applies an action without the executor's checks (verdict, approval, rate limits,
+rollback).
 """
 
 from __future__ import annotations
@@ -34,10 +37,13 @@ from controller.executor.executor import Executor, ExecutorError
 from controller.executor.ledger import ActionRecord
 from genai.intent.compiler import FlowRef
 from genai.intent.engine import IntentEngine
+from genai.llm.client import LLMUnavailableError
 from twin.state.model import TwinState
 from twin.verify.verifier import VerifyContext, verify
 
 Metrics = Callable[[str, str, int], list[dict[str, Any]]]  # Any: JSON points
+Alerts = Callable[[int], list[dict[str, Any]]]  # Any: JSON alerts of the last n seconds
+Chat = Callable[[str], dict[str, Any]]  # Any: the copilot's JSON reply to one question
 MAX_WINDOW_S = 3600
 
 
@@ -68,6 +74,8 @@ class Services:
     intents: IntentEngine | None  # None while config/intent.yaml is off
     metrics: Metrics
     clock: Callable[[], datetime]
+    alerts: Alerts | None = None  # None while the alert monitor is off (no dataset to fit on)
+    chat: Chat | None = None  # None while config/copilot.yaml is off
 
 
 class SimulateRequest(BaseModel):
@@ -80,6 +88,12 @@ class IntentRequest(BaseModel):
     """Body of POST /intents: the operator's words."""
 
     text: Annotated[str, Field(min_length=1, max_length=1000)]
+
+
+class ChatRequest(BaseModel):
+    """Body of POST /chat: the operator's question."""
+
+    question: Annotated[str, Field(min_length=1, max_length=1000)]
 
 
 class ApproveRequest(BaseModel):
@@ -178,6 +192,21 @@ def create_app(services: Services) -> FastAPI:
     @app.get("/actions")
     def actions(status: str | None = None) -> dict[str, Any]:  # Any: JSON
         return {"actions": [_record_json(r) for r in executor.history(status)]}
+
+    @app.post("/chat")
+    def chat(body: ChatRequest) -> dict[str, Any]:  # Any: JSON
+        if services.chat is None:
+            raise HTTPException(503, "the copilot is off (config/copilot.yaml enabled: false)")
+        try:
+            return services.chat(body.question)
+        except LLMUnavailableError as exc:
+            raise HTTPException(503, f"no language model answered: {exc}") from exc
+
+    @app.get("/alerts")
+    def alerts(since: Annotated[int, Query(ge=0, le=MAX_WINDOW_S)] = 300) -> dict[str, Any]:
+        if services.alerts is None:
+            raise HTTPException(503, "the alert monitor is off (no dataset to fit the detector)")
+        return {"alerts": services.alerts(since)}
 
     return app
 

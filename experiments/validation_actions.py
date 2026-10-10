@@ -15,11 +15,11 @@ actions and their apply times from the executor's ledger (experiments/export_dat
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from common.schemas import ACTION_ADAPTER, IMPACT, Action
+from common.schemas import ACTION_ADAPTER, IMPACT, Action, Verdict
 from ml.optimizer.heuristics import HeuristicConfig, propose
 from twin.radio import RadioParams, predicted_rssi_dbm
 from twin.state.model import TwinState
@@ -96,3 +96,17 @@ def _strongest_client(state: TwinState, from_ap: str, to_ap: str, radio: RadioPa
         clients,
         key=lambda s: predicted_rssi_dbm(target.position, state.stations[s].position, radio),
     )
+
+
+def batch_approvals(verdicts: Sequence[Verdict]) -> tuple[list[str], str]:
+    """Which of a verified set the batch may approve as its operator, or why it applies none.
+
+    Medium-impact actions only: a high-impact action always needs a real operator (PROJECT_PLAN
+    §8), so a set containing one is not applied (ADR-005, experiment harnesses)."""
+    problems = [x for v in verdicts if not v.accepted for x in v.violations]
+    if problems:
+        return [], "rejected by the twin: " + "; ".join(problems)
+    high = [v.action_id for v in verdicts if v.impact == "high"]
+    if high:
+        return [], f"needs an operator (high impact, PROJECT_PLAN §8): {', '.join(high)}"
+    return [v.action_id for v in verdicts if v.needs_approval], ""

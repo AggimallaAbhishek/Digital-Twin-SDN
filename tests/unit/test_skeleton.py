@@ -17,8 +17,9 @@ def test_package_imports(package: str) -> None:
 
 def test_every_root_package_has_a_layering_contract() -> None:
     config = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())["tool"]["importlinter"]
-    sources = {m for c in config["contracts"] for m in c["source_modules"]}
-    assert sources == set(config["root_packages"])
+    # every root package is covered; stricter contracts on sub-packages are welcome (ADR-006)
+    roots = {m.split(".")[0] for c in config["contracts"] for m in c["source_modules"]}
+    assert roots == set(config["root_packages"])
 
 
 def test_env_example_has_no_values_for_secrets() -> None:

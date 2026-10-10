@@ -1,0 +1,10 @@
+# P5.5 / P5.6 live eval: the copilot's 5 questions and the root-cause explainer on the first
+# alert after each fault (experiments/genai_actor.py), on the test seed. Nothing is applied.
+# run_tag keeps these run ids apart from data/v1 in InfluxDB. Score: make genai-live.
+dataset_version: genai-v1
+scenarios: [ap_failure, cochannel_interference, lecture_flash_crowd]
+seeds:
+  44: test
+agent_wait_s: 180
+run_tag: genai
+genai_eval: true

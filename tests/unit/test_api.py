@@ -15,7 +15,7 @@ from common.schemas import Action, Policy, Verdict
 from controller.executor.executor import Executor, load_executor_config
 from controller.executor.ledger import Ledger
 from genai.intent.engine import IntentEngine
-from genai.llm.client import LLMResult
+from genai.llm.client import LLMResult, LLMUnavailableError
 from twin.radio import RadioParams
 from twin.sim.analytical import load_sim_params
 from twin.state.builder import CampusAPs
@@ -78,8 +78,15 @@ class FakeClient:
         return LLMResult(value=policy, model="fake", fell_back=False)
 
 
+ALERT = {"ts": "2026-10-09T10:00:00+00:00", "detector": "isolation_forest", "entity": "ap2"}
+
+
 def _client(
-    tmp_path: Path, sim_enabled: bool = True, intents: bool = True, token: str | None = TOKEN
+    tmp_path: Path,
+    sim_enabled: bool = True,
+    intents: bool = True,
+    token: str | None = TOKEN,
+    **overrides: Any,  # Services fields to override (alerts, chat)
 ) -> tuple[TestClient, FakeActuator]:
     actuator = FakeActuator()
     config = load_executor_config(yaml.safe_load((ROOT / "config" / "executor.yaml").read_text()))
@@ -94,6 +101,7 @@ def _client(
         intents=IntentEngine(FakeClient(), simulator) if intents else None,
         metrics=lambda entity, metric, window_s: [{"ts": "t", "value": 0.5}],
         clock=lambda: TS,
+        **({"alerts": lambda seconds: [ALERT | {"since_s": seconds}]} | overrides),
     )
     return TestClient(create_app(services)), actuator
 
@@ -170,6 +178,49 @@ def test_metrics_pass_the_query_through(tmp_path: Path) -> None:
         "window_s": 300,
         "points": [{"ts": "t", "value": 0.5}],
     }
+
+
+def test_chat_answers_with_the_copilots_reply(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path, chat=lambda q: {"answer": f"you asked: {q}", "evidence": []})
+    response = client.post("/chat", json={"question": "Why is ap1 slow?"})
+    assert response.json() == {"answer": "you asked: Why is ap1 slow?", "evidence": []}
+
+
+def test_chat_is_off_until_the_copilot_is_on(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path)
+    response = client.post("/chat", json={"question": "Why is ap1 slow?"})
+    assert response.status_code == 503
+    assert "config/copilot.yaml" in response.json()["detail"]
+
+
+def test_chat_is_a_503_when_no_model_answers(tmp_path: Path) -> None:
+    def down(question: str) -> dict[str, Any]:
+        raise LLMUnavailableError("local-model unreachable: refused")
+
+    client, _ = _client(tmp_path, chat=down)
+    response = client.post("/chat", json={"question": "Why is ap1 slow?"})
+    assert response.status_code == 503
+    assert "no language model" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("question", ["", "x" * 1001])
+def test_chat_questions_are_bounded(tmp_path: Path, question: str) -> None:
+    client, _ = _client(tmp_path, chat=lambda q: {})
+    assert client.post("/chat", json={"question": question}).status_code == 422
+
+
+def test_alerts_of_the_last_seconds(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path)
+    assert client.get("/alerts", params={"since": 60}).json() == {
+        "alerts": [ALERT | {"since_s": 60}]
+    }
+    assert client.get("/alerts").json()["alerts"][0]["since_s"] == 300
+
+
+def test_alerts_answer_503_while_the_monitor_is_off(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path, alerts=None)
+    assert client.get("/alerts").status_code == 503
+    assert client.get("/alerts", params={"since": 0}).status_code == 503
 
 
 @pytest.mark.parametrize(

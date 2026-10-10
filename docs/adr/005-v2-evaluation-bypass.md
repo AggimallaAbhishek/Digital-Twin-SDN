@@ -15,6 +15,13 @@ CLAUDE.md and RULEBOOK make it a non-negotiable that nothing reaches the network
 - Each action applied this way carries the note `V2: applied without the twin` and the twin's verdict in the audit log, so the H2 analysis can see what the twin would have blocked.
 - Allowed on the emulated testbed only (decisions Q2: there is no real network in this project).
 
+## Addendum (2026-10-09, code review): experiment harnesses
+
+Two experiment scripts also act outside the normal operator flow. Both are CLI tools run by Abhishek on the emulated testbed, never reachable from the API, and both are logged in the executor's ledger:
+
+- **`experiments/check_rollback.py`** (P4.4 Done when "deliberate bad action rolled back") records an accepted verdict for an action the twin would reject, then approves it as `rollback-check`. That is the point of the check: it stands in for a twin miss, so the rollback path can be shown on the live testbed.
+- **`experiments/validation_actor.py`** (P3.5 validation batch) approves, as `validation-batch`, the **medium**-impact actions of a set the twin accepted. It never approves a high-impact action: a set containing one is skipped (`batch_approvals`, tested), because PROJECT_PLAN §8 says high impact always needs a real operator.
+
 ## Consequences
 
 - **Positive:** H2 is measured, not estimated. The audit log of a V2 run shows each action the twin would have rejected next to what it actually did to the KPIs.

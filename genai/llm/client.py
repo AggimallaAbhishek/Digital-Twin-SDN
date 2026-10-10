@@ -1,6 +1,7 @@
 """P5.1: the only way the GenAI layer talks to an LLM (RULEBOOK L-4, ADR-001).
 
-Ollama chat API, structured JSON output at temperature 0, validated by Pydantic (L-2).
+Ollama chat API, structured JSON output at temperature 0, validated by Pydantic (L-2), and
+tool-calling turns for the copilot (P5.5): the model names tools, genai/tools runs them.
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ LLM_CONFIG = REPO_ROOT / "config" / "llm.yaml"
 CALL_LOG = REPO_ROOT / "logs" / "llm_calls.jsonl"  # gitignored
 
 Message = dict[str, str]
+ChatMessage = dict[str, Any]  # Any: tool turns carry tool_calls (lists) besides text
 # (path, JSON payload, timeout in seconds) -> parsed JSON reply
 Transport = Callable[[str, dict[str, Any], float], dict[str, Any]]
 
@@ -75,6 +77,22 @@ class LLMResult(Generic[V]):
 
 
 @dataclass(frozen=True)
+class ToolCall:
+    """One tool the model asked for. Arguments are untrusted: genai/tools validates them (L-6)."""
+
+    name: str
+    arguments: dict[str, Any]  # Any: JSON
+
+
+@dataclass(frozen=True)
+class ToolTurn:
+    """A tool-calling reply: tool calls to run, or (none) the final answer in `content`."""
+
+    content: str
+    tool_calls: list[ToolCall]
+
+
+@dataclass(frozen=True)
 class _Route:
     """Which model a request is on, and the per-call facts every log line repeats."""
 
@@ -91,6 +109,7 @@ class _Reply:
     prompt_tokens: int | None
     completion_tokens: int | None
     latency_s: float
+    tool_calls: tuple[ToolCall, ...] = ()
 
 
 class LLMClient:
@@ -150,42 +169,60 @@ class LLMClient:
         self._log(route, 1, reply, error="")
         return LLMResult(value=reply.content, model=route.model, fell_back=route.fell_back)
 
+    def complete_tools(
+        self,
+        messages: Sequence[ChatMessage],
+        tools: Sequence[dict[str, Any]],
+        *,
+        prompt_version: str,
+    ) -> LLMResult[ToolTurn]:
+        """One tool-calling turn: the tool calls the model asks for, or its final answer."""
+        route, reply = self._first_reply(list(messages), None, prompt_version, "tools", tools)
+        self._log(route, 1, reply, error="")
+        turn = ToolTurn(reply.content, list(reply.tool_calls))
+        return LLMResult(value=turn, model=route.model, fell_back=route.fell_back)
+
     def _first_reply(
         self,
-        conversation: list[Message],
+        conversation: Sequence[ChatMessage],
         fmt: dict[str, Any] | None,
         prompt_version: str,
         schema: str,
+        tools: Sequence[dict[str, Any]] | None = None,
     ) -> tuple[_Route, _Reply]:
         """Main model first; on a transport failure, the fallback model once (ADR-001)."""
         cfg = self._config
         route = _Route(cfg.model, False, cfg.cloud_timeout_s, prompt_version, schema)
         try:
-            return route, self._send(route, conversation, fmt, attempt=1)
+            return route, self._send(route, conversation, fmt, attempt=1, tools=tools)
         except TransportError:
             route = _Route(cfg.fallback_model, True, cfg.timeout_s, prompt_version, schema)
-            return route, self._send_or_unavailable(route, conversation, fmt, attempt=1)
+            return route, self._send_or_unavailable(
+                route, conversation, fmt, attempt=1, tools=tools
+            )
 
     def _send_or_unavailable(
         self,
         route: _Route,
-        conversation: list[Message],
+        conversation: Sequence[ChatMessage],
         fmt: dict[str, Any] | None,
         *,
         attempt: int,
+        tools: Sequence[dict[str, Any]] | None = None,
     ) -> _Reply:
         try:
-            return self._send(route, conversation, fmt, attempt=attempt)
+            return self._send(route, conversation, fmt, attempt=attempt, tools=tools)
         except TransportError as exc:
             raise LLMUnavailableError(f"{route.model} unreachable: {exc}") from exc
 
     def _send(
         self,
         route: _Route,
-        conversation: list[Message],
+        conversation: Sequence[ChatMessage],
         fmt: dict[str, Any] | None,
         *,
         attempt: int,
+        tools: Sequence[dict[str, Any]] | None = None,
     ) -> _Reply:
         payload: dict[str, Any] = {
             "model": route.model,
@@ -196,17 +233,21 @@ class LLMClient:
         }
         if fmt is not None:
             payload["format"] = fmt
+        if tools is not None:
+            payload["tools"] = list(tools)
         start = time.monotonic()
         try:
             raw = self._transport("/api/chat", payload, route.timeout_s)
         except TransportError as exc:
             self._log(route, attempt, _Reply("", None, None, time.monotonic() - start), str(exc))
             raise
+        message = raw["message"]
         return _Reply(
-            content=raw["message"]["content"],
+            content=message.get("content") or "",
             prompt_tokens=raw.get("prompt_eval_count"),
             completion_tokens=raw.get("eval_count"),
             latency_s=time.monotonic() - start,
+            tool_calls=tuple(_tool_call(c) for c in message.get("tool_calls") or []),
         )
 
     def _log(self, route: _Route, attempt: int, reply: _Reply, error: str) -> None:
@@ -229,6 +270,21 @@ class LLMClient:
         with self._log_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(entry) + "\n")
         log.info("llm call %s", entry)
+
+
+def _tool_call(raw: dict[str, Any]) -> ToolCall:
+    """Ollama's tool call; arguments that are a JSON string (some models) are decoded, and
+    unreadable ones kept as {"unparsed": text} for the tool layer to refuse."""
+    function = raw["function"]
+    arguments = function.get("arguments") or {}
+    if isinstance(arguments, str):
+        try:
+            arguments = json.loads(arguments) if arguments.strip() else {}
+        except ValueError:
+            arguments = {"unparsed": arguments}
+    if not isinstance(arguments, dict):
+        arguments = {"unparsed": arguments}
+    return ToolCall(str(function["name"]), arguments)
 
 
 def _repair_prompt(exc: ValidationError) -> str:

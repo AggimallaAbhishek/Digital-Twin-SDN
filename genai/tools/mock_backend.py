@@ -55,6 +55,9 @@ class MockBackend:
     def alerts(self, since_s: int) -> list[dict[str, Any]]:
         return []
 
+    def recent_actions(self, limit: int) -> list[dict[str, Any]]:
+        return []
+
     def simulate(self, action: Action) -> Verdict:
         impact = impact_of(action)
         verdict = Verdict(

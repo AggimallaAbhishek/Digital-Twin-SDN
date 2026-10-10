@@ -19,7 +19,15 @@ from common.schemas import Scenario
 
 SPLITS = ("train", "val", "test")
 SCENARIOS_DIR = Path(__file__).resolve().parent / "scenarios"
-_KEYS = {"dataset_version", "scenarios", "seeds", "agent_wait_s", "run_tag", "loop_mode"}
+_KEYS = {
+    "dataset_version",
+    "scenarios",
+    "seeds",
+    "agent_wait_s",
+    "run_tag",
+    "loop_mode",
+    "genai_eval",
+}
 LOOP_MODES = ("V1", "V2", "V3")  # P4.5 / P6 variants
 _NAME = re.compile(r"^[a-z0-9_]+$")
 _VERSION = re.compile(r"^([a-z][a-z0-9]*-)?v[0-9]+$")  # v1, or with a purpose: actions-v1
@@ -39,6 +47,7 @@ class BatchConfig:
     agent_wait_s: float
     run_tag: str | None = None  # in every run id: scenario-<tag>-s<seed>
     loop_mode: str | None = None  # P4.5 loop variant played alongside each run
+    genai_eval: bool = False  # P5.5 / P5.6 copilot and explainer played alongside each run
 
 
 @dataclass(frozen=True)
@@ -83,7 +92,10 @@ def load_batch_config(raw: Mapping[str, Any]) -> BatchConfig:
         raise ValueError(f"run_tag must be lowercase letters and digits, got {tag!r}")
     if mode is not None and mode not in LOOP_MODES:
         raise ValueError(f"loop_mode must be one of {LOOP_MODES}, got {mode!r}")
-    return BatchConfig(version, tuple(scenarios), dict(seeds), float(wait), tag, mode)
+    genai = raw.get("genai_eval", False)
+    if not isinstance(genai, bool):
+        raise ValueError(f"genai_eval must be true or false, got {genai!r}")
+    return BatchConfig(version, tuple(scenarios), dict(seeds), float(wait), tag, mode, genai)
 
 
 def plan_runs(config: BatchConfig) -> list[RunPlan]:

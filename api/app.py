@@ -25,7 +25,11 @@ from __future__ import annotations
 
 import dataclasses
 import hmac
-from collections.abc import Callable, Sequence
+import logging
+import threading
+import time
+from collections.abc import AsyncIterator, Callable, Sequence
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Annotated, Any
@@ -48,7 +52,11 @@ Metrics = Callable[[str, str, int], list[dict[str, Any]]]  # Any: JSON points
 Alerts = Callable[[int], list[dict[str, Any]]]  # Any: JSON alerts of the last n seconds
 Chat = Callable[[str], dict[str, Any]]  # Any: the copilot's JSON reply to one question
 Explain = Callable[[dict[str, Any]], dict[str, Any]]  # Any: alert JSON -> root-cause report
+Worker = Callable[[threading.Event], None]  # runs until the event is set (Loop.run, monitor.run)
+log = logging.getLogger("api.app")
 MAX_WINDOW_S = 3600
+# a loop tick that is applying or rolling back finishes first (the AP agent answers in ~1 s)
+WORKER_STOP_S = 15.0
 
 
 class TwinSimulator:
@@ -85,6 +93,8 @@ class Services:
     alerts: Alerts | None = None  # None while the alert monitor is off (flag, or no dataset)
     chat: Chat | None = None  # None while config/copilot.yaml is off
     explain: Explain | None = None  # P5.6 root cause; None while the copilot/LLM layer is off
+    # run beside the API until its shutdown: the alert monitor and the control loop
+    workers: tuple[Worker, ...] = ()
 
 
 class SimulateRequest(BaseModel):
@@ -129,7 +139,9 @@ class ApproveRequest(BaseModel):
 
 def create_app(services: Services) -> FastAPI:
     """The FastAPI app over `services`."""
-    app = FastAPI(title="SDN digital twin API", version="0.1")
+    app = FastAPI(
+        title="SDN digital twin API", version="0.1", lifespan=_run_workers(services.workers)
+    )
     executor = services.executor
 
     def require_operator(token: str | None) -> None:
@@ -236,6 +248,41 @@ def create_app(services: Services) -> FastAPI:
 
     _genai_routes(app, services)
     return app
+
+
+def _run_workers(
+    workers: Sequence[Worker],
+) -> Callable[[FastAPI], AbstractAsyncContextManager[None]]:
+    """The app's lifespan: each worker in its own thread from start-up until shutdown, when
+    they are told to stop and waited for (not killed mid-tick)."""
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        stop = threading.Event()
+        threads = [
+            threading.Thread(
+                target=w, args=(stop,), name=getattr(w, "__qualname__", None), daemon=True
+            )
+            for w in workers
+        ]
+        for t in threads:
+            t.start()
+        try:
+            yield
+        finally:
+            stop.set()
+            deadline = time.monotonic() + WORKER_STOP_S  # one budget for all of them
+            for t in threads:
+                t.join(max(0.0, deadline - time.monotonic()))
+                if t.is_alive():  # a daemon: it ends with the process, possibly mid-tick
+                    log.warning(
+                        "worker %s did not stop within %.0f s; a change being watched may"
+                        " have no keep/roll-back decision (check GET /actions)",
+                        t.name,
+                        WORKER_STOP_S,
+                    )
+
+    return lifespan
 
 
 def _genai_routes(app: FastAPI, services: Services) -> None:

@@ -21,9 +21,11 @@ make demo                      # flash crowd, seed 44; prints the dashboard URL
 make demo-stop                 # afterwards: stop the API and the dashboard
 ```
 
-`make demo` starts InfluxDB/Grafana, copies the testbed to the VM, starts the API (with the V3
-control loop and the alert monitor) and the dashboard, then plays the scenario on the VM. The
-dashboard refreshes every 5 seconds.
+Each `make demo` starts clean: it stops a demo left running and moves the previous action log
+to `logs/demo/actions-<time>.db`, so rehearsal actions do not show in the real demo. It then
+starts InfluxDB/Grafana, copies the testbed to the VM, starts the API (with the V3 control loop
+and the alert monitor) and the dashboard, then plays the scenario on the VM. The dashboard
+refreshes every 5 seconds. `make demo-stop` takes up to ~25 s: the API lets a loop tick finish.
 
 ## The story, minute by minute (lecture-hall flash crowd)
 
@@ -47,7 +49,8 @@ dashboard refreshes every 5 seconds.
 
 | Problem | Do this |
 |---|---|
-| `make demo` says the API or dashboard did not start | Read `logs/demo/api.log` / `dashboard.log`. Usually port 8000/8501 in use: `make demo-stop`, retry |
+| `make demo` says port 8000 or 8501 is in use | Another terminal runs `make api` or `make dashboard`: stop it (Ctrl-C there), then `make demo` again. A demo left running is stopped by `make demo` itself |
+| `make demo` says the API or dashboard did not start | Read `logs/demo/api.log` / `dashboard.log`, then `make demo` again |
 | Map shows "no telemetry" | The scenario has not started yet (agent wait ~1 min), or the collector failed: check the `make demo` output |
 | Copilot or RCA slow / "no language model answered" | Cloud model down: the local model answers instead (slower). If both fail: show the replay results (`make rca-replay` output, `models/genai/v1/`) |
 | No alert after the crowd | Point at the map (ap1 dark) and the load chart; the detector's threshold is set for precision |

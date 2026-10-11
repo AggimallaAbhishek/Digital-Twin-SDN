@@ -47,6 +47,7 @@ def test_the_live_app_builds_with_the_flags_off(monkeypatch: pytest.MonkeyPatch)
     assert services.alerts is None
     assert services.chat is None
     assert services.explain is None
+    assert services.workers == ()
     routes = {getattr(r, "path", "") for r in main.app().routes}
     assert {"/topology", "/twin/simulate", "/intents", "/actions/{action_id}/apply"} <= routes
     assert "/actions/{action_id}/deny" in routes
@@ -66,19 +67,25 @@ def test_the_loop_runs_beside_the_api_when_switched_on(monkeypatch: pytest.Monke
     loop_only = OFF | {"api.yaml": {"alerts": False, "loop": True}}
     for module in ("api.main", "api.wiring"):
         monkeypatch.setattr(f"{module}.load_yaml", _config(loop_only))
-    started: list[Any] = []
+    # a worker of the app (started and stopped by its lifespan), not a thread of its own
+    [worker] = main.build_services().workers
+    assert worker.__qualname__ == "Loop.run"  # V3 (config/loop.yaml), on the API's executor
 
-    class FakeThread:
-        def __init__(self, target: Any, args: tuple[Any, ...], daemon: bool) -> None:
-            started.append(target)
 
-        def start(self) -> None:
-            return None
-
-    monkeypatch.setattr("api.main.threading.Thread", FakeThread)
-    main.build_services()
-    [target] = started
-    assert target.__qualname__ == "Loop.run"  # V3 (config/loop.yaml), on the API's executor
+def test_serving_caps_the_wait_for_open_requests(monkeypatch: pytest.MonkeyPatch) -> None:
+    # uvicorn waits for open requests before the lifespan stops the loop; a slow /chat must
+    # not use up the time `make demo-stop` gives the API (decision P6.1-H)
+    calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(main, "app", lambda: "the app")
+    monkeypatch.setattr("api.main.uvicorn.run", lambda app, **kw: calls.append({"app": app} | kw))
+    main.serve()
+    [call] = calls
+    assert call == {
+        "app": "the app",
+        "host": "127.0.0.1",
+        "port": 8000,
+        "timeout_graceful_shutdown": main.REQUEST_DRAIN_S,
+    }
 
 
 def test_the_api_config_is_validated() -> None:

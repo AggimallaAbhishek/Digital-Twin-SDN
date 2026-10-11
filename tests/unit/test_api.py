@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -403,3 +404,39 @@ def test_a_metric_the_backend_does_not_know_is_a_422(tmp_path: Path) -> None:
     )
     assert response.status_code == 422
     assert "colour" in response.json()["detail"]
+
+
+def test_background_workers_run_while_the_api_runs_and_stop_with_it(tmp_path: Path) -> None:
+    # the alert monitor and the control loop (decision P6.1-H): a shutdown lets a loop tick
+    # finish instead of killing it halfway through an apply or a rollback
+    seen: list[str] = []
+    started = threading.Event()
+
+    def worker(stop: threading.Event) -> None:
+        seen.append("started")
+        started.set()
+        stop.wait(10)
+        seen.append("stopped" if stop.is_set() else "timed out")
+
+    client, _ = _client(tmp_path, workers=(worker,))
+    with client:
+        assert client.get("/actions").status_code == 200
+        assert started.wait(5)
+    assert seen == ["started", "stopped"]  # joined before the app finished shutting down
+
+
+def test_a_worker_that_does_not_stop_in_time_is_logged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    # shutdown goes on (the thread is a daemon), but a tick cut short must not go unnoticed
+    monkeypatch.setattr("api.app.WORKER_STOP_S", 0.0)
+    release = threading.Event()
+
+    def stuck(stop: threading.Event) -> None:
+        release.wait(10)
+
+    client, _ = _client(tmp_path, workers=(stuck,))
+    with client:
+        pass
+    release.set()
+    assert "did not stop" in caplog.text

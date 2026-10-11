@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import os
 import re
-import threading
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -19,7 +18,7 @@ import uvicorn
 from fastapi import FastAPI
 
 from api.alerts import build_alert_monitor, influx_rows
-from api.app import Services, TwinSimulator, create_app
+from api.app import Services, TwinSimulator, Worker, create_app
 from api.loop import LoopConfig, load_loop_config
 from api.metrics import influx_metrics
 from api.wiring import ROOT, build_executor, build_loop, build_twin, load_yaml
@@ -33,6 +32,9 @@ from genai.tools.tools import ToolLayer
 
 LOCALHOST = ("127.0.0.1", "localhost", "::1")  # RULEBOOK §14: the API binds to localhost only
 MAX_PORT = 65535
+# at shutdown, open requests get this long (a /chat waiting on the LLM is cut short) so the
+# loop's tick is still stopped cleanly within `make demo-stop`'s budget (experiments/demo.py)
+REQUEST_DRAIN_S = 5
 
 
 @dataclass(frozen=True)
@@ -70,7 +72,8 @@ def load_api_config(raw: Mapping[str, Any]) -> ApiConfig:
 
 
 def build_services() -> Services:
-    """Services for the live system. Two optional threads work on their own: the alert monitor
+    """Services for the live system. Two optional workers run while the app runs (its lifespan
+    starts them and, at shutdown, stops them between ticks): the alert monitor
     (every 5 s, read-only) and the control loop (every 5 s; it applies only through the
     executor's checks). Everything else waits for a request."""
     api = load_api_config(load_yaml("api.yaml"))
@@ -89,11 +92,9 @@ def build_services() -> Services:
 
     copilot = load_copilot_config(load_yaml("copilot.yaml"))
     monitor = build_alert_monitor(influx_rows(conn, api.run_id), clock) if api.alerts else None
-    if monitor is not None:  # watches until the process exits (daemon thread)
-        threading.Thread(target=monitor.run, args=(threading.Event(),), daemon=True).start()
-    if api.loop:  # acts until the process exits; shares the executor, so approvals reach it
-        loop = build_loop(twin, executor, _live_loop_config())
-        threading.Thread(target=loop.run, args=(threading.Event(),), daemon=True).start()
+    workers: list[Worker] = [monitor.run] if monitor is not None else []
+    if api.loop:  # shares the executor, so the operator's approvals reach it
+        workers.append(build_loop(twin, executor, _live_loop_config()).run)
     return Services(
         state=twin.sync.refresh,
         simulator=simulator,
@@ -106,6 +107,7 @@ def build_services() -> Services:
         alerts=monitor.recent if monitor is not None else None,
         chat=_chat(copilot) if copilot.enabled else None,
         explain=_explain(copilot) if copilot.enabled else None,
+        workers=tuple(workers),
     )
 
 
@@ -145,6 +147,14 @@ def app() -> FastAPI:
     return create_app(build_services())
 
 
-if __name__ == "__main__":  # make api: serve on config/api.yaml's host and port
+def serve() -> None:
+    """make api: serve on config/api.yaml's host and port. On SIGTERM uvicorn waits for open
+    requests (at most REQUEST_DRAIN_S), then the lifespan stops the workers."""
     config = load_api_config(load_yaml("api.yaml"))
-    uvicorn.run(app(), host=config.host, port=config.port)
+    uvicorn.run(
+        app(), host=config.host, port=config.port, timeout_graceful_shutdown=REQUEST_DRAIN_S
+    )
+
+
+if __name__ == "__main__":
+    serve()

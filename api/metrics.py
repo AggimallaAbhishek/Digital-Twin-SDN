@@ -1,7 +1,8 @@
 """P3.6 /metrics backend: one entity's telemetry series from InfluxDB.
 
-An entity is an AP (ap_stats, tag ap), a station (sta_stats, tag sta) or a flow (kpi, tag
-flow_id); the metric is one of that measurement's fields (common/schemas.py).
+An entity is an AP (ap_stats, tag ap), a station (sta_stats, tag sta), a flow (kpi, tag
+flow_id) or an app class (kpi, tag app_class: every flow of that class); the metric is one of
+that measurement's fields (common/schemas.py).
 """
 
 from __future__ import annotations
@@ -9,16 +10,24 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, get_args
 
 from common.influx import InfluxConnection, parse_flux_csv, query_csv, rows_query
-from common.schemas import MEASUREMENTS, APStats, KPIRecord, StationStats, TelemetryRecord
+from common.schemas import (
+    MEASUREMENTS,
+    AppClass,
+    APStats,
+    KPIRecord,
+    StationStats,
+    TelemetryRecord,
+)
 
 QUERY_TIMEOUT_S = 10.0
 _ENTITIES: list[tuple[re.Pattern[str], type[TelemetryRecord], str]] = [
     (re.compile(r"^ap[0-9]+$"), APStats, "ap"),
     (re.compile(r"^sta[0-9]+$"), StationStats, "sta"),
     (re.compile(r"^sta[0-9]+-[a-z]+$"), KPIRecord, "flow_id"),
+    (re.compile(f"^({'|'.join(get_args(AppClass))})$"), KPIRecord, "app_class"),
 ]
 Row = dict[str, Any]  # a parsed Flux row: column -> value
 
@@ -28,7 +37,9 @@ def measurement_for(entity: str) -> tuple[str, str]:
     for pattern, model, tag in _ENTITIES:
         if pattern.match(entity):
             return MEASUREMENTS[model], tag
-    raise ValueError(f"unknown entity {entity!r}: expected apN, staN or staN-<app class>")
+    raise ValueError(
+        f"unknown entity {entity!r}: expected apN, staN, staN-<app class> or an app class"
+    )
 
 
 def series(

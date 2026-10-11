@@ -29,13 +29,13 @@ dashboard refreshes every 5 seconds.
 
 | Scenario time | What happens | What to show and say |
 |---|---|---|
-| 0 to 2 min | Normal load: everyone browses | **The map.** Four APs, rings in each AP's channel colour; ap1 and ap4 share channel 1 but are 50 m apart, so their rings barely touch. "This is the twin's view, rebuilt from telemetry every 5 seconds." |
+| 0 to 2 min | Normal load: everyone browses | **The map.** Until the first telemetry arrives it says "no telemetry yet"; the queue and alerts show already. Four APs, rings in each AP's channel colour; ap1 and ap4 share channel 1 but are 50 m apart, so their rings barely touch. "This is the twin's view, rebuilt from telemetry every 5 seconds." Below the map, **Traffic KPIs per class** shows throughput, latency and loss for video, web and bulk. |
 | 2 to 3 min | 10 students walk into the lecture hall | ap1's client count climbs on the map. **Ask the copilot** (sidebar): *"Why is ap1 getting busy?"* It answers from live telemetry and shows which tools it called. |
 | 3.5 min | Everyone in the hall starts streaming the lecture | ap1's disc turns dark (congested). An **alert** appears within ~5 s. Click **Explain this alert**: the root-cause explainer names a crowd on ap1, with the numbers. |
-| 3.5 to 8 min | The V3 loop steers clients to ap3/ap2 | **Recent actions** fills with `steer_clients … kept`. "Every change was simulated in the twin first; the loop applies one at a time and watches it for 30 s." **Twin vs what happened** fills in: predicted vs measured. |
+| 3.5 to 8 min | The V3 loop steers clients to ap3/ap2 | **Recent actions** fills with `steer_clients … kept`. "Every change was simulated in the twin first; the loop proposes nothing new while a change is being watched and watches it for 30 s." **Twin vs what happened** fills in: predicted vs measured. |
 | any time | — | **Type an intent** (sidebar): *"Give video calls in the lecture hall priority."* The policy compiles to a QoS action; the twin's verdict is shown. |
-| any time | A high-impact change waits | Ask the copilot *"Would moving ap4 to channel 11 help?"*. A channel change is high impact: it appears under **Waiting for you**. **Approve** or **Deny** it: nothing high-impact applies without a person. |
-| 10 min | Scenario ends | Load per AP over the last 5 minutes shows the recovery. |
+| any time | A high-impact change waits | Ask the copilot *"Would moving ap4 to channel 11 help?"*. A channel change is high impact: it appears under **Waiting for you**. **Approve** it, then click **Apply now** on the same card (approving alone does not change the network), or **Deny** it: nothing high-impact applies without a person. The applied change is watched for 30 s like the loop's own. |
+| 10 min | Scenario ends | Load per AP and the video latency over the last 5 minutes show the recovery. |
 
 ## Talking points
 

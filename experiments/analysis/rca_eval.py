@@ -121,7 +121,7 @@ class _NoActuator:
 
 
 class _NoKpis:
-    def window(self, start: datetime, end: datetime) -> KPIValues | None:
+    def window(self, start: datetime, end: datetime, flows: Any = None) -> KPIValues | None:
         return None
 
 

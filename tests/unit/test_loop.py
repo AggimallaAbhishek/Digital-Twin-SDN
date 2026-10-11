@@ -21,7 +21,7 @@ from twin.radio import RadioParams
 from twin.sim.analytical import load_sim_params
 from twin.state.builder import CampusAPs
 from twin.state.model import APState, FlowState, StationState, TwinState
-from twin.verify.verifier import VerifyContext, load_verify_config, verify
+from twin.verify.verifier import VerifyContext, load_verify_config, verify_scoped
 
 ROOT = Path(__file__).resolve().parents[2]
 T0 = datetime(2026, 10, 9, 10, 0, tzinfo=UTC)
@@ -69,7 +69,7 @@ class FakeActuator:
 
 
 class SteadyKpis:
-    def window(self, start: datetime, end: datetime) -> KPIValues:
+    def window(self, start: datetime, end: datetime, flows: Any = None) -> KPIValues:
         return GOOD
 
 
@@ -111,6 +111,15 @@ def test_v3_applies_an_accepted_action_that_needs_no_approval(tmp_path: Path) ->
     assert actuator.applied == ["steer_clients"]
 
 
+def test_the_loop_records_the_flows_each_verdict_compared(tmp_path: Path) -> None:
+    # the executor measures these after the action, for twin vs live (P6.1, P6.5)
+    loop, _, _ = _loop(tmp_path, "V3", medium_needs_approval=False)
+    loop.tick()
+    [record] = loop._executor.history()
+    assert record.scope  # a steer changes the KPIs of the flows on both APs
+    assert set(record.scope) <= set(_crowded().flows)
+
+
 def test_v3_leaves_an_action_that_needs_approval_to_the_operator(tmp_path: Path) -> None:
     loop, actuator, clock = _loop(tmp_path, "V3")  # medium needs approval until P3.5
     [(_, outcome)] = loop.tick()
@@ -118,6 +127,28 @@ def test_v3_leaves_an_action_that_needs_approval_to_the_operator(tmp_path: Path)
     assert actuator.applied == []
     clock.now += timedelta(seconds=5)
     assert loop.tick() == []  # the same proposal is not recorded again every tick
+
+
+def test_a_denied_proposal_cools_down_and_may_come_back(tmp_path: Path) -> None:
+    # review: a waiting proposal was remembered forever, so after a deny it never came back
+    loop, _, clock = _loop(tmp_path, "V3")
+    [(first, outcome)] = loop.tick()
+    assert outcome == "awaiting approval"
+    loop._executor.deny(first, by="abhishek")
+    clock.now += timedelta(seconds=5)
+    assert loop.tick() == []  # an operator just said no: not proposed again straight away
+    clock.now += timedelta(seconds=COOLDOWN_S)
+    [(again, outcome)] = loop.tick()
+    assert (outcome, again != first) == ("awaiting approval", True)  # a new proposal
+
+
+def test_an_approved_proposal_is_left_to_the_operator_to_apply(tmp_path: Path) -> None:
+    loop, actuator, clock = _loop(tmp_path, "V3")
+    [(first, _)] = loop.tick()
+    loop._executor.approve(first, by="abhishek")
+    clock.now += timedelta(seconds=5)
+    assert loop.tick() == []  # waiting for the operator's Apply, not re-proposed
+    assert actuator.applied == []  # the loop never applies an approval on its own
 
 
 def test_v3_proposes_nothing_while_an_action_is_watched(tmp_path: Path) -> None:
@@ -191,12 +222,11 @@ def test_v3_applies_nothing_the_twin_rejects(
     loop, actuator, _ = _loop(tmp_path, "V3", medium_needs_approval=False)
 
     def rejecting(state: TwinState, actions: Any, context: VerifyContext) -> Any:
-        return [
-            v.model_copy(update={"accepted": False, "violations": ["latency_ms 9% worse"]})
-            for v in verify(state, actions, context)
-        ]
+        verdicts, scope = verify_scoped(state, actions, context)
+        rejected = {"accepted": False, "violations": ["latency_ms 9% worse"]}
+        return [v.model_copy(update=rejected) for v in verdicts], scope
 
-    monkeypatch.setattr(api_loop, "verify", rejecting)
+    monkeypatch.setattr(api_loop, "verify_scoped", rejecting)
     [(_, outcome)] = loop.tick()
     assert outcome == "rejected"
     assert actuator.applied == []
@@ -238,7 +268,7 @@ def test_run_ticks_until_stopped_and_survives_a_failing_tick(
 class WorseKpis:
     """Live KPIs that always look worse after an action: every watch rolls back."""
 
-    def window(self, start: datetime, end: datetime) -> KPIValues:
+    def window(self, start: datetime, end: datetime, flows: Any = None) -> KPIValues:
         return GOOD if end <= T0 else GOOD.model_copy(update={"loss_pct": 9.0})
 
 

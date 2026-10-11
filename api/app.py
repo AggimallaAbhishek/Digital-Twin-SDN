@@ -42,7 +42,7 @@ from genai.intent.engine import IntentEngine
 from genai.llm.client import LLMUnavailableError
 from twin.state.builder import NoTelemetryError
 from twin.state.model import TwinState
-from twin.verify.verifier import VerifyContext, verify
+from twin.verify.verifier import VerifyContext, verify_scoped
 
 Metrics = Callable[[str, str, int], list[dict[str, Any]]]  # Any: JSON points
 Alerts = Callable[[int], list[dict[str, Any]]]  # Any: JSON alerts of the last n seconds
@@ -59,7 +59,11 @@ class TwinSimulator:
 
     def verdicts(self, actions: Sequence[Action]) -> list[Verdict]:
         """The joint Verdicts for `actions` on the twin's current state."""
-        return verify(self._state(), actions, self._context)
+        return self.scoped(actions)[0]
+
+    def scoped(self, actions: Sequence[Action]) -> tuple[list[Verdict], list[str]]:
+        """The Verdicts and the flows they compared (recorded so the watch measures those)."""
+        return verify_scoped(self._state(), actions, self._context)
 
     def simulate(self, actions: Sequence[Action]) -> list[dict[str, Any]]:  # Any: JSON
         """The same Verdicts as JSON (the intent engine's Simulator protocol)."""
@@ -171,8 +175,8 @@ def create_app(services: Services) -> FastAPI:
     def simulate(body: SimulateRequest) -> dict[str, Any]:  # Any: JSON
         if not services.sim_enabled:
             raise HTTPException(503, "the twin simulator is off (config/sim.yaml enabled: false)")
-        verdicts = services.simulator.verdicts(body.actions)
-        executor.record(body.actions, verdicts)
+        verdicts, scope = services.simulator.scoped(body.actions)
+        executor.record(body.actions, verdicts, scope)
         return {"verdicts": [v.model_dump(mode="json") for v in verdicts]}
 
     @app.post("/intents")
@@ -284,4 +288,5 @@ def _record_json(r: ActionRecord) -> dict[str, Any]:  # Any: JSON
         "applied_at": r.applied_at.isoformat() if r.applied_at else None,
         "note": r.note,
         "measured": r.measured.model_dump(mode="json") if r.measured else None,
+        "scope": list(r.scope),
     }

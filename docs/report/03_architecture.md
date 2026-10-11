@@ -81,7 +81,7 @@ Table 3.1 lists the components as built. Each is a Python package with a single 
 | Forecaster, anomaly detector | Per-AP load forecast; Isolation Forest over whole-network windows | `ml/forecast/`, `ml/anomaly/` |
 | Heuristic optimizer | Proposes client steering and channel changes for overloaded APs | `ml/optimizer/` |
 | Action executor | Records verdicts, applies accepted actions through the AP agent, watches live KPIs for 30 s and rolls back a regression; keeps an audit log | `controller/executor/` |
-| Control loop | Every 5 s: watch, observe, propose, verify, apply (one change at a time) | `api/loop.py` |
+| Control loop | Every 5 s: watch, observe, propose, verify, apply (nothing new while a change is watched) | `api/loop.py` |
 | Alert monitor | Scores the last 30 s of telemetry with the anomaly detector every 5 s | `api/alerts.py` |
 | LLM client | The only path to a language model: cloud model with a local fallback, schema-constrained output, validation and repair, tool calling, a call log | `genai/llm/` |
 | Tool layer | The five tools the LLM may call, with validated arguments | `genai/tools/` |
@@ -125,7 +125,7 @@ sequenceDiagram
     alt accepted and no approval needed
         L->>X: apply(action)
         X->>A: POST channel / associate / power / QoS
-        X->>X: watch for 30 s (one change at a time)
+        X->>X: watch for 30 s (no new proposals meanwhile)
     else needs approval
         X-->>L: waits for an operator
     end
@@ -189,7 +189,7 @@ Changing a schema needs an architecture decision record. Every boundary validate
 | Route | Purpose |
 |---|---|
 | `GET /topology` | The twin's current state |
-| `GET /metrics?entity=&metric=&window=` | One telemetry series of an AP, station or flow |
+| `GET /metrics?entity=&metric=&window=` | One telemetry series of an AP, station, flow or app class (every flow of that class) |
 | `GET /alerts?since=` | Live anomaly alerts |
 | `POST /twin/simulate` | Verify a set of actions together; the verdicts are recorded |
 | `POST /intents` | Operator text → policy, actions and verdicts (nothing is applied) |

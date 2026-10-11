@@ -25,8 +25,10 @@ from dashboard.views import (
     BANDS,
     CONGESTED,
     COVERAGE_M,
+    KPIS,
     decision_queue,
     describe,
+    kpi_series,
     map_layers,
     twin_vs_live,
     verdict_word,
@@ -43,6 +45,9 @@ CHANNEL_SCALE = alt.Scale(domain=list(CHANNELS), range=list(CHANNELS.values()))
 DASHES = {"ch 1": [1, 0], "ch 6": [8, 4], "ch 11": [2, 4]}  # second cue besides colour
 LOAD = {"calm": "#D3DBE2", "busy": "#8797A6", "congested": "#2A3946", "down": "#FFFFFF"}
 CRITICAL = "#B3261E"  # reserved: stations without an AP, alerts
+# traffic classes: hues apart from the channel colours (dataviz checks pass on #EEF2F5)
+CLASSES = {"video": "#7B4FC4", "web": "#C23B7A", "bulk": "#4F6B12"}
+KPI_REFRESH = "15s"  # 9 series queries a refresh: slower than the map
 MAP_W, MAP_H, CAMPUS_W, CAMPUS_H = 560, 490, 80, 70  # px and metres (7 px per metre)
 
 CSS = f"""
@@ -191,6 +196,55 @@ def load_chart(series: list[dict[str, Any]]) -> Any:  # Any: as campus_map
     )
 
 
+def kpi_chart(rows: list[dict[str, Any]]) -> Any:  # Any: as campus_map
+    """Throughput, latency and loss of each traffic class over time; one panel per KPI."""
+    line = (
+        alt.Chart(frame(rows))
+        .mark_line(strokeWidth=2, point=alt.OverlayMarkDef(size=20))
+        .encode(
+            x=alt.X("t:T", title=None, axis=alt.Axis(format="%H:%M:%S", labelColor=MUTED)),
+            y=alt.Y("value:Q", title=None),
+            color=alt.Color(
+                "class:N",
+                scale=alt.Scale(domain=list(CLASSES), range=list(CLASSES.values())),
+                legend=alt.Legend(orient="bottom", title="Traffic class"),
+            ),
+            tooltip=[
+                "class:N",
+                "kpi:N",
+                alt.Tooltip("t:T", format="%H:%M:%S"),
+                alt.Tooltip("value:Q", format=".2f"),
+            ],
+        )
+    )
+    return (
+        line.properties(width=230, height=130)
+        .facet(column=alt.Column("kpi:N", title=None, sort=[label for label, _ in KPIS]))
+        .resolve_scale(y="independent")
+    )
+
+
+@st.fragment(run_every=KPI_REFRESH)
+def kpis() -> None:
+    """The flows' measured KPIs per traffic class over the last 5 minutes (P1.5 probes)."""
+    eyebrow("Traffic KPIs per class · last 5 minutes · mean over 10 s")
+    api = client()
+    try:
+        points = {
+            (c, field): api.get(f"/metrics?entity={c}&metric={field}&window=300")["points"]
+            for c in CLASSES
+            for _, field in KPIS
+        }
+    except ApiError as exc:
+        st.caption(str(exc))
+        return
+    rows = kpi_series(points)
+    if rows:
+        st.altair_chart(kpi_chart(rows))
+    else:
+        st.markdown("No flow measured yet. The probes report once the scenario's traffic starts.")
+
+
 def twin_chart(rows: list[dict[str, Any]]) -> Any:  # Any: as campus_map
     """Before, twin predicted and measured for each watched action; one panel per KPI."""
     sources = ["before", "twin predicted", "measured"]
@@ -255,20 +309,27 @@ def live() -> None:
     """Everything that follows the network; re-drawn every few seconds."""
     api = client()
     try:
-        topology = api.get("/topology")
         actions = api.get("/actions")["actions"]
     except ApiError as exc:
         st.error(str(exc))
         return
+    try:  # 503 before the run's first telemetry: the queue and alerts still show
+        topology: dict[str, Any] | None = api.get("/topology")
+    except ApiError as exc:
+        topology, no_state = None, str(exc)
     try:
         alerts = api.get("/alerts?since=600")["alerts"]
     except ApiError:
         alerts = []
     left, right = st.columns([3, 2], gap="large")
     with left:
-        eyebrow(f"Campus · twin state at {local_time(topology['ts'])}")
-        st.altair_chart(campus_map(topology), width="content")
-        st.caption(MAP_KEY)
+        if topology is None:
+            eyebrow("Campus")
+            st.info(no_state)
+        else:
+            eyebrow(f"Campus · twin state at {local_time(topology['ts'])}")
+            st.altair_chart(campus_map(topology), width="content")
+            st.caption(MAP_KEY)
     with right:
         decisions(actions, alerts)
     if "rca" in st.session_state:
@@ -330,13 +391,15 @@ def decisions(actions: list[dict[str, Any]], alerts: list[dict[str, Any]]) -> No
         )
 
 
-def charts(api: ApiClient, topology: dict[str, Any], actions: list[dict[str, Any]]) -> None:
-    """Load over time and the twin's predictions next to what was measured."""
-    eyebrow("Load per AP · last 5 minutes")
-    try:
-        st.altair_chart(load_chart(metric_series(api, topology["aps"])))
-    except ApiError as exc:
-        st.caption(str(exc))
+def charts(api: ApiClient, topology: dict[str, Any] | None, actions: list[dict[str, Any]]) -> None:
+    """Load over time (once the twin has a state) and the twin's predictions next to what was
+    measured."""
+    if topology is not None:
+        eyebrow("Load per AP · last 5 minutes")
+        try:
+            st.altair_chart(load_chart(metric_series(api, topology["aps"])))
+        except ApiError as exc:
+            st.caption(str(exc))
     eyebrow("Twin prediction vs what happened")
     rows = twin_vs_live(actions)
     if rows:
@@ -419,6 +482,7 @@ def main() -> None:
     st.title("Campus Wi-Fi twin")
     sidebar()
     live()
+    kpis()
 
 
 if __name__ == "__main__":  # `streamlit run` executes this file as __main__

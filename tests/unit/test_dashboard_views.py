@@ -11,6 +11,7 @@ from dashboard.views import (
     LoadBand,
     decision_queue,
     describe,
+    kpi_series,
     load_band,
     map_layers,
     twin_vs_live,
@@ -153,3 +154,19 @@ def test_a_verdict_reads_as_one_word_or_the_error() -> None:
     assert verdict_word({"accepted": True}) == "accepted"
     assert verdict_word({"accepted": False}) == "rejected"
     assert verdict_word({"error": "channel 3 is not allowed"}) == "error: channel 3 is not allowed"
+
+
+def test_kpi_series_averages_each_class_over_10_s_steps() -> None:
+    points = {
+        ("video", "latency_ms"): [
+            {"ts": "2026-10-10T12:00:01+00:00", "value": 10.0},
+            {"ts": "2026-10-10T12:00:04+00:00", "value": 30.0},  # another video flow
+            {"ts": "2026-10-10T12:00:12+00:00", "value": 5.0},
+        ],
+        ("web", "loss_pct"): [{"ts": "2026-10-10T12:00:09+00:00", "value": 1.5}],
+    }
+    assert kpi_series(points) == [
+        {"class": "video", "kpi": "latency ms", "t": "2026-10-10T12:00:00+00:00", "value": 20.0},
+        {"class": "video", "kpi": "latency ms", "t": "2026-10-10T12:00:10+00:00", "value": 5.0},
+        {"class": "web", "kpi": "loss %", "t": "2026-10-10T12:00:00+00:00", "value": 1.5},
+    ]

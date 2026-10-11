@@ -77,3 +77,21 @@ def test_influx_kpis_query_the_run_and_window() -> None:
     assert len(queries) == 3
     assert all('r.run_id == "smoke-cap"' in q for q in queries)
     assert all("2026-10-08T09:44:20+00:00" in q for q in queries)
+
+
+def test_the_window_can_be_limited_to_the_flows_an_action_affects() -> None:
+    # twin vs live (P6.1, P6.5): measured over the same flows the twin predicted for
+    kpis = [
+        _kpi("video", 10, 1.0, 1.0) | {"flow_id": "sta1-video"},
+        _kpi("video", 30, 0.5, 3.0) | {"flow_id": "sta2-video"},
+        _kpi("bulk", 500, 2.0, 0.0) | {"flow_id": "sta3-bulk"},
+    ]
+    stations = [_sta("sta1", "ap1"), _sta("sta2", "ap1"), _sta("sta3", "ap2")]
+    aps = [{"ap": "ap1"}, {"ap": "ap2"}]
+    result = window_kpis(kpis, stations, aps, flows={"sta2-video", "sta3-bulk"})
+    assert result is not None
+    assert result.throughput_mbps == pytest.approx(2.5 / 2)
+    assert result.latency_ms == 30  # p95 of the video flows in scope
+    assert result.loss_pct == pytest.approx(3.0 / 2)
+    assert result.jain == pytest.approx(9 / (2 * 5))  # Jain stays network-wide, as the verifier's
+    assert window_kpis(kpis, stations, aps, flows={"sta9-web"}) is None  # none of them reported

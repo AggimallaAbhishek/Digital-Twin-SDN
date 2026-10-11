@@ -33,7 +33,8 @@ CREATE TABLE IF NOT EXISTS actions (
     baseline TEXT,
     applied_at TEXT,
     note TEXT NOT NULL DEFAULT '',
-    measured TEXT
+    measured TEXT,
+    scope TEXT
 );
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -60,6 +61,7 @@ class ActionRecord:
     applied_at: datetime | None
     note: str
     measured: KPIValues | None = None  # live KPIs over the watch: twin vs live (P6.1, P6.5)
+    scope: tuple[str, ...] = ()  # the flows the verdict compared; `measured` covers the same
 
 
 @dataclass(frozen=True)
@@ -81,8 +83,9 @@ class Ledger:
         self._db.row_factory = sqlite3.Row
         self._db.executescript(_SCHEMA)
         columns = {row["name"] for row in self._db.execute("PRAGMA table_info(actions)")}
-        if "measured" not in columns:  # a ledger written before the column existed
-            self._db.execute("ALTER TABLE actions ADD COLUMN measured TEXT")
+        for added in ("measured", "scope"):  # a ledger written before these columns existed
+            if added not in columns:
+                self._db.execute(f"ALTER TABLE actions ADD COLUMN {added} TEXT")
 
     def set_measured(self, action_id: str, kpis: KPIValues) -> None:
         """The live KPIs the watch measured after the action (no status change)."""
@@ -92,21 +95,29 @@ class Ledger:
                 (kpis.model_dump_json(), action_id),
             )
 
-    def add(self, actions: Sequence[Action], verdicts: Sequence[Verdict], ts: datetime) -> None:
-        """Store a verified set (one group, named after its first action)."""
+    def add(
+        self,
+        actions: Sequence[Action],
+        verdicts: Sequence[Verdict],
+        ts: datetime,
+        scope: Sequence[str] = (),
+    ) -> None:
+        """Store a verified set (one group, named after its first action) and the flows its
+        verdict compared."""
         group = actions[0].action_id
         with self._db:
             for action, verdict in zip(actions, verdicts, strict=True):
                 status = "verified" if verdict.accepted else "rejected"
                 self._db.execute(
-                    "INSERT INTO actions (action_id, group_id, action, verdict, status) "
-                    "VALUES (?, ?, ?, ?, ?)",
+                    "INSERT INTO actions (action_id, group_id, action, verdict, status, scope) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
                     (
                         action.action_id,
                         group,
                         action.model_dump_json(by_alias=True),
                         verdict.model_dump_json(),
                         status,
+                        json.dumps(list(scope)),
                     ),
                 )
                 self._event(ts, action.action_id, status, "; ".join(verdict.violations))
@@ -198,4 +209,5 @@ def _record(row: sqlite3.Row) -> ActionRecord:
         applied_at=datetime.fromisoformat(row["applied_at"]) if row["applied_at"] else None,
         note=row["note"],
         measured=KPIValues.model_validate_json(row["measured"]) if row["measured"] else None,
+        scope=tuple(json.loads(row["scope"])) if row["scope"] else (),
     )

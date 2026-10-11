@@ -60,7 +60,7 @@ class FakeActuator:
 
 
 class NoKpis:
-    def window(self, start: datetime, end: datetime) -> None:
+    def window(self, start: datetime, end: datetime, flows: Any = None) -> None:
         return None
 
 
@@ -149,6 +149,10 @@ def test_a_set_is_verified_together_and_recorded(tmp_path: Path) -> None:
     assert verdicts[0]["predicted"] == verdicts[1]["predicted"]
     history = client.get("/actions").json()["actions"]
     assert [a["action_id"] for a in history] == ["act_api_1", "act_api_2"]
+    # the flows the joint verdict compared, so the watch measures the same ones (P6.1/P6.5)
+    assert history[0]["scope"] == history[1]["scope"]
+    assert set(history[0]["scope"]) <= {f"sta{i}-video" for i in range(1, 7)}
+    assert history[0]["scope"]  # a steer off the crowded ap1 changes some flows
 
 
 def test_simulation_is_off_until_the_flag_is_on(tmp_path: Path) -> None:

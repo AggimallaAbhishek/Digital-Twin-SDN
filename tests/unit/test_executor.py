@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import dataclasses
 import sqlite3
+from collections.abc import Collection
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -60,14 +61,23 @@ class FakeActuator:
 class FakeKpis:
     """Live KPIs: `before` for windows ending at or before the apply, `after` for later ones."""
 
-    def __init__(self, before: KPIValues | None = GOOD, after: KPIValues | None = GOOD) -> None:
-        self.before, self.after = before, after
+    def __init__(
+        self,
+        before: KPIValues | None = GOOD,
+        after: KPIValues | None = GOOD,
+        scoped: KPIValues | None = None,  # what the affected flows alone measured after
+    ) -> None:
+        self.before, self.after, self.scoped = before, after, scoped
         self.applied_at: datetime | None = None
+        self.scopes: list[Collection[str] | None] = []
 
-    def window(self, start: datetime, end: datetime) -> KPIValues | None:
+    def window(
+        self, start: datetime, end: datetime, flows: Collection[str] | None = None
+    ) -> KPIValues | None:
+        self.scopes.append(flows)
         if self.applied_at is None or end <= self.applied_at:
             return self.before
-        return self.after
+        return self.scoped if flows is not None and self.scoped else self.after
 
 
 def _action(n: int, kind: str = "set_qos_queue", **params: Any) -> Action:
@@ -376,6 +386,23 @@ def test_the_measured_kpis_of_the_watch_are_kept_next_to_the_prediction(tmp_path
     assert record.verdict.predicted == GOOD
 
 
+def test_the_measured_kpis_cover_the_flows_the_twin_predicted_for(tmp_path: Path) -> None:
+    # review: verdict.predicted covers the affected flows, so `measured` must too; the rollback
+    # check stays network-wide (a change may not hurt anyone else either)
+    scoped = GOOD.model_copy(update={"latency_ms": 7.0})
+    executor, _, kpis, clock = _executor(tmp_path, kpis=FakeKpis(scoped=scoped))
+    action = _action(1)
+    executor.record([action], [_verdict(action)], scope=["sta1-video", "sta2-video"])
+    _apply(executor, kpis, clock, [action.action_id])
+    clock.advance(30)
+    assert executor.check() == [("act_t_1", "kept")]
+    [record] = executor.history()
+    assert record.measured == scoped
+    assert record.scope == ("sta1-video", "sta2-video")
+    assert {"sta1-video", "sta2-video"} in [set(s) for s in kpis.scopes if s is not None]
+    assert None in kpis.scopes  # the regression check measured the whole network
+
+
 def test_an_older_ledger_file_gains_the_measured_column(tmp_path: Path) -> None:
     old = sqlite3.connect(tmp_path / "actions.db")
     old.executescript(  # the actions table as ledgers before the `measured` column had it
@@ -545,7 +572,7 @@ class TransientKpis(FakeKpis):
         self.settle_s = settle_s
         self.after_windows: list[tuple[datetime, datetime]] = []
 
-    def window(self, start: datetime, end: datetime) -> KPIValues | None:
+    def window(self, start: datetime, end: datetime, flows: Any = None) -> KPIValues | None:
         if self.applied_at is None or end <= self.applied_at:
             return GOOD
         self.after_windows.append((start, end))

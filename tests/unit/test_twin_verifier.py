@@ -18,7 +18,7 @@ from twin.radio import RadioParams
 from twin.sim.analytical import load_sim_params
 from twin.state.builder import CampusAPs
 from twin.state.model import APState, FlowState, StationState, TwinState
-from twin.verify.verifier import VerifyContext, load_verify_config, verify
+from twin.verify.verifier import VerifyContext, load_verify_config, verify, verify_scoped
 
 ROOT = Path(__file__).resolve().parents[2]
 TS = datetime(2026, 10, 8, 10, 0, tzinfo=UTC)
@@ -270,3 +270,14 @@ def test_a_policy_with_no_flows_in_scope_checks_nothing() -> None:
     )
     [verdict] = verify(_state(CROWDED), [STEER_ONE], CONTEXT.with_policies([corridor]))
     assert verdict.accepted
+
+
+def test_the_scoped_check_names_the_flows_whose_kpis_it_compared() -> None:
+    # the executor measures these same flows after the action (twin vs live, P6.1/P6.5)
+    verdicts, affected = verify_scoped(_state(CROWDED), [STEER_ONE], CONTEXT)
+    [plain] = verify(_state(CROWDED), [STEER_ONE], CONTEXT)
+    timing = {"sim_time_ms"}  # the only field that differs between two runs
+    assert verdicts[0].model_dump(exclude=timing) == plain.model_dump(exclude=timing)
+    assert affected == sorted(_state(CROWDED).flows)  # all 6 flows change (see the steer test)
+    nothing = _action("set_ap_tx_power", {"ap": "ap1", "dbm": 15})
+    assert verify_scoped(_state(CROWDED), [nothing], CONTEXT)[1] == []

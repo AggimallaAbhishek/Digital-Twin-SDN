@@ -9,7 +9,10 @@ to what the network then measured).
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime, timedelta
+from statistics import fmean
 from typing import Any
 
 Row = dict[str, Any]  # Any: JSON values for Altair / Streamlit tables
@@ -151,6 +154,25 @@ def _twin_says(verdict: Row) -> str:
         f"{head} · loss {before['loss_pct']:.1f}% → {after['loss_pct']:.1f}%"
         f" · latency {before['latency_ms']:.1f} → {after['latency_ms']:.1f} ms"
     )
+
+
+def kpi_series(points: Mapping[tuple[str, str], list[Row]], step_s: int = 10) -> list[Row]:
+    """Long rows (class, kpi, t, value) from GET /metrics series keyed by (app class, KPI
+    field): the mean over every flow of the class in each `step_s` step (probes are not in
+    step with each other, so single points would zig-zag between flows)."""
+    labels = {field: label for label, field in KPIS}
+    rows = []
+    for (app_class, field), series in points.items():
+        steps: dict[datetime, list[float]] = {}
+        for p in series:
+            ts = datetime.fromisoformat(p["ts"])
+            start = ts - timedelta(seconds=ts.second % step_s, microseconds=ts.microsecond)
+            steps.setdefault(start, []).append(p["value"])
+        rows += [
+            {"class": app_class, "kpi": labels[field], "t": t.isoformat(), "value": fmean(v)}
+            for t, v in sorted(steps.items())
+        ]
+    return rows
 
 
 def twin_vs_live(actions: list[Row]) -> list[Row]:

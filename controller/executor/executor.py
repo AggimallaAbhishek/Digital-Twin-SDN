@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import functools
 import threading
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Concatenate, ParamSpec, Protocol, TypeVar
@@ -56,8 +56,10 @@ class Actuator(Protocol):
 class LiveKpis(Protocol):
     """Measured network KPIs (controller/executor/live_kpis.py over InfluxDB)."""
 
-    def window(self, start: datetime, end: datetime) -> KPIValues | None:
-        """KPIs over [start, end); None if there is no telemetry in it."""
+    def window(
+        self, start: datetime, end: datetime, flows: Collection[str] | None = None
+    ) -> KPIValues | None:
+        """KPIs over [start, end), over `flows` if given; None if there is no telemetry in it."""
         ...
 
 
@@ -154,14 +156,17 @@ class Executor:
         self._lock = threading.RLock()
 
     @_serialised
-    def record(self, actions: Sequence[Action], verdicts: Sequence[Verdict]) -> None:
-        """Store the verifier's verdicts for one set of actions."""
+    def record(
+        self, actions: Sequence[Action], verdicts: Sequence[Verdict], scope: Sequence[str] = ()
+    ) -> None:
+        """Store the verifier's verdicts for one set of actions, and the flows they compared
+        (twin.verify.verifier.verify_scoped); the watch measures those flows for twin vs live."""
         if not actions or [a.action_id for a in actions] != [v.action_id for v in verdicts]:
             raise ExecutorError("each action needs its own verdict, in the same order")
         known = [a.action_id for a in actions if self._ledger.get(a.action_id) is not None]
         if known:
             raise ExecutorError(f"already recorded: {', '.join(known)} (action ids are unique)")
-        self._ledger.add(actions, verdicts, self._clock())
+        self._ledger.add(actions, verdicts, self._clock(), scope)
 
     @_serialised
     def approve(self, action_id: str, by: str) -> None:
@@ -228,10 +233,14 @@ class Executor:
             assert applied_at is not None  # noqa: S101 - selected above for having applied_at
             # from settle_s on: the action's own transient (a steer re-associating) is ignored
             settle = timedelta(seconds=self._config.settle_s)
-            after = self._kpis.window(applied_at + settle, applied_at + watch)
-            if after is not None:
+            start, end = applied_at + settle, applied_at + watch
+            after = self._kpis.window(start, end)  # the whole network: the rollback rule
+            scope = members[0].scope
+            # twin vs live: over the flows the verdict compared, like verdict.predicted
+            measured = self._kpis.window(start, end, scope) if scope else after
+            if measured is not None:
                 for r in members:
-                    self._ledger.set_measured(r.action_id, after)
+                    self._ledger.set_measured(r.action_id, measured)
             problems = _regressions(members[0].baseline, after, self._config)
             if problems:
                 pairs = [(r, r.previous or {}) for r in members]

@@ -6,10 +6,11 @@
 Each tick finishes the executor's due watches (keep or roll back), then by mode:
 
 - **V1** plain SDN: nothing else (the controller only learns L2; stations rejoin by themselves).
-- **V3** full system: while an applied action is still being watched, propose nothing (one
-  change at a time). Otherwise each heuristic proposal (ml/optimizer/heuristics.py) is verified
-  in the twin and recorded; accepted ones that need no approval are applied; ones that need an
-  operator wait for one (a proposal identical to one already waiting is not recorded again).
+- **V3** full system: while an applied action is still being watched, propose nothing (its
+  effect is measured alone). Otherwise each heuristic proposal (ml/optimizer/heuristics.py) is
+  verified in the twin and recorded; accepted ones that need no approval are applied (up to the
+  executor's `max_actions_per_loop` in one tick); ones that need an operator wait for one (a
+  proposal identical to one already waiting is not recorded again).
 - **V2** heuristics without the twin, evaluation only (ADR-005): the twin's verdict is still
   computed and recorded, then the proposal is applied anyway by an executor whose config has
   `unverified_ok`. Rate limits and rollback still hold.
@@ -30,7 +31,7 @@ from common.schemas import Action
 from controller.executor.executor import Executor, ExecutorError
 from ml.optimizer.heuristics import HeuristicConfig, propose
 from twin.state.model import TwinState
-from twin.verify.verifier import VerifyContext, verify
+from twin.verify.verifier import VerifyContext, verify_scoped
 
 log = logging.getLogger("api.loop")
 MODES = ("V1", "V2", "V3")
@@ -78,7 +79,8 @@ class Loop:
     ) -> None:
         self._config, self._state, self._executor = config, state, executor
         self._context, self._heuristics = context, heuristics
-        self._waiting: set[str] = set()  # proposals recorded and waiting for an operator
+        # proposals recorded and waiting for an operator: signature -> action_id
+        self._waiting: dict[str, str] = {}
         self._applied: dict[str, str] = {}  # action_id -> signature, for the cooldown
         self._cooling: dict[str, datetime] = {}  # signature -> may be tried again after this
         self._to_cool: list[str] = []  # rolled back, cooldown not started yet
@@ -93,6 +95,7 @@ class Loop:
         if self._config.mode == "V1" or self._executor.history("applied"):
             return events
         state = self._state()
+        self._forget_decided()
         for signature in self._to_cool:  # the cooldown starts now: a little later, never sooner
             self._cooling[signature] = state.ts + timedelta(seconds=COOLDOWN_S)
         self._to_cool.clear()
@@ -101,6 +104,19 @@ class Loop:
             if outcome is not None:
                 events.append((action.action_id, outcome))
         return events
+
+    def _forget_decided(self) -> None:
+        """Waiting proposals stop waiting once they are no longer pending: a denied one cools
+        down like a rolled-back one (not proposed again at once). An approved one stays pending
+        until the operator applies it (the loop never applies an approval itself); once applied
+        the loop waits for its watch like any other change."""
+        status = {r.action_id: r.status for r in self._executor.history()}
+        for signature, action_id in list(self._waiting.items()):
+            decided = status.get(action_id)
+            if decided not in ("verified", "approved"):
+                del self._waiting[signature]
+            if decided == "denied":
+                self._to_cool.append(signature)
 
     def run(self, stop: threading.Event) -> None:
         """tick() every period_s until `stop` is set; a failing tick is logged, not fatal."""
@@ -117,16 +133,16 @@ class Loop:
         cooling_until = self._cooling.get(signature)
         if signature in self._waiting or (cooling_until is not None and state.ts < cooling_until):
             return None
-        [verdict] = verify(state, [action], self._context)
+        [verdict], scope = verify_scoped(state, [action], self._context)
         try:
-            self._executor.record([action], [verdict])
+            self._executor.record([action], [verdict], scope)
         except ExecutorError:  # same state as an earlier tick (stalled telemetry): handled then
             return None
         v2 = self._config.mode == "V2"
         if not v2 and not verdict.accepted:
             return "rejected"
         if not v2 and verdict.needs_approval:
-            self._waiting.add(signature)
+            self._waiting[signature] = action.action_id
             return "awaiting approval"
         try:
             self._executor.apply([action.action_id], state)

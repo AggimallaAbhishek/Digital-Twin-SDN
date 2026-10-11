@@ -9,7 +9,7 @@ counts on the AP it was on last). Read from InfluxDB with common/influx.py.
 from __future__ import annotations
 
 import math
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from datetime import datetime
 from typing import Any
 
@@ -30,9 +30,15 @@ Row = dict[str, Any]  # a parsed Flux row: column -> value
 
 
 def window_kpis(
-    kpi_rows: Sequence[Row], sta_rows: Sequence[Row], ap_rows: Sequence[Row]
+    kpi_rows: Sequence[Row],
+    sta_rows: Sequence[Row],
+    ap_rows: Sequence[Row],
+    flows: Collection[str] | None = None,
 ) -> KPIValues | None:
-    """Network KPIs of one window's rows; None if no flow reported."""
+    """KPIs of one window's rows, over `flows` if given (as the verifier's affected flows; Jain
+    stays network-wide, like the verifier's); None if no flow in scope reported."""
+    if flows is not None:
+        kpi_rows = [r for r in kpi_rows if r.get("flow_id") in flows]
     if not kpi_rows:
         return None
     video = sorted(r["latency_ms"] for r in kpi_rows if r["app_class"] == "video")
@@ -57,12 +63,15 @@ class InfluxKpis:
     def __init__(self, conn: InfluxConnection, run_id: str, query: Query = query_csv) -> None:
         self._conn, self._run_id, self._query = conn, run_id, query
 
-    def window(self, start: datetime, end: datetime) -> KPIValues | None:
-        """KPIs over [start, end); None if no flow reported in it."""
+    def window(
+        self, start: datetime, end: datetime, flows: Collection[str] | None = None
+    ) -> KPIValues | None:
+        """KPIs over [start, end), over `flows` if given; None if no flow reported in it."""
         return window_kpis(
             self._rows(KPIRecord, start, end),
             self._rows(StationStats, start, end),
             self._rows(APStats, start, end),
+            flows,
         )
 
     def _rows(self, model: type[TelemetryRecord], start: datetime, end: datetime) -> list[Row]:

@@ -17,6 +17,8 @@ TS = datetime(2026, 10, 8, 10, 0, tzinfo=UTC)
         ("ap3", ("ap_stats", "ap")),
         ("sta12", ("sta_stats", "sta")),
         ("sta12-video", ("kpi", "flow_id")),
+        ("video", ("kpi", "app_class")),  # every flow of one class (the dashboard's KPI charts)
+        ("bulk", ("kpi", "app_class")),
     ],
 )
 def test_the_entity_name_picks_the_measurement(entity: str, expected: tuple[str, str]) -> None:

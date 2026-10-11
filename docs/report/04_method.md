@@ -78,7 +78,7 @@ The optimizer (`ml/optimizer/heuristics.py`) proposes changes for an overloaded 
 4. Verify each proposal and record its verdict.
 5. Apply the accepted ones that need no approval.
 
-The loop makes one change at a time, so the effect of each change can be measured on its own. A proposal identical to one that was just rolled back is not tried again for 120 s (decision P4.5-C). Without that rule, the heuristics would keep proposing the same rolled-back change.
+While an earlier change is still being watched, the loop proposes nothing new, so a change's effect is not mixed up with the next one's. Within one tick it may apply several accepted proposals, up to the executor's limit of three per loop period; in practice the heuristics usually propose one. A proposal identical to one that was just rolled back is not tried again for 120 s (decision P4.5-C). Without that rule, the heuristics would keep proposing the same rolled-back change.
 
 ## 4.5 The language model's three roles
 

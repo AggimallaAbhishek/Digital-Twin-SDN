@@ -96,6 +96,14 @@ class VerifyContext:
 
 def verify(state: TwinState, actions: Sequence[Action], context: VerifyContext) -> list[Verdict]:
     """One Verdict per action, all from the same joint check and simulation."""
+    return verify_scoped(state, actions, context)[0]
+
+
+def verify_scoped(
+    state: TwinState, actions: Sequence[Action], context: VerifyContext
+) -> tuple[list[Verdict], list[str]]:
+    """verify(), plus the flows whose KPIs the verdict compared (those the actions change), so
+    the executor can measure the same flows after applying (twin vs live, P6.1/P6.5)."""
     if not actions:
         raise ValueError("no actions to verify")
     start = time.perf_counter()
@@ -110,7 +118,7 @@ def verify(state: TwinState, actions: Sequence[Action], context: VerifyContext) 
             state, before_sim, after_sim, context.policies
         )
     elapsed_ms = (time.perf_counter() - start) * 1000
-    return [
+    verdicts = [
         Verdict(
             action_id=a.action_id,
             accepted=not violations,
@@ -124,6 +132,7 @@ def verify(state: TwinState, actions: Sequence[Action], context: VerifyContext) 
         )
         for a in actions
     ]
+    return verdicts, affected
 
 
 def _needs_approval(action: Action, config: VerifyConfig) -> bool:

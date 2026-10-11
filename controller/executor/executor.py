@@ -21,10 +21,12 @@ Safety rules (RULEBOOK T-5, N-6; none can be switched off):
 
 from __future__ import annotations
 
+import functools
+import threading
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any, Protocol
+from typing import Any, Concatenate, ParamSpec, Protocol, TypeVar
 
 from common.schemas import Action, KPIValues, Verdict, impact_of
 from controller.executor.ledger import ActionRecord, Event, Ledger
@@ -117,6 +119,23 @@ def load_executor_config(raw: Mapping[str, Any]) -> ExecutorConfig:
     )
 
 
+P = ParamSpec("P")
+R = TypeVar("R")
+
+
+def _serialised(
+    method: Callable[Concatenate[Executor, P], R],
+) -> Callable[Concatenate[Executor, P], R]:
+    """Run an Executor method under its lock (one public call at a time, across threads)."""
+
+    @functools.wraps(method)
+    def locked(executor: Executor, /, *args: P.args, **kwargs: P.kwargs) -> R:
+        with executor._lock:
+            return method(executor, *args, **kwargs)
+
+    return locked
+
+
 class Executor:
     """The only component that changes the network, and only for verified actions."""
 
@@ -130,7 +149,11 @@ class Executor:
     ) -> None:
         self._ledger, self._actuator, self._kpis = ledger, actuator, kpis
         self._config, self._clock = config, clock
+        # the API's request threads and the control loop's thread share one executor (P6.1):
+        # each public call runs alone, so a check-then-update (approve, apply) cannot interleave
+        self._lock = threading.RLock()
 
+    @_serialised
     def record(self, actions: Sequence[Action], verdicts: Sequence[Verdict]) -> None:
         """Store the verifier's verdicts for one set of actions."""
         if not actions or [a.action_id for a in actions] != [v.action_id for v in verdicts]:
@@ -140,6 +163,7 @@ class Executor:
             raise ExecutorError(f"already recorded: {', '.join(known)} (action ids are unique)")
         self._ledger.add(actions, verdicts, self._clock())
 
+    @_serialised
     def approve(self, action_id: str, by: str) -> None:
         """An operator's approval for an action that needs one."""
         record = self._get(action_id)
@@ -151,6 +175,15 @@ class Executor:
             raise ExecutorError(f"{action_id} is {record.status}")
         self._ledger.update(action_id, "approved", self._clock(), f"by {by}", approved_by=by)
 
+    @_serialised
+    def deny(self, action_id: str, by: str) -> None:
+        """An operator's no for an action not yet applied: it can never be applied after this."""
+        record = self._get(action_id)
+        if record.status not in ("verified", "approved"):
+            raise ExecutorError(f"{action_id} is {record.status}")
+        self._ledger.update(action_id, "denied", self._clock(), f"by {by}")
+
+    @_serialised
     def apply(self, action_ids: Sequence[str], state: TwinState) -> None:
         """Apply a verified set (all its actions, in order), or raise ExecutorError."""
         records = [self._get(a) for a in action_ids]
@@ -178,6 +211,7 @@ class Executor:
                 applied_at=now,
             )
 
+    @_serialised
     def check(self) -> list[tuple[str, str]]:
         """Finish every watch that is due: (action_id, kept | rolled_back) for each action."""
         now = self._clock()
@@ -195,6 +229,9 @@ class Executor:
             # from settle_s on: the action's own transient (a steer re-associating) is ignored
             settle = timedelta(seconds=self._config.settle_s)
             after = self._kpis.window(applied_at + settle, applied_at + watch)
+            if after is not None:
+                for r in members:
+                    self._ledger.set_measured(r.action_id, after)
             problems = _regressions(members[0].baseline, after, self._config)
             if problems:
                 pairs = [(r, r.previous or {}) for r in members]
@@ -206,14 +243,17 @@ class Executor:
             outcome += [(r.action_id, final[r.action_id]) for r in members]
         return outcome
 
+    @_serialised
     def group_of(self, action_id: str) -> list[str]:
         """Every action verified together with `action_id`, in order (apply takes the set)."""
         return [r.action_id for r in self._ledger.group(self._get(action_id).group_id)]
 
+    @_serialised
     def history(self, status: str | None = None) -> list[ActionRecord]:
         """The audit log, oldest first (GET /actions?status=)."""
         return self._ledger.records(status)
 
+    @_serialised
     def events(self, action_id: str) -> list[Event]:
         """Every status change of one action."""
         return self._ledger.events(action_id)
@@ -234,6 +274,8 @@ class Executor:
         for r in records:
             if r.status in _DONE:
                 raise ExecutorError(f"{r.action_id} was already applied ({r.status})")
+            if r.status == "denied":  # an operator's no holds even in V2 (ADR-005 waives the twin)
+                raise ExecutorError(f"{r.action_id} was denied by an operator")
             if self._config.unverified_ok:
                 continue  # ADR-005: V2 applies whatever the twin said
             if r.status == "rejected":

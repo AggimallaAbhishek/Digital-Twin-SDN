@@ -19,7 +19,7 @@ def test_the_twin_is_built_from_the_campus_and_its_configs() -> None:
     twin = build_twin(CONN, "run-x")
     assert sorted(twin.campus.positions) == ["ap1", "ap2", "ap3", "ap4"]
     assert twin.context.campus is twin.campus
-    assert twin.sim.enabled is False  # B-5
+    assert twin.sim.enabled is True  # B-5, decision P6.1-B
 
 
 def test_only_an_explicit_v2_executor_may_apply_unverified(tmp_path: Path) -> None:

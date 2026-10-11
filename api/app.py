@@ -7,9 +7,11 @@
     POST /twin/simulate               {"actions": [Action, ...]} -> joint Verdicts (recorded)
     POST /intents                     {"text": "..."} -> policy, actions, Verdicts (not applied)
     POST /actions/{id}/approve        {"by": "..."}       operator token required
+    POST /actions/{id}/deny           {"by": "..."}       operator token; never applied after
     POST /actions/{id}/apply          the whole verified set the action belongs to; token required
     GET  /actions?status=             the executor's audit log
     POST /chat                        {"question": "..."} -> copilot answer and evidence (P5.5)
+    POST /alerts/explain              {"alert": {...}} -> root-cause report (P5.6)
     GET  /alerts?since=               live anomaly alerts of the last `since` s (api/alerts.py)
 
 Feature flags (RULEBOOK B-5): /twin/simulate, /intents and /chat answer 503 until
@@ -30,7 +32,7 @@ from typing import Annotated, Any
 
 from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import AwareDatetime, BaseModel, Field
 
 from common.schemas import Action, Identifier, Verdict
 from controller.executor.executor import Executor, ExecutorError
@@ -38,12 +40,14 @@ from controller.executor.ledger import ActionRecord
 from genai.intent.compiler import FlowRef
 from genai.intent.engine import IntentEngine
 from genai.llm.client import LLMUnavailableError
+from twin.state.builder import NoTelemetryError
 from twin.state.model import TwinState
 from twin.verify.verifier import VerifyContext, verify
 
 Metrics = Callable[[str, str, int], list[dict[str, Any]]]  # Any: JSON points
 Alerts = Callable[[int], list[dict[str, Any]]]  # Any: JSON alerts of the last n seconds
 Chat = Callable[[str], dict[str, Any]]  # Any: the copilot's JSON reply to one question
+Explain = Callable[[dict[str, Any]], dict[str, Any]]  # Any: alert JSON -> root-cause report
 MAX_WINDOW_S = 3600
 
 
@@ -76,6 +80,7 @@ class Services:
     clock: Callable[[], datetime]
     alerts: Alerts | None = None  # None while the alert monitor is off (flag, or no dataset)
     chat: Chat | None = None  # None while config/copilot.yaml is off
+    explain: Explain | None = None  # P5.6 root cause; None while the copilot/LLM layer is off
 
 
 class SimulateRequest(BaseModel):
@@ -94,6 +99,22 @@ class ChatRequest(BaseModel):
     """Body of POST /chat: the operator's question."""
 
     question: Annotated[str, Field(min_length=1, max_length=1000)]
+
+
+class AlertBody(BaseModel):
+    """One alert as GET /alerts returns it (the window it closes ends at `ts`)."""
+
+    ts: AwareDatetime
+    detector: Annotated[str, Field(min_length=1, max_length=64)]
+    entity: Annotated[str, Field(pattern=r"^(ap[0-9]+|network)$")]
+    score: float | None = None
+    details: dict[str, Any] | None = None  # Any: JSON
+
+
+class ExplainRequest(BaseModel):
+    """Body of POST /alerts/explain."""
+
+    alert: AlertBody
 
 
 class ApproveRequest(BaseModel):
@@ -117,6 +138,12 @@ def create_app(services: Services) -> FastAPI:
     def refused(request: Request, exc: ExecutorError) -> JSONResponse:
         """The executor refused (no verdict, needs approval, rate limit ...): 409 with why."""
         return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+    @app.exception_handler(NoTelemetryError)
+    def not_yet(request: Request, exc: NoTelemetryError) -> JSONResponse:
+        """Before the run's first telemetry there is no state: 503, try again shortly."""
+        detail = "no telemetry yet: start the scenario and the collector (make demo)"
+        return JSONResponse(status_code=503, content={"detail": detail})
 
     @app.get("/topology")
     def topology() -> dict[str, Any]:  # Any: JSON
@@ -180,6 +207,16 @@ def create_app(services: Services) -> FastAPI:
         executor.approve(action_id, body.by)
         return {"action_id": action_id, "status": "approved"}
 
+    @app.post("/actions/{action_id}/deny")
+    def deny(
+        action_id: Identifier,
+        body: ApproveRequest,
+        x_operator_token: Annotated[str | None, Header()] = None,
+    ) -> dict[str, Any]:  # Any: JSON
+        require_operator(x_operator_token)
+        executor.deny(action_id, body.by)
+        return {"action_id": action_id, "status": "denied"}
+
     @app.post("/actions/{action_id}/apply")
     def apply(
         action_id: Identifier, x_operator_token: Annotated[str | None, Header()] = None
@@ -193,12 +230,28 @@ def create_app(services: Services) -> FastAPI:
     def actions(status: str | None = None) -> dict[str, Any]:  # Any: JSON
         return {"actions": [_record_json(r) for r in executor.history(status)]}
 
+    _genai_routes(app, services)
+    return app
+
+
+def _genai_routes(app: FastAPI, services: Services) -> None:
+    """The LLM layer's routes and live alerts (P5.5, P5.6): each 503 while its part is off."""
+
     @app.post("/chat")
     def chat(body: ChatRequest) -> dict[str, Any]:  # Any: JSON
         if services.chat is None:
             raise HTTPException(503, "the copilot is off (config/copilot.yaml enabled: false)")
         try:
             return services.chat(body.question)
+        except LLMUnavailableError as exc:
+            raise HTTPException(503, f"no language model answered: {exc}") from exc
+
+    @app.post("/alerts/explain")
+    def explain(body: ExplainRequest) -> dict[str, Any]:  # Any: JSON
+        if services.explain is None:
+            raise HTTPException(503, "the root-cause explainer is off (config/copilot.yaml)")
+        try:
+            return services.explain(body.alert.model_dump(mode="json", exclude_none=True))
         except LLMUnavailableError as exc:
             raise HTTPException(503, f"no language model answered: {exc}") from exc
 
@@ -209,8 +262,6 @@ def create_app(services: Services) -> FastAPI:
                 503, "the alert monitor is off (config/api.yaml alerts: false, or no data/v1)"
             )
         return {"alerts": services.alerts(since)}
-
-    return app
 
 
 def _flow_refs(state: TwinState) -> list[FlowRef]:
@@ -232,4 +283,5 @@ def _record_json(r: ActionRecord) -> dict[str, Any]:  # Any: JSON
         "approved_by": r.approved_by,
         "applied_at": r.applied_at.isoformat() if r.applied_at else None,
         "note": r.note,
+        "measured": r.measured.model_dump(mode="json") if r.measured else None,
     }

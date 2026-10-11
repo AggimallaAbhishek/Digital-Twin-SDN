@@ -7,6 +7,8 @@ the previous config; plus rate limits, all-or-nothing sets and the persistent au
 from __future__ import annotations
 
 import dataclasses
+import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -357,6 +359,100 @@ def test_an_approved_action_cannot_be_approved_again(tmp_path: Path) -> None:
     executor.approve(action.action_id, by="abhishek")
     with pytest.raises(ExecutorError, match="is approved"):
         executor.approve(action.action_id, by="someone else")
+
+
+def test_the_measured_kpis_of_the_watch_are_kept_next_to_the_prediction(tmp_path: Path) -> None:
+    # twin vs live (P6.1, P6.5): what the network did after the action, beside verdict.predicted
+    after = GOOD.model_copy(update={"latency_ms": 11.0})
+    executor, _, kpis, clock = _executor(tmp_path, kpis=FakeKpis(after=after))
+    action = _action(1)
+    executor.record([action], [_verdict(action)])
+    _apply(executor, kpis, clock, [action.action_id])
+    assert executor.history()[0].measured is None  # still watching
+    clock.advance(30)
+    executor.check()
+    [record] = executor.history()
+    assert record.measured == after
+    assert record.verdict.predicted == GOOD
+
+
+def test_an_older_ledger_file_gains_the_measured_column(tmp_path: Path) -> None:
+    old = sqlite3.connect(tmp_path / "actions.db")
+    old.executescript(  # the actions table as ledgers before the `measured` column had it
+        "CREATE TABLE actions (seq INTEGER PRIMARY KEY AUTOINCREMENT,"
+        " action_id TEXT UNIQUE NOT NULL, group_id TEXT NOT NULL, action TEXT NOT NULL,"
+        " verdict TEXT NOT NULL, status TEXT NOT NULL, approved_by TEXT, previous TEXT,"
+        " baseline TEXT, applied_at TEXT, note TEXT NOT NULL DEFAULT '');"
+    )
+    old.close()
+    executor, _, _, _ = _executor(tmp_path)
+    action = _action(1)
+    executor.record([action], [_verdict(action)])
+    assert executor.history()[0].measured is None
+
+
+def test_threads_sharing_the_executor_do_not_corrupt_the_ledger(tmp_path: Path) -> None:
+    # the API's request threads and the control loop's thread share one executor (P6.1)
+    executor, _, _, _ = _executor(tmp_path)
+
+    def record_many(start: int) -> None:
+        for n in range(start, start + 50):
+            action = _action(n)
+            executor.record([action], [_verdict(action)])
+            executor.history()
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        for future in [pool.submit(record_many, k * 100) for k in range(4)]:
+            future.result(timeout=30)  # re-raises any thread's error
+    assert len(executor.history()) == 200
+
+
+def test_an_operator_can_deny_a_waiting_action_and_it_never_applies(tmp_path: Path) -> None:
+    executor, actuator, _, _ = _executor(tmp_path)
+    action = _action(1, "set_ap_channel")
+    executor.record([action], [_verdict(action, needs_approval=True)])
+    executor.deny(action.action_id, by="abhishek")
+    [record] = executor.history()
+    assert (record.status, record.note) == ("denied", "by abhishek")
+    with pytest.raises(ExecutorError, match="denied"):
+        executor.apply([action.action_id], STATE)
+    with pytest.raises(ExecutorError, match="is denied"):
+        executor.approve(action.action_id, by="abhishek")
+    assert actuator.applied == []
+
+
+def test_an_approved_action_can_still_be_denied_before_it_applies(tmp_path: Path) -> None:
+    executor, _, _, _ = _executor(tmp_path)
+    action = _action(1, "set_ap_channel")
+    executor.record([action], [_verdict(action, needs_approval=True)])
+    executor.approve(action.action_id, by="abhishek")
+    executor.deny(action.action_id, by="abhishek")
+    assert executor.history()[0].status == "denied"
+
+
+def test_only_a_pending_action_can_be_denied(tmp_path: Path) -> None:
+    executor, _, kpis, clock = _executor(tmp_path)
+    applied = _action(1)
+    executor.record([applied], [_verdict(applied)])
+    _apply(executor, kpis, clock, [applied.action_id])
+    with pytest.raises(ExecutorError, match="is applied"):
+        executor.deny(applied.action_id, by="abhishek")
+    rejected = _action(2, "set_ap_channel")
+    executor.record([rejected], [_verdict(rejected, accepted=False)])
+    with pytest.raises(ExecutorError, match="is rejected"):
+        executor.deny(rejected.action_id, by="abhishek")
+    with pytest.raises(ExecutorError, match="no verdict"):
+        executor.deny("act_t_9", by="abhishek")
+
+
+def test_v2_never_applies_what_an_operator_denied(tmp_path: Path) -> None:
+    executor, actuator, _, _ = _v2_executor(tmp_path)
+    action = _action(1, "set_ap_channel")
+    executor.record([action], [_verdict(action, needs_approval=True)])
+    executor.deny(action.action_id, by="abhishek")
+    with pytest.raises(ExecutorError, match="denied"):
+        executor.apply([action.action_id], STATE)
+    assert actuator.applied == []
 
 
 class BrokenRevert(FakeActuator):

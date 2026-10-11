@@ -78,6 +78,15 @@ def normal_windows(
     ]
 
 
+def fit_on(
+    normal: Sequence[Sequence[float]], aps: Sequence[str], *, seed: int, n_estimators: int
+) -> Detector:
+    """An Isolation Forest fitted on these normal windows (seeded: RULEBOOK E-1)."""
+    if not normal:
+        raise ValueError("no normal train-split windows to fit the detector on")
+    return Detector.fit(normal, feature_names(aps), seed, n_estimators)
+
+
 def fit_from_runs(  # noqa: PLR0913 - the detector's settings travel as given in config/anomaly.yaml
     runs: Sequence[RunRows],
     aps: Sequence[str],
@@ -89,6 +98,4 @@ def fit_from_runs(  # noqa: PLR0913 - the detector's settings travel as given in
 ) -> Detector:
     """An Isolation Forest fitted on the train split's normal windows (seeded: RULEBOOK E-1)."""
     normal = normal_windows(runs, aps, step_s, window_s)
-    if not normal:
-        raise ValueError("no normal train-split windows to fit the detector on")
-    return Detector.fit(normal, feature_names(aps), seed, n_estimators)
+    return fit_on(normal, aps, seed=seed, n_estimators=n_estimators)

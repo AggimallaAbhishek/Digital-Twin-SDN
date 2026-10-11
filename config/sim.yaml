@@ -1,6 +1,6 @@
 # P3.3 analytical simulator (twin/sim/analytical.py). Values from data/v1; bulk's rate calibrated in P3.5
 # (experiments/analysis/twin_validation.py, train split). AP capacity and co-channel caps come from campus_v1.yaml radio_model.
-enabled: false           # RULEBOOK B-5: off until the twin's exit gate (M2, Oct 19) passes
+enabled: true            # RULEBOOK B-5: on since 2026-10-10 (decision P6.1-B; P3.5 validated, 4.5% MAPE)
 
 apps:                    # per app class (common/schemas.py AppClass)
   video: {offered_mbps: 1.0, elastic: false, fetch: false}   # = testbed profiles.yaml rate (contract test)

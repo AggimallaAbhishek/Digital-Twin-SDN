@@ -32,7 +32,8 @@ CREATE TABLE IF NOT EXISTS actions (
     previous TEXT,
     baseline TEXT,
     applied_at TEXT,
-    note TEXT NOT NULL DEFAULT ''
+    note TEXT NOT NULL DEFAULT '',
+    measured TEXT
 );
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -58,6 +59,7 @@ class ActionRecord:
     baseline: KPIValues | None
     applied_at: datetime | None
     note: str
+    measured: KPIValues | None = None  # live KPIs over the watch: twin vs live (P6.1, P6.5)
 
 
 @dataclass(frozen=True)
@@ -78,6 +80,17 @@ class Ledger:
         self._db = sqlite3.connect(path, check_same_thread=False)
         self._db.row_factory = sqlite3.Row
         self._db.executescript(_SCHEMA)
+        columns = {row["name"] for row in self._db.execute("PRAGMA table_info(actions)")}
+        if "measured" not in columns:  # a ledger written before the column existed
+            self._db.execute("ALTER TABLE actions ADD COLUMN measured TEXT")
+
+    def set_measured(self, action_id: str, kpis: KPIValues) -> None:
+        """The live KPIs the watch measured after the action (no status change)."""
+        with self._db:
+            self._db.execute(
+                "UPDATE actions SET measured = ? WHERE action_id = ?",
+                (kpis.model_dump_json(), action_id),
+            )
 
     def add(self, actions: Sequence[Action], verdicts: Sequence[Verdict], ts: datetime) -> None:
         """Store a verified set (one group, named after its first action)."""
@@ -184,4 +197,5 @@ def _record(row: sqlite3.Row) -> ActionRecord:
         baseline=KPIValues.model_validate_json(row["baseline"]) if row["baseline"] else None,
         applied_at=datetime.fromisoformat(row["applied_at"]) if row["applied_at"] else None,
         note=row["note"],
+        measured=KPIValues.model_validate_json(row["measured"]) if row["measured"] else None,
     )

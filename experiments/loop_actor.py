@@ -13,10 +13,9 @@ import logging
 from datetime import UTC, datetime
 from pathlib import Path
 
-from api.loop import Loop, load_loop_config
-from api.wiring import build_executor, build_twin, load_yaml
+from api.loop import load_loop_config
+from api.wiring import build_executor, build_loop, build_twin, load_yaml
 from common.influx import InfluxConnection
-from ml.optimizer.heuristics import load_heuristic_config
 
 log = logging.getLogger("experiments.loop_actor")
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,8 +30,7 @@ class LoopActor:
         twin = build_twin(conn, run_id)
         v2 = config.mode == "V2"  # ADR-005: evaluation runs only
         executor = build_executor(conn, run_id, run_dir / "actions.db", unverified_ok=v2)
-        heuristics = load_heuristic_config(load_yaml("optimizer.yaml"))
-        self._loop = Loop(config, twin.sync.refresh, executor, twin.context, heuristics)
+        self._loop = build_loop(twin, executor, config)
         self._period, self._next, self._log = config.period_s, 0.0, run_dir / "loop.jsonl"
 
     def tick(self, elapsed_s: float) -> None:

@@ -20,12 +20,14 @@ from fastapi import FastAPI
 
 from api.alerts import build_alert_monitor, influx_rows
 from api.app import Services, TwinSimulator, create_app
+from api.loop import LoopConfig, load_loop_config
 from api.metrics import influx_metrics
-from api.wiring import ROOT, build_executor, build_twin, load_yaml
+from api.wiring import ROOT, build_executor, build_loop, build_twin, load_yaml
 from common.influx import InfluxConnection
 from genai.agent.copilot import Copilot, CopilotConfig, load_copilot_config
 from genai.intent.engine import IntentEngine, load_intent_config
 from genai.llm.client import LLMClient
+from genai.rca.explainer import explain as explain_alert
 from genai.tools.http_backend import HttpBackend
 from genai.tools.tools import ToolLayer
 
@@ -42,11 +44,12 @@ class ApiConfig:
     host: str
     port: int
     alerts: bool  # the live anomaly alert monitor (api/alerts.py), B-5 flag
+    loop: bool  # the P4.5 control loop beside the API, on its executor (decision P6.1-C)
 
 
 def load_api_config(raw: Mapping[str, Any]) -> ApiConfig:
     """Validate config/api.yaml; ValueError names the bad field."""
-    keys = {"run_id", "ledger", "host", "port", "alerts"}
+    keys = {"run_id", "ledger", "host", "port", "alerts", "loop"}
     if set(raw) - keys:
         raise ValueError(f"api config: unknown keys {sorted(set(raw) - keys)}")
     if not isinstance(raw.get("run_id"), str) or not re.fullmatch(
@@ -60,14 +63,16 @@ def load_api_config(raw: Mapping[str, Any]) -> ApiConfig:
     port = raw.get("port")
     if not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= MAX_PORT:
         raise ValueError(f"port must be 1-65535, got {port!r}")
-    if not isinstance(raw.get("alerts"), bool):
-        raise ValueError(f"alerts must be true or false, got {raw.get('alerts')!r}")
-    return ApiConfig(raw["run_id"], raw["ledger"], raw["host"], port, raw["alerts"])
+    for flag in ("alerts", "loop"):
+        if not isinstance(raw.get(flag), bool):
+            raise ValueError(f"{flag} must be true or false, got {raw.get(flag)!r}")
+    return ApiConfig(raw["run_id"], raw["ledger"], raw["host"], port, raw["alerts"], raw["loop"])
 
 
 def build_services() -> Services:
-    """Services for the live system. Only the alert monitor's thread queries InfluxDB on its
-    own (every 5 s, read-only); everything else waits for a request."""
+    """Services for the live system. Two optional threads work on their own: the alert monitor
+    (every 5 s, read-only) and the control loop (every 5 s; it applies only through the
+    executor's checks). Everything else waits for a request."""
     api = load_api_config(load_yaml("api.yaml"))
     conn = InfluxConnection.from_env()
     twin = build_twin(conn, api.run_id)
@@ -86,6 +91,9 @@ def build_services() -> Services:
     monitor = build_alert_monitor(influx_rows(conn, api.run_id), clock) if api.alerts else None
     if monitor is not None:  # watches until the process exits (daemon thread)
         threading.Thread(target=monitor.run, args=(threading.Event(),), daemon=True).start()
+    if api.loop:  # acts until the process exits; shares the executor, so approvals reach it
+        loop = build_loop(twin, executor, _live_loop_config())
+        threading.Thread(target=loop.run, args=(threading.Event(),), daemon=True).start()
     return Services(
         state=twin.sync.refresh,
         simulator=simulator,
@@ -97,7 +105,29 @@ def build_services() -> Services:
         clock=clock,
         alerts=monitor.recent if monitor is not None else None,
         chat=_chat(copilot) if copilot.enabled else None,
+        explain=_explain(copilot) if copilot.enabled else None,
     )
+
+
+def _explain(config: CopilotConfig) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    """POST /alerts/explain: the P5.6 explainer over the API (its suggestions are twin-checked
+    and recorded like the copilot's; nothing is applied)."""
+    client = LLMClient.from_config()
+
+    def explain(alert: dict[str, Any]) -> dict[str, Any]:  # Any: JSON
+        backend = HttpBackend(config.api_url)
+        return explain_alert(client, backend, ToolLayer(backend), alert)
+
+    return explain
+
+
+def _live_loop_config() -> LoopConfig:
+    """config/loop.yaml for the live loop: never V2, which applies without the twin and is for
+    evaluation batches only (ADR-005); the API's executor could not apply its actions anyway."""
+    config = load_loop_config(load_yaml("loop.yaml"))
+    if config.mode == "V2":
+        raise ValueError("the API runs the loop as V1 or V3; V2 is for evaluation batches only")
+    return config
 
 
 def _chat(config: CopilotConfig) -> Callable[[str], dict[str, Any]]:

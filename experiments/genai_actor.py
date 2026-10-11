@@ -103,15 +103,20 @@ class GenAIActor:
         explain: Callable[[Reply], Reply],
         submit: Callable[[Callable[[], None]], None],
         log: Path,
+        on_start: Callable[[], None] | None = None,
     ) -> None:
         self._pending = sorted(questions, key=lambda q: q.at_s)
         self._onset, self._alerts_since = onset_s, alerts_since
         self._ask, self._explain, self._submit_job = ask, explain, submit
         self._log, self._lock, self._explained = log, threading.Lock(), False
+        self._on_start = on_start  # called once, at the first tick
 
     def tick(self, elapsed_s: float) -> None:
         """Called by run_batch while the run plays (elapsed_s ~ scenario time). Cheap: the LLM
         jobs run elsewhere (`submit`) and alerts are read from the monitor's memory."""
+        if self._on_start is not None:  # the scenario clock starts now, not when built
+            self._on_start()
+            self._on_start = None
         while self._pending and self._pending[0].at_s <= elapsed_s:
             q = self._pending.pop(0)
             entry: Reply = {"kind": "question", "id": q.id, "question": q.question}
@@ -160,7 +165,8 @@ class Worker:
 
 def build_actor(run_id: str, scenario: str, run_dir: Path) -> GenAIActor:
     """The live actor for one batch run (InfluxDB from .env, the LLM from config/llm.yaml).
-    Its monitor and worker threads stop when the scenario ends."""
+    Its monitor and worker threads stop duration_s after the run's first tick (the scenario
+    clock starts when the AP agent answers, not when the actor is built)."""
     conn = InfluxConnection.from_env()
     twin = build_twin(conn, run_id)
 
@@ -203,7 +209,7 @@ def build_actor(run_id: str, scenario: str, run_dir: Path) -> GenAIActor:
     plan = load_scenario(scenario)
     stop = threading.Event()
     threading.Thread(target=monitor.run, args=(stop,), daemon=True).start()
-    threading.Timer(plan.duration_s, stop.set).start()
+    stop_at_end = threading.Timer(plan.duration_s, stop.set)  # started by the first tick
     onset = disruption(plan)
     raw = yaml.safe_load(QUESTIONS.read_text())
     return GenAIActor(
@@ -214,4 +220,5 @@ def build_actor(run_id: str, scenario: str, run_dir: Path) -> GenAIActor:
         explain=rca,
         submit=Worker(stop).submit,
         log=run_dir / "genai.jsonl",
+        on_start=stop_at_end.start,
     )

@@ -13,11 +13,13 @@ from typing import Any
 
 import yaml
 
+from api.loop import Loop, LoopConfig
 from common.influx import InfluxConnection
 from controller.executor.actuator import AgentActuator
 from controller.executor.executor import Executor, load_executor_config
 from controller.executor.ledger import Ledger
 from controller.executor.live_kpis import InfluxKpis
+from ml.optimizer.heuristics import load_heuristic_config
 from twin.radio import RadioParams, load_radio_params
 from twin.sim.analytical import SimParams, load_sim_params
 from twin.state.builder import CampusAPs, load_campus_aps
@@ -59,6 +61,12 @@ def build_twin(conn: InfluxConnection, run_id: str) -> Twin:
     context = verify_context()
     sync = TwinSync(conn, context.campus, run_id, load_sync_config(load_yaml("twin.yaml")))
     return Twin(context.campus, context.radio, context.sim, sync, context)
+
+
+def build_loop(twin: Twin, executor: Executor, config: LoopConfig) -> Loop:
+    """The P4.5 control loop over `twin` and `executor`, with config/optimizer.yaml's heuristics."""
+    heuristics = load_heuristic_config(load_yaml("optimizer.yaml"))
+    return Loop(config, twin.sync.refresh, executor, twin.context, heuristics)
 
 
 def agent_url() -> str:

@@ -7,7 +7,14 @@ from typing import Any
 
 import pytest
 
-from twin.state.builder import CampusAPs, Snapshot, build_state, lag_s, load_campus_aps
+from twin.state.builder import (
+    CampusAPs,
+    NoTelemetryError,
+    Snapshot,
+    build_state,
+    lag_s,
+    load_campus_aps,
+)
 
 NOW = datetime(2026, 10, 8, 10, 0, 0, tzinfo=UTC)
 CAMPUS = CampusAPs(
@@ -39,8 +46,10 @@ def test_a_station_without_an_ap_is_unassociated() -> None:
 
 
 def test_no_telemetry_means_no_state() -> None:
-    with pytest.raises(ValueError, match="no telemetry"):
+    # its own type, so the API can answer 503 "not yet" rather than 500 (found in the P6.2 demo)
+    with pytest.raises(NoTelemetryError, match="no telemetry"):
         build_state(Snapshot([], [], []), CAMPUS, NOW, stale_s=5)
+    assert issubclass(NoTelemetryError, ValueError)  # existing callers keep catching it
 
 
 def test_campus_aps_come_from_the_config() -> None:

@@ -52,7 +52,11 @@ def score_answer(question: Question, reply: dict[str, Any]) -> dict[str, Any]:
         )
     result = {
         "entity": re.search(rf"\b{re.escape(question.entity)}\b", answer) is not None,
-        "keyword": any(k.lower() in answer for k in question.keywords),
+        # a keyword starts a word and is not followed by a digit: stems still match ("congest"
+        # in "congestion"), but "channel 1" does not match "channel 11"
+        "keyword": any(
+            re.search(rf"\b{re.escape(k.lower())}(?!\d)", answer) for k in question.keywords
+        ),
         "tools": set(question.tools) <= used,
         "fix": fix,
     }
@@ -61,14 +65,24 @@ def score_answer(question: Question, reply: dict[str, Any]) -> dict[str, Any]:
 
 def audit_gate(entries: list[dict[str, Any]], in_log: Callable[[str], bool]) -> dict[str, int]:
     """LLM proposals of a run's log, and how many are in the audit log with a verdict. A proposal
-    the tool layer refused as invalid never became an action, so it is counted apart."""
-    proposals = [
-        s
-        for e in entries
-        for s in (e.get("reply") or e.get("report") or {}).get("suggested_actions", [])
-    ]
-    actions = [s["action"]["action_id"] for s in proposals if "error" not in s["verdict"]]
-    counts = (len(actions), sum(in_log(a) for a in actions), len(proposals) - len(actions))
+    the tool layer refused as invalid never became an action, so it is counted apart: RCA keeps
+    it in suggested_actions (verdict = error), the copilot only in its simulate_in_twin evidence."""
+    actions, refused = [], 0
+    for e in entries:
+        body = e.get("reply") or e.get("report") or {}
+        for s in body.get("suggested_actions", []):
+            if "error" in s["verdict"]:
+                refused += 1
+            else:
+                actions.append(s["action"]["action_id"])
+        refused += sum(
+            1
+            for ev in body.get("evidence", [])
+            if isinstance(ev, dict)
+            and ev.get("tool") == "simulate_in_twin"
+            and "error" in ev.get("result", {})
+        )
+    counts = (len(actions), sum(in_log(a) for a in actions), refused)
     return dict(zip(GATE_KEYS, counts, strict=True))
 
 

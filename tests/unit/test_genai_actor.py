@@ -121,6 +121,27 @@ def test_a_failing_job_is_logged_and_the_run_goes_on(tmp_path: Path) -> None:
     assert errors == ["RuntimeError: no model"] * 2
 
 
+def test_the_run_clock_starts_on_the_first_tick(tmp_path: Path) -> None:
+    # the actor is built before the VM starts; the scenario clock (and the timer that stops the
+    # monitor and worker threads after duration_s) only starts when run_batch first ticks it
+    started: list[float] = []
+    fakes = Fakes()
+    actor = GenAIActor(
+        [],
+        240,
+        alerts_since=fakes.alerts_since,
+        ask=fakes.ask,
+        explain=fakes.explain,
+        submit=_run_now,
+        log=tmp_path / "genai.jsonl",
+        on_start=lambda: started.append(1.0),
+    )
+    assert started == []  # nothing at build time
+    actor.tick(0.2)
+    actor.tick(5.0)
+    assert started == [1.0]  # once, at the first tick
+
+
 def test_the_worker_runs_jobs_in_order_and_ends_with_the_run() -> None:
     stop, done = threading.Event(), list[int]()
     worker = Worker(stop)
@@ -278,3 +299,33 @@ def test_unicode_spaces_in_an_answer_count_as_spaces() -> None:
     reply = _reply("Move ap3 to channel\u202f11.", ["simulate_in_twin"], [ACCEPTED_FIX])
     question = dataclasses.replace(QUESTION, keywords=("channel 11",))
     assert score_answer(question, reply)["keyword"] is True
+
+
+def test_keywords_match_whole_words() -> None:
+    # review: as a substring, "channel 1" matched "channel 11", passing a wrong answer
+    q = dataclasses.replace(QUESTION, keywords=("channel 1",), fix=None)
+    wrong = _reply("ap3 is on channel 11 and overloaded.", ["simulate_in_twin"], [])
+    right = _reply("ap3 moved to channel 1, next to ap1.", ["simulate_in_twin"], [])
+    assert score_answer(q, wrong)["keyword"] is False
+    assert score_answer(q, right)["keyword"] is True
+    stem = dataclasses.replace(QUESTION, keywords=("congest",), fix=None)
+    assert score_answer(stem, _reply("ap1 is congested.", [], []))["keyword"] is True
+
+
+def test_copilot_proposals_refused_as_invalid_are_counted() -> None:
+    # review: the copilot keeps a refused proposal only in its evidence, not in suggested_actions
+    refused = {"tool": "simulate_in_twin", "result": {"error": "invalid arguments"}}
+    accepted = {"tool": "simulate_in_twin", "result": {"action_id": "act_copilot_1"}}
+    reply = {
+        "answer": "x",
+        "evidence": [{"tool": "get_topology", "result": {}}, refused, accepted],
+        "suggested_actions": [
+            {"action": {"action_id": "act_copilot_1"}, "verdict": {"accepted": True}}
+        ],
+    }
+    gate = audit_gate([{"kind": "question", "reply": reply}], {"act_copilot_1"}.__contains__)
+    assert gate == {
+        "llm_actions": 1,
+        "llm_actions_with_verdict_in_audit_log": 1,
+        "llm_proposals_refused_as_invalid": 1,
+    }

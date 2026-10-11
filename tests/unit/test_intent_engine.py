@@ -139,10 +139,10 @@ def test_end_to_end_over_the_tool_layer() -> None:
     assert verdict["accepted"] is True
 
 
-def test_the_intent_engine_is_off_until_its_exit_gate_passes() -> None:
+def test_the_intent_engine_is_on_since_its_exit_gate_results() -> None:
     root = Path(__file__).resolve().parents[2]
     raw = yaml.safe_load((root / "config" / "intent.yaml").read_text())
-    assert load_intent_config(raw).enabled is False  # RULEBOOK B-5
+    assert load_intent_config(raw).enabled is True  # RULEBOOK B-5, decision P6.1-B
 
 
 @pytest.mark.parametrize("raw", [{}, {"enabled": "yes"}, {"enabled": False, "extra": 1}])

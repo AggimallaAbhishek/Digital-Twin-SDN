@@ -25,7 +25,7 @@ from experiments.dataset import disruption
 from experiments.shell import git_commit
 from ml.anomaly.features import Window, windows
 from ml.anomaly.metrics import best_threshold, detection_delays, precision_recall_f1
-from ml.anomaly.training import fit_from_runs, load_runs, normal_windows
+from ml.anomaly.training import fit_on, load_runs, normal_windows
 from twin.state.builder import load_campus_aps
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -53,14 +53,7 @@ def main() -> int:
 
     step_s, window_s = config["step_s"], config["window_s"]
     normal = normal_windows(runs, aps, step_s, window_s)
-    detector = fit_from_runs(
-        runs,
-        aps,
-        step_s=step_s,
-        window_s=window_s,
-        seed=config["seed"],
-        n_estimators=config["n_estimators"],
-    )
+    detector = fit_on(normal, aps, seed=config["seed"], n_estimators=config["n_estimators"])
     val_scores = detector.score([w.features for w in split["val"]])
     threshold = best_threshold(val_scores, [w.stress for w in split["val"]])
 

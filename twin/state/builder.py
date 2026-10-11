@@ -39,6 +39,10 @@ class CampusAPs:
         return None
 
 
+class NoTelemetryError(ValueError):
+    """No telemetry yet in the window (the run has not started): not yet, rather than wrong."""
+
+
 @dataclass(frozen=True)
 class Snapshot:
     """Recent telemetry rows (common.influx.parse_flux_csv) of one run, any order.
@@ -74,7 +78,7 @@ def build_state(snapshot: Snapshot, campus: CampusAPs, now: datetime, stale_s: f
         if rows
     ]
     if not newest:
-        raise ValueError("no telemetry in the snapshot")
+        raise NoTelemetryError("no telemetry in the snapshot")
     # an AP row with an empty cell for a field the twin needs is ignored (found live, V3 loop)
     complete = [r for r in snapshot.ap_rows if all(r.get(k) is not None for k in _AP_FIELDS)]
     ap_rows = _latest(complete, "ap")

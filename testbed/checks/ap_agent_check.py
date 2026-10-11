@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import sys
+import threading
 import time
 from http import HTTPStatus
 from typing import Any
@@ -29,6 +30,9 @@ EXPECTED_APS = {"ap1": 1, "ap2": 6, "ap3": 11, "ap4": 1}  # config/campus_v1.yam
 EXPECTED_STATIONS = 20
 NEW_CHANNEL = 6
 NEW_TX_POWER_DBM = 10
+# reads must not wait for the switch: an idle switch takes ~0.4 s, and holding the lock through
+# it made reads take 0.38 s (measured; ~2 s under load in the scenario); unblocked they take 0.01 s
+MAX_READ_S = 0.2
 
 
 def api(method: str, path: str, body: Any = None, raw: bytes | None = None) -> tuple[int, Any]:
@@ -111,6 +115,34 @@ def check_writes(record: Recorder, agent: ap_agent.ApAgent, campus: Any) -> None
         record(f"{sta2.name} -> srv1 after steering", reachable(sta2, srv1))
 
 
+def check_reads_during_switch(record: Recorder) -> None:
+    """Telemetry reads keep answering while a channel switch is applied (found in the genai
+    batch: a switch held the agent lock ~2 s, and the collector's 1.5 s polls all timed out)."""
+    latencies: list[float] = []
+    done = threading.Event()
+
+    def poll() -> None:
+        while not done.is_set():
+            start = time.monotonic()
+            api("GET", "/aps/ap1/stats")
+            latencies.append(time.monotonic() - start)
+            time.sleep(0.1)
+
+    reader = threading.Thread(target=poll, daemon=True)
+    reader.start()
+    time.sleep(0.5)
+    start = time.monotonic()
+    status, body = api("POST", "/aps/ap3/channel", {"channel": 1})  # as in cochannel_interference
+    switch_s = time.monotonic() - start
+    time.sleep(0.5)
+    done.set()
+    reader.join(timeout=5)
+    record("POST channel ap3 -> 1", status == HTTPStatus.OK, f"HTTP {status} {body}")
+    worst = max(latencies, default=0.0)
+    detail = f"switch {switch_s:.2f} s, slowest of {len(latencies)} reads {worst:.2f} s"
+    record(f"reads answer < {MAX_READ_S} s during a channel switch", worst < MAX_READ_S, detail)
+
+
 def check_errors(record: Recorder) -> None:
     """Invalid input -> 422 (nothing applied), unknown names/paths -> 404."""
     cases = [
@@ -144,6 +176,7 @@ def main() -> int:
         time.sleep(0.5)
         check_reads(record, agent, campus)
         check_writes(record, agent, campus)
+        check_reads_during_switch(record)
         check_errors(record)
     finally:
         if server is not None:

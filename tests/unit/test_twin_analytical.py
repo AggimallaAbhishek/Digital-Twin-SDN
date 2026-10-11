@@ -56,8 +56,8 @@ def test_params_come_from_the_config() -> None:
     assert PARAMS.dead_latency_ms == 1000.0
 
 
-def test_the_simulator_is_off_until_its_exit_gate_passes() -> None:
-    assert PARAMS.enabled is False  # RULEBOOK B-5
+def test_the_simulator_is_on_since_its_validation() -> None:
+    assert PARAMS.enabled is True  # RULEBOOK B-5, decision P6.1-B (P3.5 validated)
 
 
 def _raw() -> dict[str, Any]:

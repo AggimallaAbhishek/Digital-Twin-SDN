@@ -18,7 +18,7 @@ from genai.intent.engine import IntentEngine
 from genai.llm.client import LLMResult, LLMUnavailableError
 from twin.radio import RadioParams
 from twin.sim.analytical import load_sim_params
-from twin.state.builder import CampusAPs
+from twin.state.builder import CampusAPs, NoTelemetryError
 from twin.state.model import APState, FlowState, StationState, TwinState
 from twin.verify.verifier import VerifyContext, load_verify_config
 
@@ -92,8 +92,11 @@ def _client(
     config = load_executor_config(yaml.safe_load((ROOT / "config" / "executor.yaml").read_text()))
     executor = Executor(Ledger(tmp_path / "a.db"), actuator, NoKpis(), config, clock=lambda: TS)
     simulator = TwinSimulator(lambda: STATE, CONTEXT)
+    defaults: dict[str, Any] = {
+        "state": lambda: STATE,
+        "alerts": lambda seconds: [ALERT | {"since_s": seconds}],
+    }
     services = Services(
-        state=lambda: STATE,
         simulator=simulator,
         sim_enabled=sim_enabled,
         executor=executor,
@@ -101,7 +104,7 @@ def _client(
         intents=IntentEngine(FakeClient(), simulator) if intents else None,
         metrics=lambda entity, metric, window_s: [{"ts": "t", "value": 0.5}],
         clock=lambda: TS,
-        **({"alerts": lambda seconds: [ALERT | {"since_s": seconds}]} | overrides),
+        **(defaults | overrides),
     )
     return TestClient(create_app(services)), actuator
 
@@ -209,6 +212,37 @@ def test_chat_questions_are_bounded(tmp_path: Path, question: str) -> None:
     assert client.post("/chat", json={"question": question}).status_code == 422
 
 
+def test_before_any_telemetry_the_state_answers_503_not_yet(tmp_path: Path) -> None:
+    # found in the P6.2 demo: before the scenario starts, /topology was a plain-text 500
+    def no_state() -> TwinState:
+        raise NoTelemetryError("no telemetry in the snapshot")
+
+    client, _ = _client(tmp_path, state=no_state)
+    response = client.get("/topology")
+    assert response.status_code == 503
+    assert "no telemetry yet" in response.json()["detail"]
+
+
+def test_an_alert_is_explained_by_the_root_cause_explainer(tmp_path: Path) -> None:
+    def explain(alert: dict[str, Any]) -> dict[str, Any]:
+        return {"summary": f"{alert['entity']} went down", "likely_causes": []}
+
+    client, _ = _client(tmp_path, explain=explain)
+    response = client.post("/alerts/explain", json={"alert": ALERT})
+    assert response.json() == {"summary": "ap2 went down", "likely_causes": []}
+
+
+def test_explaining_is_off_without_the_explainer(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path)
+    assert client.post("/alerts/explain", json={"alert": ALERT}).status_code == 503
+
+
+def test_an_explanation_needs_a_well_formed_alert(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path, explain=lambda alert: {})
+    bad = ALERT | {"ts": "yesterday"}
+    assert client.post("/alerts/explain", json={"alert": bad}).status_code == 422
+
+
 def test_alerts_of_the_last_seconds(tmp_path: Path) -> None:
     client, _ = _client(tmp_path)
     assert client.get("/alerts", params={"since": 60}).json() == {
@@ -266,6 +300,20 @@ def test_approve_and_apply_need_the_operator_token(tmp_path: Path) -> None:
     assert actuator.applied == ["act_api_1"]
     statuses = client.get("/actions", params={"status": "applied"}).json()["actions"]
     assert [a["action_id"] for a in statuses] == ["act_api_1"]
+
+
+def test_an_operator_can_deny_a_waiting_action(tmp_path: Path) -> None:
+    client, actuator = _client(tmp_path)
+    client.post("/twin/simulate", json={"actions": [_action(*EVERY_TYPE[5])]})  # high impact
+    assert client.post("/actions/act_api_1/deny", json={"by": "x"}).status_code == 401
+    ok = {"X-Operator-Token": TOKEN}
+    response = client.post("/actions/act_api_1/deny", json={"by": "abhishek"}, headers=ok)
+    assert response.json() == {"action_id": "act_api_1", "status": "denied"}
+    assert client.post("/actions/act_api_1/apply", headers=ok).status_code == 409
+    assert actuator.applied == []
+    [record] = client.get("/actions", params={"status": "denied"}).json()["actions"]
+    assert record["note"] == "by abhishek"
+    assert record["measured"] is None  # twin vs live: filled once a watch finishes
 
 
 def test_without_a_configured_token_nothing_can_be_applied(tmp_path: Path) -> None:

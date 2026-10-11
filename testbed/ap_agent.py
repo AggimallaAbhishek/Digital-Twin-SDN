@@ -33,7 +33,7 @@ from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, TypeVar
 
 import yaml
 from mininet.log import info
@@ -42,6 +42,7 @@ from testbed import ap_logic, qos
 from testbed.interference import load_radio_model
 from testbed.wifi_utils import steer
 
+_T = TypeVar("_T")
 DEFAULT_HOST = "0.0.0.0"  # noqa: S104 - reachable from the Mac over the VM's host-only network
 DEFAULT_PORT = 8081  # Ryu REST is on 8080
 APPLY_TIMEOUT_S = 3.0  # CSA takes CSA_BEACONS x 100 ms beacon interval; tx power is immediate
@@ -246,13 +247,19 @@ class ApAgent:
         ap = self._ap(name)
         channel = ap_logic.parse_channel_request(body)
         intf = ap.wintfs[0]
+        # the lock is held per command, not across the wait: a channel switch takes ~2 s, and
+        # holding it that long stalled every telemetry read (collector lag > 2 s in co-channel runs)
         with self.lock:
-            if self.iw_info(ap).channel != channel:
-                out = ap.cmd(ap_logic.chan_switch_cmd(intf.name, channel))
-                if "OK" not in out:
-                    raise RadioError(f"hostapd refused the channel switch: {out.strip()!r}")
-                self._wait_for(lambda: self.iw_info(ap).channel == channel, "channel", channel)
-                intf.channel = channel  # keep Mininet-WiFi's view in sync
+            if self.iw_info(ap).channel == channel:
+                return {"ts": _now(), "ap": name, "channel": channel}
+            out = ap.cmd(ap_logic.chan_switch_cmd(intf.name, channel))
+        if "OK" not in out:
+            raise RadioError(f"hostapd refused the channel switch: {out.strip()!r}")
+        self._wait_for(
+            lambda: self._locked(lambda: self.iw_info(ap).channel) == channel, "channel", channel
+        )
+        with self.lock:
+            intf.channel = channel  # keep Mininet-WiFi's view in sync
         return {"ts": _now(), "ap": name, "channel": channel}
 
     def set_txpower(self, name: str, body: Any) -> Record:
@@ -260,7 +267,10 @@ class ApAgent:
         dbm = ap_logic.parse_txpower_request(body)
         with self.lock:
             ap.setTxPower(dbm)  # also updates wmediumd's interference model
-            self._wait_for(lambda: self.iw_info(ap).tx_power_dbm == dbm, "tx power", dbm)
+
+        self._wait_for(
+            lambda: self._locked(lambda: self.iw_info(ap).tx_power_dbm) == dbm, "tx power", dbm
+        )
         return {"ts": _now(), "ap": name, "tx_power_dbm": float(dbm)}
 
     def associate(self, sta_name: str, body: Any) -> Record:
@@ -290,6 +300,11 @@ class ApAgent:
     @staticmethod
     def _station_dump(ap: Any) -> list[ap_logic.StationEntry]:
         return ap_logic.parse_station_dump(ap.cmd(f"iw dev {ap.wintfs[0].name} station dump"))
+
+    def _locked(self, read: Callable[[], _T]) -> _T:
+        """One radio read under the lock (polling loops hold it per read, not for the wait)."""
+        with self.lock:
+            return read()
 
     @staticmethod
     def _wait_for(applied: Callable[[], bool], what: str, value: object) -> None:

@@ -11,6 +11,7 @@ dependencies = [
     "pydantic>=2.8,<3",
     "pyyaml>=6.0,<7",
     "scikit-learn==1.9.1",
+    "streamlit>=1.40,<2",
     "uvicorn==0.54.0",
 ]
 
@@ -29,6 +30,7 @@ dev = [
     "bandit>=1.7",
     "pip-audit>=2.7",
     "httpx==0.28.1",
+    "pandas-stubs>=3.0.5.260914",
 ]
 
 [tool.uv]
@@ -93,6 +95,8 @@ markers = [
 [tool.coverage.run]
 source = ["common", "twin", "ml", "genai", "api", "telemetry", "controller"]
 source_pkgs = [
+    "dashboard.client",
+    "dashboard.views",
     "experiments.batch",
     "experiments.dataset",
     "testbed.ap_logic",
@@ -112,7 +116,7 @@ skip_empty = true
 
 # ---------------------------------------------------------------- import-linter (RULEBOOK §4)
 [tool.importlinter]
-root_packages = ["common", "testbed", "controller", "telemetry", "twin", "ml", "genai", "api"]
+root_packages = ["common", "testbed", "controller", "telemetry", "twin", "ml", "genai", "api", "dashboard"]
 
 [[tool.importlinter.contracts]]
 name = "common is the base layer"
@@ -173,3 +177,15 @@ name = "api never imports the testbed"
 type = "forbidden"
 source_modules = ["api"]
 forbidden_modules = ["testbed"]
+
+[[tool.importlinter.contracts]]
+name = "the dashboard talks to the system only over HTTP (P6.1)"
+type = "forbidden"
+source_modules = ["dashboard"]
+forbidden_modules = ["common", "testbed", "controller", "telemetry", "twin", "ml", "genai", "api"]
+
+[[tool.importlinter.contracts]]
+name = "nothing imports the dashboard (a leaf client of the API)"
+type = "forbidden"
+source_modules = ["common", "testbed", "controller", "telemetry", "twin", "ml", "genai", "api"]
+forbidden_modules = ["dashboard"]

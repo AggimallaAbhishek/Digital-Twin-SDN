@@ -197,7 +197,7 @@ Status values: ⬜ Not started · 🟦 In progress · 🟨 At risk · 🟥 Block
   - [x] Q2 hardware: fully virtual.
   - [x] Q3 LLM: Ollama, no paid API budget; cloud model + local fallback (revised 2026-10-07).
   - [x] Q4 deliverables: **report + live demonstration**.
-  - [ ] Q4b report template/format: department template if one exists, otherwise our own (P7.1a).
+  - [x] Q4b report template/format: department template if one exists, otherwise our own (P7.1a). *(2026-10-12: **Word .docx**, built by `make report` from the Markdown chapters (decision P7-A); a department template, if one turns up, becomes the reference document)*
   - [x] ADR-002 (Ryu) and ADR-003 (Ubuntu 20.04) confirmed. *(2026-10-07: Abhishek, deviation #5; solo build, decisions Q6)*
 
 #### P0.2: Shared testbed VM · NET · **Oct 8**
@@ -389,11 +389,11 @@ Status values: ⬜ Not started · 🟦 In progress · 🟨 At risk · 🟥 Block
 | P7.1a ✅ | Report skeleton + title page + Introduction + Related Work (from P0.4) | **DOC** | Oct 15 | Sections drafted in `docs/report/` *(2026-10-08: chapters 00–08 + references as Markdown, `docs/report/README.md` maps each to its task. Title page (course, institute, guide still to fill), Introduction (motivation, problem, approach, RQ + H1–H3, contributions, organisation), Related Work (5 papers + positioning table), 5 IEEE references. 4 claims marked `[check]` wait on the P0.4 full-text check; none may remain at submission)* |
 | P7.1b 🟦 | System architecture + design sections | TWIN + NET | Oct 20 | Drafted with diagrams *(2026-10-10: `03_architecture.md` (layers, components, data flow, interfaces; 3 diagrams, 3 tables) and `05_implementation.md` (testbed, scenarios + interference model, telemetry + dataset, engineering; 1 diagram, 1 table) drafted. Awaiting Abhishek's read, then tick)* |
 | P7.1c 🟦 | Method: twin model, heuristics, intent pipeline, safety model | ML + GENAI | Oct 25 | Drafted *(2026-10-10: `04_method.md` drafted: twin state and sync, the analytical model (capacity, demand, sharing, loss, M/M/1/K latency, Jain), forecasting and anomaly detection, heuristics and the loop, the LLM's three roles, the safety model. Method only; numbers stay in Chapter 6. Awaiting Abhishek's read)* |
-| P7.1d | Results + discussion + limitations + future work (GNN, RL, RAG, hardware) | ML + all | Oct 28 | Drafted from P6.6 figures only |
+| P7.1d 🟦 | Results + discussion + limitations + future work (GNN, RL, RAG, hardware) | ML + all | Oct 28 | Drafted from P6.6 figures only *(2026-10-12: `06_results.md` 6.1 setup, 6.3 twin accuracy, 6.4 GenAI, 6.5 forecasting + anomaly drafted from finished tasks (every number checked against its source file); `07_discussion.md` limitations and threats to validity. 6.2, the H2 part of 6.3 and 7.1 wait for the campaign (`make results` only). 8.2 future work drafted (learned twin, RL optimiser, RAG, hardware, per-run isolation). `make report` builds the Word report (decision P7-A))* |
 | P7.2 | Full draft reviewed end to end by Abhishek | DOC | **Oct 29** | Every section read and approved |
 | P7.3 | **Backup demo recording** (5–8 min screen capture of the live demo script), used only if the live demo fails | GENAI + DOC | Oct 28 | Stored locally + link in README |
 | P7.4 | **Live demonstration rehearsal** ×2 on the actual demo machine, from a cold start (`make demo`), including the failure fallbacks, **one of them with internet off** (LLM falls back to local) | all | Oct 29 | Two clean end-to-end runs; talking points rehearsed |
-| P7.5 | Repo clean-up: README, setup, runbooks; fresh clone → demo works | DOC | Oct 29 | Verified from a fresh clone |
+| P7.5 🟦 | Repo clean-up: README, setup, runbooks; fresh clone → demo works | DOC | Oct 29 | Verified from a fresh clone *(2026-10-12: README updated (live demo, evaluation commands, layout as built). **Fresh clone of HEAD 69e35c5: `make setup` + `make check` pass** (1325 tests, 97.57%). Still to do: the demo from a fresh clone (needs the VM))* |
 | ★ | **Submit** | all | **Oct 30** | Submitted; Oct 31 is spare |
 
 ---

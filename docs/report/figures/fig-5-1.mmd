@@ -1,0 +1,24 @@
+flowchart LR
+    subgraph MAC["Host (macOS, Python 3.11)"]
+        API["REST API · control loop<br/>twin · executor · alert monitor"]
+        GEN["LLM layer"]
+        COL["Collector"]
+        subgraph DOCKER["Docker"]
+            INF[("InfluxDB")]
+            GRA["Grafana"]
+        end
+        OLL["Ollama<br/>cloud model + local fallback"]
+    end
+    subgraph VM["Testbed VM (Ubuntu 20.04, Python 3.8)"]
+        MN["Mininet-WiFi campus<br/>hostapd · wmediumd · OVS"]
+        AG["AP agent :8081"]
+        RY["Ryu app :8080"]
+    end
+    COL -- "poll 1 s" --> AG
+    COL -- "poll 1 s" --> RY
+    COL --> INF
+    API --> INF
+    API -- "actions" --> AG
+    GEN --> API
+    GEN --> OLL
+    GRA --> INF

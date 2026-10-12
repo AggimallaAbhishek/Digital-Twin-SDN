@@ -1,0 +1,41 @@
+flowchart TB
+    OP["Operator<br/>REST API · approvals · chat"]
+
+    subgraph INTEL["Intelligence layer (ml/, genai/)"]
+        ML["Forecaster · anomaly detector<br/>heuristic optimizer"]
+        LLM["LLM layer<br/>intent → policy · copilot · root-cause reports"]
+    end
+
+    subgraph TWIN["Digital twin (twin/)"]
+        ST["Twin state<br/>APs · stations · flows"]
+        SIM["Analytical simulator<br/>airtime · co-channel caps · queues"]
+        VER["Verifier<br/>bounds · KPI deltas · policy rules"]
+    end
+
+    subgraph CTRL["Control plane (controller/)"]
+        EXE["Action executor<br/>apply · watch · roll back · audit log"]
+        RYU["Ryu controller<br/>OpenFlow 1.3 · stats"]
+    end
+
+    subgraph DATA["Data plane (testbed/, Mininet-WiFi VM)"]
+        AGENT["AP agent<br/>channel · power · association · QoS"]
+        NET["4 APs · 2 OVS switches<br/>20 mobile stations · server"]
+    end
+
+    subgraph TEL["Telemetry (telemetry/)"]
+        COL["Collector<br/>1 s polling"]
+        DB[("InfluxDB")]
+    end
+
+    OP <--> LLM
+    ML -- "candidate actions" --> VER
+    LLM -- "candidate actions" --> VER
+    ST --> SIM --> VER
+    VER -- "accepted verdicts only" --> EXE
+    EXE --> AGENT
+    EXE --> RYU
+    AGENT --> NET
+    RYU --> NET
+    NET -- "AP, station, port, flow stats, KPIs" --> COL --> DB
+    DB -- "sync every tick" --> ST
+    DB -- "live KPIs (watch)" --> EXE

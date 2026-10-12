@@ -3,7 +3,7 @@
 RUN := uv run
 FAST_TESTS := -m "not vm and not llm and not integration"
 
-.PHONY: api campaign campaign-mode results intent-eval dashboard demo demo-stop qos-vm validation-batch loop-batch genai-batch genai-live rca-replay help setup env hooks fmt lint types imports test test-all check security up down ps logs sync-vm smoke-vm campus-vm controller-vm vm-clock ap-agent-vm mobility-vm traffic-vm scenario-vm scenario-repro-vm collect batch dataset llm-check llm-client-check
+.PHONY: api campaign campaign-mode results report report-figures intent-eval dashboard demo demo-stop qos-vm validation-batch loop-batch genai-batch genai-live rca-replay help setup env hooks fmt lint types imports test test-all check security up down ps logs sync-vm smoke-vm campus-vm controller-vm vm-clock ap-agent-vm mobility-vm traffic-vm scenario-vm scenario-repro-vm collect batch dataset llm-check llm-client-check
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -137,6 +137,12 @@ results: ## P6.5/P6.6 every table and figure from the data -> experiments/result
 intent-eval: ## P5.4/P6.5 the 30 intents: main route, then the local model alone -> experiments/results/ (needs Ollama)
 	@set -a; . ./.env; set +a; $(RUN) python -m genai.eval.run_intents --out experiments/results/intents.json --log experiments/results/intent_calls.jsonl
 	@set -a; . ./.env; set +a; $(RUN) python -m genai.eval.run_intents --local-only --out experiments/results/intents_local.json --log experiments/results/intent_calls_local.jsonl
+
+report: ## P7 the report: docs/report/*.md -> docs/report/build/report.docx
+	$(RUN) python -m experiments.report
+
+report-figures: ## P7 render the report's Mermaid diagrams -> docs/report/figures/ (needs Node + npm registry)
+	$(RUN) python -m experiments.report --figures
 
 dashboard: ## P6.1 operator dashboard on http://127.0.0.1:8501 (needs `make api`)
 	@set -a; . ./.env; set +a; PYTHONPATH=. $(RUN) streamlit run dashboard/app.py --server.address=127.0.0.1 --server.port=8501

@@ -1,4 +1,6 @@
-# GenAI-Driven Digital Twin for Intelligent SDN-Based Wireless Network Optimization
+::: {custom-style="Title"}
+GenAI-Driven Digital Twin for Intelligent SDN-Based Wireless Network Optimization
+:::
 
 **Project Report**
 

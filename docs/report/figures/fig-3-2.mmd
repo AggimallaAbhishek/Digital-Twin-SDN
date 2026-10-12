@@ -1,0 +1,30 @@
+sequenceDiagram
+    autonumber
+    participant N as Network (VM)
+    participant C as Collector
+    participant DB as InfluxDB
+    participant L as Control loop
+    participant T as Twin (state, simulator, verifier)
+    participant X as Executor
+    participant A as AP agent
+
+    loop every 1 s
+        C->>N: GET AP, station, KPI, port and flow stats
+        C->>DB: write validated records (run_id tagged)
+    end
+    L->>X: check(): finish due watches
+    X->>DB: KPIs since the change
+    X-->>A: revert, if KPIs regressed beyond the noise floor
+    L->>DB: last 10 s of telemetry
+    L->>T: build TwinState
+    L->>L: heuristics propose actions for overloaded APs
+    L->>T: verify(state, actions)
+    T-->>L: Verdict (accepted?, predicted KPIs, impact, needs approval?)
+    L->>X: record(actions, verdicts)
+    alt accepted and no approval needed
+        L->>X: apply(action)
+        X->>A: POST channel / associate / power / QoS
+        X->>X: watch for 30 s (no new proposals meanwhile)
+    else needs approval
+        X-->>L: waits for an operator
+    end

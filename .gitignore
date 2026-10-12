@@ -221,3 +221,5 @@ temp/
 *.tmp
 *.bak
 *.orig
+# make report output (rebuilt from the Markdown chapters)
+docs/report/build/

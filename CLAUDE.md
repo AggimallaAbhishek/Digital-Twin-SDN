@@ -13,6 +13,13 @@ GenAI-Driven Digital Twin for Intelligent SDN-Based Wireless Network Optimizatio
 - After every code change, run `make check` (or ruff + mypy + pytest on the affected module) and report the real result.
 - Never weaken checks: no deleting or skipping tests, no loosened asserts, no new `# noqa` / `# type: ignore` without a reason, no lowering coverage or lint config.
 - Bugs: reproduce → failing test → root cause → minimal fix → full suite (`systematic-debugging` skill).
+- **Mandatory after every batch of code changes, before reporting back** (no exceptions, no asking first):
+  1. `/simplify` on the batch's diff, and apply its fixes;
+  2. `/code-review` (Standards + Spec), and fix every finding in scope there and then;
+  3. `systematic-debugging` for every bug, failing test or error the reviews or checks turn up
+     (reproduce → failing test → root cause → fix);
+  4. `make check` green again, then report what was found, fixed, skipped (with why) or parked.
+  Findings outside the task go to the PHASE_PLAN parking lot. Docs-only changes skip steps 1–3.
 - Don't change `common/schemas.py`, action bounds, safety thresholds or module boundaries without explicit user approval and an ADR.
 - Nothing reaches the network without an accepted twin `Verdict`. The LLM never calls the controller or AP agent directly.
 - Never read, print or write secrets from `.env`.

@@ -38,22 +38,50 @@ Testbed smoke test (needs the VM from `docs/setup.md`):
 make smoke-vm  # expected: SMOKE_RESULT assoc=4/4 loss=0.0% -> PASS
 ```
 
+## Live demo
+
+```bash
+make demo        # services, VM sync, API + dashboard, then the flash crowd (~12 min, lid open)
+make demo-stop   # stop the API and the dashboard
+```
+
+The dashboard is at http://127.0.0.1:8501. The minute-by-minute script, talking points and a fallback for every step are in [`docs/runbooks/demo.md`](docs/runbooks/demo.md).
+
+## Evaluation
+
+```bash
+make campaign MODE=V1   # then V2, V3: 3 scenarios x 3 seeds each (~2 h per mode, lid open)
+make intent-eval        # the 30 intents, main route and local model alone (needs Ollama)
+make results            # every table and figure -> experiments/results/ (no VM, no LLM)
+```
+
+`make campaign` re-runs only failed or missing runs, and keeps each failed attempt. `make results` never calls an LLM. The KPI definitions are decision P6.6-A in [`docs/decisions.md`](docs/decisions.md).
+
+## Report
+
+```bash
+make report           # docs/report/*.md -> docs/report/build/report.docx (open in Word, accept "update fields")
+make report-figures   # only after changing a diagram: re-render docs/report/figures/ (needs Node)
+```
+
+The Markdown chapters are the source: comments made in the Word file must be carried back into them, because a rebuild doesn't keep them. A department template saved as `docs/report/template.docx` is used for the styles when present.
+
 ## Repository layout
 
 ```text
 testbed/      Mininet-WiFi topologies, mobility, AP agent, traffic, scenario runner   (VM, py3.8)
-controller/   apps/: Ryu apps (VM, py3.8) · executor/: apply, watch, rollback (Mac)
+controller/   apps/: Ryu apps (VM, py3.8) · executor/: apply, watch, rollback, audit ledger (Mac)
 telemetry/    collector, MQTT → InfluxDB writer, Mosquitto + Grafana config
-twin/         twin state, simulators, verifier, validation, loop orchestrator
-ml/           forecasting, anomaly detection, optimizer, RL, synthetic data
-genai/        LLM client, tools/MCP, intent engine, RAG, copilot, RCA, scenario generator
+twin/         twin state and sync, analytical simulator, verifier, validation
+ml/           forecasting, anomaly detection, heuristic optimizer
+genai/        LLM client, tools, intent engine, copilot, root-cause explainer, prompts, evals
 common/       shared Pydantic schemas (frozen after P0.6), config loading, logging
-api/          FastAPI backend (REST, WebSocket, SSE)
-dashboard/    operator UI (P6.1)
-config/       YAML config: loop period, thresholds, bounds, model selection
-experiments/  scenarios, batch runner, analysis scripts, notebooks
+api/          FastAPI backend, the control loop, live alerts
+dashboard/    Streamlit operator UI (HTTP client of the API only)
+config/       YAML config: loop period, thresholds, bounds, model selection, feature flags
+experiments/  scenarios, batch runner, demo, analysis scripts, notebooks
 tests/        unit, contract, replay, integration, emulation tests + fixtures
-docs/         plans, rule book, setup, ADRs, runbooks
+docs/         plans, rule book, decisions, setup, ADRs, runbooks, report chapters
 ```
 
 ## Working rules (short version)

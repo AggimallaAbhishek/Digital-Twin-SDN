@@ -32,6 +32,7 @@ dev = [
     "httpx==0.28.1",
     "pandas-stubs>=3.0.5.260914",
     "matplotlib>=3.9,<4",
+    "pypandoc-binary>=1.13,<2",
 ]
 
 [tool.uv]
@@ -74,8 +75,9 @@ disallow_subclassing_any = false
 disallow_untyped_decorators = false
 
 [[tool.mypy.overrides]]
-# pyarrow (P2.3 Parquet) and scikit-learn (P4.2 IsolationForest) ship no type stubs / py.typed
-module = ["pyarrow", "pyarrow.*", "sklearn", "sklearn.*"]
+# pyarrow (P2.3 Parquet), scikit-learn (P4.2 IsolationForest) and pypandoc (P7 report build)
+# ship no type stubs / py.typed
+module = ["pyarrow", "pyarrow.*", "sklearn", "sklearn.*", "pypandoc"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

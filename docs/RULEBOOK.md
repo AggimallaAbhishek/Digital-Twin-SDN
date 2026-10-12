@@ -452,7 +452,7 @@ These are ready to use now. Call one by typing `/<skill-name>` in Claude Code, o
 | 5 GenAI & LLM | `claude-api`, `fastapi`, `tdd` (compiler + validation), `security-review` |
 | 6 Dashboard & eval | `frontend-design`, `impeccable`, `web-design-guidelines`, `claude-in-chrome`, `dataviz`, `code-review` |
 | 7 Report | `anthropic-skills:docx` / `anthropic-skills:pdf`, `anthropic-skills:pptx`, `dataviz` |
-| Every task | `systematic-debugging` (on errors), `code-review` + `simplify` (before hand-off) |
+| Every task | **Mandatory after every batch of code changes** (CLAUDE.md): `simplify` → `code-review` → `systematic-debugging` on every bug or error found → `make check` green, findings fixed there and then (docs-only changes skip the three) |
 
 *Not relevant to this project (ignore):* fantasy-writing, YouTube scripting, voiceover, Tauri, Rust and macOS notarization skills.
 

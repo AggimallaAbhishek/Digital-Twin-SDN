@@ -1,0 +1,12 @@
+# P6.4 evaluation campaign, mode V2 (heuristics applied without the twin's say; the twin's
+# verdict is still recorded for the H2 twin-blocking analysis, ADR-005). See batch_eval_v1.yaml.
+#   make campaign MODE=V2     (~2 h, lid open)
+dataset_version: evalv2-v1
+scenarios: [lecture_flash_crowd, ap_failure, cochannel_interference]
+seeds:
+  42: train
+  43: val
+  44: test
+agent_wait_s: 180
+run_tag: v2
+loop_mode: V2

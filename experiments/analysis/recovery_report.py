@@ -1,4 +1,6 @@
 """P4.5 / H1: time to recover after the flash crowd, V1 (no loop) against V3 (full loop).
+Kept for the P4.5 record (models/loop/v1/recovery.json); the evaluation numbers come from
+`make results` (experiments/analysis/results.py, decision P6.6-A), which covers all scenarios.
 
     uv run python -m experiments.analysis.recovery_report --v1 data/v1 --v3 data/loopv3-v1
 

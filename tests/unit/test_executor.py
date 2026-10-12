@@ -19,7 +19,7 @@ import yaml
 
 from common.schemas import ACTION_ADAPTER, Action, Impact, KPIValues, Verdict
 from controller.executor.executor import Executor, ExecutorError, load_executor_config
-from controller.executor.ledger import Ledger
+from controller.executor.ledger import Ledger, read_records
 from twin.state.model import TwinState
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -416,6 +416,34 @@ def test_an_older_ledger_file_gains_the_measured_column(tmp_path: Path) -> None:
     action = _action(1)
     executor.record([action], [_verdict(action)])
     assert executor.history()[0].measured is None
+
+
+def test_an_older_ledger_is_read_without_being_changed(tmp_path: Path) -> None:
+    # P6.5 reads the campaign's raw ledgers: evidence files, never migrated or written
+    path = tmp_path / "actions.db"
+    old = sqlite3.connect(path)
+    old.executescript(
+        "CREATE TABLE actions (seq INTEGER PRIMARY KEY AUTOINCREMENT,"
+        " action_id TEXT UNIQUE NOT NULL, group_id TEXT NOT NULL, action TEXT NOT NULL,"
+        " verdict TEXT NOT NULL, status TEXT NOT NULL, approved_by TEXT, previous TEXT,"
+        " baseline TEXT, applied_at TEXT, note TEXT NOT NULL DEFAULT '');"
+    )
+    action = _action(1)
+    old.execute(
+        "INSERT INTO actions (action_id, group_id, action, verdict, status) VALUES (?, ?, ?, ?, ?)",
+        ("act_t_1", "g1", action.model_dump_json(), _verdict(action).model_dump_json(), "kept"),
+    )
+    old.commit()
+    old.close()
+    before = path.read_bytes()
+    [record] = read_records(path)
+    assert (record.action_id, record.status, record.measured, record.scope) == (
+        "act_t_1",
+        "kept",
+        None,
+        (),
+    )
+    assert path.read_bytes() == before
 
 
 def test_threads_sharing_the_executor_do_not_corrupt_the_ledger(tmp_path: Path) -> None:

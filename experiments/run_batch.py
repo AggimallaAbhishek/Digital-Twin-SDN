@@ -21,6 +21,7 @@ import sys
 import threading
 import time
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -91,6 +92,25 @@ def inputs_hash(batch_config: Path, scenarios: tuple[str, ...]) -> str:
     for path in paths:
         digest.update(path.name.encode() + b"\0" + path.read_bytes())
     return digest.hexdigest()[:16]
+
+
+def keep_failed_attempt(run_dir: Path, at: str) -> Path:
+    """Move a failed run's files to data/raw/<version>-attempts/<run_id>-<n>/ and log it in
+    <version>/reruns.jsonl, so its rerun starts empty and the failure stays on record (P6.4)."""
+    attempts = run_dir.parent.with_name(f"{run_dir.parent.name}-attempts")
+    attempts.mkdir(parents=True, exist_ok=True)
+    n = 1 + sum(1 for p in attempts.glob(f"{run_dir.name}-*") if p.is_dir())
+    kept = run_dir.rename(attempts / f"{run_dir.name}-{n}")
+    collector = kept / "collector.json"
+    entry = {
+        "run_id": run_dir.name,
+        "at": at,
+        "attempt": str(kept),
+        "collector": json.loads(collector.read_text()) if collector.exists() else None,
+    }
+    with (run_dir.parent / "reruns.jsonl").open("a") as log_file:
+        log_file.write(json.dumps(entry) + "\n")
+    return kept
 
 
 def is_done(run_dir: Path) -> bool:
@@ -230,6 +250,9 @@ def main(argv: list[str] | None = None) -> int:
     results = []
     for plan in plan_runs(config):
         run_dir = out / plan.run_id
+        if run_dir.exists() and any(run_dir.iterdir()) and not is_done(run_dir):
+            kept = keep_failed_attempt(run_dir, datetime.now(UTC).isoformat(timespec="seconds"))
+            log.info("%s: earlier attempt failed, kept in %s; running it again", plan.run_id, kept)
         run_dir.mkdir(parents=True, exist_ok=True)
         if is_done(run_dir):
             log.info("%s: already done, skipped", plan.run_id)
@@ -238,7 +261,12 @@ def main(argv: list[str] | None = None) -> int:
             log.info("%s: starting (seed %d, %s)", plan.run_id, plan.seed, plan.split)
             steps = schedule.get(plan.scenario)
             extras = RunExtras(steps, config.loop_mode, config.genai_eval)
-            report = play(plan, run_dir, config.agent_wait_s, commit, extras)
+            try:
+                report = play(plan, run_dir, config.agent_wait_s, commit, extras)
+            except Exception as exc:  # one broken run must not lose the batch's record
+                log.exception("%s: crashed", plan.run_id)
+                report = {"passed": False, "scenario_ok": False, "error": f"crashed: {exc}"}
+                (run_dir / "collector.json").write_text(json.dumps(report))  # kept on rerun
         ok = run_ok(report)
         print(
             f"BATCH_RUN {plan.run_id} split={plan.split} -> {'PASS' if ok else 'FAIL'}", flush=True

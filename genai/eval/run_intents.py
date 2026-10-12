@@ -15,16 +15,27 @@ set of app classes), objectives and constraints all equal the expected ones, com
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
+import time
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
 
 from common.schemas import Policy
-from genai.intent.engine import PROMPT, parse_intent
-from genai.llm.client import LLM_CONFIG, LLMClient, LLMOutputError, LLMUnavailableError
+from genai.intent.engine import PROMPT, PROMPT_VERSION, parse_intent
+from genai.llm.client import (
+    CALL_LOG,
+    LLM_CONFIG,
+    LLMClient,
+    LLMConfig,
+    LLMOutputError,
+    LLMUnavailableError,
+    ollama_transport,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 INTENTS = ROOT / "genai" / "eval" / "intents.jsonl"
@@ -109,19 +120,34 @@ def accuracy(outcomes: list[Outcome]) -> float:
     return sum(o.correct for o in outcomes) / len(outcomes) if outcomes else 0.0
 
 
+def eval_client(config: Path, log: Path, *, local_only: bool = False) -> LLMClient:
+    """The client the engine uses, logging to `log`; with `local_only`, the local fallback model
+    answers on its own (problem statement §5.4: its accuracy alone)."""
+    if not local_only:
+        return LLMClient.from_config(config, log_path=log)
+    loaded = LLMConfig.load(config)
+    local = dataclasses.replace(loaded, model=loaded.fallback_model)
+    return LLMClient(local, transport=ollama_transport(local.base_url), log_path=log)
+
+
 def main(argv: list[str] | None = None) -> None:
     """Run every intent through the LLM client and print accuracy and the misses."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--intents", type=Path, default=INTENTS)
     parser.add_argument("--config", type=Path, default=LLM_CONFIG, help="LLM config (models)")
+    parser.add_argument("--out", type=Path, help="also write the numbers as JSON (P6.5 results)")
+    parser.add_argument("--log", type=Path, default=CALL_LOG, help="this eval's LLM call log")
+    parser.add_argument("--local-only", action="store_true", help="the fallback model alone")
     args = parser.parse_args(argv)
 
     cases = load_cases(args.intents)
-    client = LLMClient.from_config(args.config)
+    client = eval_client(args.config, args.log, local_only=args.local_only)
     system = PROMPT.read_text()
     outcomes: list[Outcome] = []
     models: dict[str, int] = {}
+    seconds: list[float] = []  # per intent: the whole parse, retries and a fallback included
     for case in cases:
+        start = time.monotonic()
         try:
             result = parse_intent(client, case.intent, system)  # the engine's own parse step
         except (LLMOutputError, LLMUnavailableError) as exc:
@@ -129,6 +155,7 @@ def main(argv: list[str] | None = None) -> None:
         else:
             got, note = result.value, ""
             models[result.model] = models.get(result.model, 0) + 1
+        seconds.append(round(time.monotonic() - start, 3))
         outcome = score(case.expected, got)
         outcomes.append(outcome)
         if not outcome.correct:
@@ -138,14 +165,30 @@ def main(argv: list[str] | None = None) -> None:
                 print(f"     got {got.model_dump_json(include=scored)}")
 
     n = len(outcomes)
+    valid, correct = sum(o.valid for o in outcomes), sum(o.correct for o in outcomes)
     print(f"\nModels used: {models}")
     print("| Schema-valid | Scope | Objectives | Constraints | Correct | Accuracy |")
     print("|---|---|---|---|---|---|")
     print(
-        f"| {sum(o.valid for o in outcomes)}/{n} | {sum(o.scope for o in outcomes)}/{n}"
+        f"| {valid}/{n} | {sum(o.scope for o in outcomes)}/{n}"
         f" | {sum(o.objectives for o in outcomes)}/{n} | {sum(o.constraints for o in outcomes)}/{n}"
-        f" | {sum(o.correct for o in outcomes)}/{n} | **{accuracy(outcomes):.1%}** |"
+        f" | {correct}/{n} | **{accuracy(outcomes):.1%}** |"
     )
+    if args.out:
+        report = {
+            "created": datetime.now(UTC).isoformat(timespec="seconds"),
+            "prompt_version": PROMPT_VERSION,
+            "cases": n,
+            "correct": correct,
+            "accuracy": accuracy(outcomes),
+            "schema_valid": valid,
+            "models": models,
+            "misses": [c.case_id for c, o in zip(cases, outcomes, strict=True) if not o.correct],
+            "seconds": seconds,
+            "local_only": args.local_only,
+        }
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(json.dumps(report, indent=1))
 
 
 if __name__ == "__main__":

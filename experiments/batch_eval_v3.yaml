@@ -1,0 +1,11 @@
+# P6.4 evaluation campaign, mode V3 (the full system: twin-verified loop). See batch_eval_v1.yaml.
+#   make campaign MODE=V3     (~2 h, lid open)
+dataset_version: evalv3-v1
+scenarios: [lecture_flash_crowd, ap_failure, cochannel_interference]
+seeds:
+  42: train
+  43: val
+  44: test
+agent_wait_s: 180
+run_tag: v3
+loop_mode: V3

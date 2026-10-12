@@ -159,3 +159,17 @@ def test_bad_loop_settings_are_refused(change: dict[str, Any], named: str) -> No
     raw = yaml.safe_load((ROOT / "experiments" / "batch_v1.yaml").read_text())
     with pytest.raises(ValueError, match=named):
         load_batch_config(raw | change)
+
+
+def test_the_campaign_runs_every_mode_on_the_same_scenarios_and_seeds() -> None:
+    # P6.4 (decision P6.4-A): V1/V2/V3 x 3 scenarios x 3 seeds = 27 runs, apart by run tag
+    runs = []
+    for mode in ("V1", "V2", "V3"):
+        path = ROOT / "experiments" / f"batch_eval_{mode.lower()}.yaml"
+        config = load_batch_config(yaml.safe_load(path.read_text()))
+        assert config.loop_mode == mode
+        assert config.scenarios == ("lecture_flash_crowd", "ap_failure", "cochannel_interference")
+        assert config.seeds == {42: "train", 43: "val", 44: "test"}
+        runs += [r.run_id for r in plan_runs(config)]
+    assert len(set(runs)) == 27
+    assert "ap_failure-v2-s43" in runs

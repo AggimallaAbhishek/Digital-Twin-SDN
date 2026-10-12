@@ -1,0 +1,12 @@
+# P6.4 evaluation campaign, mode V1 (plain SDN: no loop). One of three configs (V1, V2, V3):
+# the same 3 scenarios x 3 seeds each, all at the frozen eval-v1 code (decision P6.4-A).
+#   make campaign MODE=V1     (~2 h, lid open; re-running it replays only failed or missing runs)
+dataset_version: evalv1-v1
+scenarios: [lecture_flash_crowd, ap_failure, cochannel_interference]
+seeds:
+  42: train
+  43: val
+  44: test
+agent_wait_s: 180
+run_tag: v1
+loop_mode: V1

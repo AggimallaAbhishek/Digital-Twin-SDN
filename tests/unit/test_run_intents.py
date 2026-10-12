@@ -1,14 +1,23 @@
 """P5.4 intent eval (genai/eval/run_intents.py): loading the test set and scoring, no LLM calls."""
 
+import json
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from common.schemas import Policy
-from genai.eval.run_intents import INTENTS, Outcome, accuracy, load_cases, main, score
+from genai.eval.run_intents import (
+    INTENTS,
+    Outcome,
+    accuracy,
+    eval_client,
+    load_cases,
+    main,
+    score,
+)
 from genai.intent.engine import PROMPT_VERSION
-from genai.llm.client import LLMClient, LLMOutputError, LLMResult
+from genai.llm.client import LLM_CONFIG, LLMClient, LLMConfig, LLMOutputError, LLMResult
 
 LINE = (
     '{"id": "i01", "intent": "Give video in the lab priority.", "expected": '
@@ -151,7 +160,7 @@ def test_main_reports_accuracy_and_misses(
     path.write_text("\n".join(lines))
     right, wrong, _ = load_cases(path)
     replies = {right.intent: right.expected, wrong.intent: right.expected}  # i02: wrong zone
-    monkeypatch.setattr(LLMClient, "from_config", lambda _path: _FakeClient(replies))
+    monkeypatch.setattr(LLMClient, "from_config", lambda _path, log_path: _FakeClient(replies))
     main(["--intents", str(path)])
     out = capsys.readouterr().out
     assert "MISS i01" not in out
@@ -160,3 +169,40 @@ def test_main_reports_accuracy_and_misses(
     assert "MISS i03" in out
     assert "still invalid" in out
     assert "| 2/3 | 1/3 | 2/3 | 2/3 | 1/3 | **33.3%** |" in out
+
+
+def test_main_writes_the_numbers_for_the_results_when_asked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # P6.5: `make results` reads experiments/results/intents.json (no LLM call there)
+    path = tmp_path / "intents.jsonl"
+    path.write_text("\n".join([LINE, LINE.replace("i01", "i02").replace("lab", "library")]))
+    right, wrong = load_cases(path)
+    replies = {right.intent: right.expected, wrong.intent: right.expected}  # i02: wrong zone
+    logs: list[Path] = []
+
+    def client(_path: Path, log_path: Path) -> _FakeClient:
+        logs.append(log_path)
+        return _FakeClient(replies)
+
+    monkeypatch.setattr(LLMClient, "from_config", client)
+    out = tmp_path / "results" / "intents.json"
+    calls = tmp_path / "results" / "intent_calls.jsonl"
+    main(["--intents", str(path), "--out", str(out), "--log", str(calls)])
+    report = json.loads(out.read_text())
+    assert (report["cases"], report["correct"], report["accuracy"]) == (2, 1, 0.5)
+    assert report["models"] == {"fake": 2}
+    assert report["misses"] == ["i02"]
+    assert report["prompt_version"] == PROMPT_VERSION
+    # per intent, wall time of the whole parse (retries and a fallback included): §5.4
+    assert len(report["seconds"]) == 2
+    assert all(s >= 0 for s in report["seconds"])
+    assert logs == [calls]  # this eval's own call log, not the shared one
+
+
+def test_the_local_model_can_be_evaluated_alone(monkeypatch: pytest.MonkeyPatch) -> None:
+    # §5.4: "intent accuracy on the local fallback alone": the fallback model as the main one
+    monkeypatch.setattr("genai.eval.run_intents.ollama_transport", lambda url: None)
+    client = eval_client(LLM_CONFIG, Path("calls.jsonl"), local_only=True)
+    config = LLMConfig.load(LLM_CONFIG)
+    assert client.config.model == config.fallback_model == "qwen2.5:3b"

@@ -10,6 +10,7 @@ not apply and was undone); rollback_failed (needs an operator).
 
 from __future__ import annotations
 
+import contextlib
 import json
 import sqlite3
 from collections.abc import Sequence
@@ -196,7 +197,17 @@ class Ledger:
         )
 
 
+def read_records(path: Path) -> list[ActionRecord]:
+    """Every action of a ledger file, opened read-only: no schema, no migration, no write (the
+    campaign's raw ledgers are evidence, P6.5). Older files without the later columns read as
+    the defaults."""
+    with contextlib.closing(sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)) as db:
+        db.row_factory = sqlite3.Row
+        return [_record(row) for row in db.execute("SELECT * FROM actions ORDER BY seq")]
+
+
 def _record(row: sqlite3.Row) -> ActionRecord:
+    has = set(row.keys())
     return ActionRecord(
         action_id=row["action_id"],
         group_id=row["group_id"],
@@ -208,6 +219,8 @@ def _record(row: sqlite3.Row) -> ActionRecord:
         baseline=KPIValues.model_validate_json(row["baseline"]) if row["baseline"] else None,
         applied_at=datetime.fromisoformat(row["applied_at"]) if row["applied_at"] else None,
         note=row["note"],
-        measured=KPIValues.model_validate_json(row["measured"]) if row["measured"] else None,
-        scope=tuple(json.loads(row["scope"])) if row["scope"] else (),
+        measured=KPIValues.model_validate_json(row["measured"])
+        if "measured" in has and row["measured"]
+        else None,
+        scope=tuple(json.loads(row["scope"])) if "scope" in has and row["scope"] else (),
     )

@@ -3,7 +3,7 @@
 RUN := uv run
 FAST_TESTS := -m "not vm and not llm and not integration"
 
-.PHONY: api dashboard demo demo-stop qos-vm validation-batch loop-batch genai-batch genai-live rca-replay help setup env hooks fmt lint types imports test test-all check security up down ps logs sync-vm smoke-vm campus-vm controller-vm vm-clock ap-agent-vm mobility-vm traffic-vm scenario-vm scenario-repro-vm collect batch dataset llm-check llm-client-check
+.PHONY: api campaign campaign-mode results intent-eval dashboard demo demo-stop qos-vm validation-batch loop-batch genai-batch genai-live rca-replay help setup env hooks fmt lint types imports test test-all check security up down ps logs sync-vm smoke-vm campus-vm controller-vm vm-clock ap-agent-vm mobility-vm traffic-vm scenario-vm scenario-repro-vm collect batch dataset llm-check llm-client-check
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -122,6 +122,21 @@ validation-batch: ## P3.5 action batch: scenarios with scheduled, twin-verified 
 
 loop-batch: ## P4.5 the flash crowd with the V3 loop, 3 seeds (~40 min, lid open); V1 = data/v1
 	@set -a; . ./.env; set +a; $(KEEP_AWAKE) $(RUN) python -m experiments.run_batch --config experiments/batch_loop_v3.yaml
+
+MODE ?= V3
+mode = $(shell echo $(MODE) | tr A-Z a-z)
+campaign-mode:
+	@case "$(MODE)" in V1|V2|V3) ;; *) echo "MODE must be V1, V2 or V3, got '$(MODE)'"; exit 1;; esac
+campaign: campaign-mode up sync-vm ## P6.4 one mode of the evaluation (MODE=V1|V2|V3: 3 scenarios x 3 seeds, ~2 h, lid open), then its dataset
+	@set -a; . ./.env; set +a; $(KEEP_AWAKE) $(RUN) python -m experiments.run_batch --config experiments/batch_eval_$(mode).yaml
+	@set -a; . ./.env; set +a; $(RUN) python -m experiments.export_dataset --version eval$(mode)-v1
+
+results: ## P6.5/P6.6 every table and figure from the data -> experiments/results/ (no LLM, no VM)
+	$(RUN) python -m experiments.analysis.results
+
+intent-eval: ## P5.4/P6.5 the 30 intents: main route, then the local model alone -> experiments/results/ (needs Ollama)
+	@set -a; . ./.env; set +a; $(RUN) python -m genai.eval.run_intents --out experiments/results/intents.json --log experiments/results/intent_calls.jsonl
+	@set -a; . ./.env; set +a; $(RUN) python -m genai.eval.run_intents --local-only --out experiments/results/intents_local.json --log experiments/results/intent_calls_local.jsonl
 
 dashboard: ## P6.1 operator dashboard on http://127.0.0.1:8501 (needs `make api`)
 	@set -a; . ./.env; set +a; PYTHONPATH=. $(RUN) streamlit run dashboard/app.py --server.address=127.0.0.1 --server.port=8501

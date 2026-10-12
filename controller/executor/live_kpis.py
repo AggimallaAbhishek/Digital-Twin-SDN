@@ -48,13 +48,23 @@ def window_kpis(
         latest[row["sta"]] = row
     aps = sorted({r["ap"] for r in ap_rows})
     clients = [sum(1 for r in latest.values() if r["ap"] == ap) for ap in aps]
-    squares = sum(c * c for c in clients)
     return KPIValues(
         throughput_mbps=math.fsum(r["throughput_mbps"] for r in kpi_rows) / len(kpi_rows),
-        latency_ms=latencies[math.ceil(P95 * len(latencies)) - 1],
+        latency_ms=p95(latencies),
         loss_pct=math.fsum(r["loss_pct"] for r in kpi_rows) / len(kpi_rows),
-        jain=sum(clients) ** 2 / (len(clients) * squares) if squares else 1.0,
+        jain=jain(clients),
     )
+
+
+def p95(ordered: Sequence[float]) -> float:
+    """The 95th percentile of values sorted ascending, by nearest rank."""
+    return ordered[math.ceil(P95 * len(ordered)) - 1]
+
+
+def jain(clients: Sequence[float]) -> float:
+    """Jain's index (sum x)^2 / (n * sum x^2); 1.0 (even) when nobody is connected."""
+    squares = math.fsum(c * c for c in clients)
+    return math.fsum(clients) ** 2 / (len(clients) * squares) if squares else 1.0
 
 
 class InfluxKpis:

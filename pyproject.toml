@@ -31,6 +31,7 @@ dev = [
     "pip-audit>=2.7",
     "httpx==0.28.1",
     "pandas-stubs>=3.0.5.260914",
+    "matplotlib>=3.9,<4",
 ]
 
 [tool.uv]
@@ -97,6 +98,9 @@ source = ["common", "twin", "ml", "genai", "api", "telemetry", "controller"]
 source_pkgs = [
     "dashboard.client",
     "dashboard.views",
+    "experiments.analysis.campaign",
+    "experiments.analysis.llm_latency",
+    "experiments.analysis.twin_blocking",
     "experiments.batch",
     "experiments.dataset",
     "testbed.ap_logic",

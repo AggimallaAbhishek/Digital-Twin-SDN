@@ -4,7 +4,17 @@
 
 ## 8.1 Conclusion
 
-_To be written._
+<!-- Written 2026-10-12 from Chapters 6 and 7. The H3 numbers are P5.4's; update them if `make intent-eval` at eval-v1 differs. -->
+
+This project built a digital twin of an emulated campus Wi-Fi network and made it the gate that every automated change must pass. The research question asked whether verifying actions in the twin makes an AI-driven SDN controller both more effective and safer, and whether a language model can drive it safely from natural language.
+
+**Effectiveness (H1) was not shown.** Plain SDN never recovered in any of its nine runs, so every comparison of recovery times is a lower bound, and the H1 verdict is inconclusive in all three scenarios. The controlled system clearly helped where congestion comes from load that can be spread. In the lecture flash crowd it more than doubled the affected flows' throughput and cut their loss from 44% to under 10%. It did not help after an AP failure, where the clients had already moved and a steer could make the video worse. It could not fix co-channel interference without an operator, because the fix is a high-impact channel change.
+
+**Safety (H2) held, but mostly not because of the twin's predictions.** The twin blocked actions that would have hurt and that an optimiser acting directly applied, so H2 holds. Yet most harmful actions were ones the twin had accepted. Its steady-state model is accurate (4.5% throughput error), but it does not see the seconds right after a change. The twin's real contribution was as part of a gate: verify, apply only what is low-risk or approved, watch, and roll back. In the full system, no high-impact change reached the network without an operator, and every applied action had an accepted verdict. The one gap the campaign exposed is that a rollback can fail.
+
+**The language model can be used safely as a translator (H3).** With schema-constrained output, validation, a deterministic compiler and the twin's check, the main model translated 30 of 30 test intents and the offline fallback 21 of 30. No invalid output reached the network. The model explained live faults correctly from the first alert, but it never acted on its own.
+
+The answer to the research question is therefore qualified. A twin used as a gate makes automated control of a wireless network safer, and an LLM behind that gate is a safe way to state goals in natural language. Whether it also makes the network recover faster depends on the kind of fault, and on having an operator to approve the changes that matter most. Each failure was measured, not assumed: the steers that hurt, the rollbacks that failed and the changes left waiting. These failures mark where the work should go next.
 
 ## 8.2 Future work
 

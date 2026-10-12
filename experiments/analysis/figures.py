@@ -53,24 +53,39 @@ def kpi_figure(rows: Sequence[Row], scenario: str, path: Path) -> None:
 
 
 def _point(ax: Axes, x: int, mode: str, kpi: str, r: Row) -> None:
-    """One mode's mean, its interval clipped to what the KPI can be (with n = 3 the t interval
-    can pass it), and a direct value label."""
-    low, high = BOUNDS.get(kpi, (0.0, math.inf))
-    mean, ci = r["mean"], r["ci95"] or 0.0
-    down = max(0.0, mean - max(low, mean - ci))
-    up = max(0.0, min(high, mean + ci) - mean)
+    """One mode's mean, its interval and a direct value label."""
+    mean = r["mean"]
+    down, up = error_bar(kpi, r)
     colour = MODE_COLOURS[mode]
     ax.errorbar(
         x, mean, yerr=[[down], [up]], fmt="o", markersize=7, color=colour, ecolor=colour,
         elinewidth=2, capsize=0, markeredgecolor=SURFACE, markeredgewidth=2, label=mode,
     )  # fmt: skip
-    label = f"{mean:.0f}" if mean >= WHOLE_FROM else f"{mean:.2f}"
-    if r["never"]:
-        label = f"≥{label} ({r['never']} never)"
     ax.annotate(
-        label, (x, mean), xytext=(9, 0), textcoords="offset points", va="center", fontsize=8,
-        color=INK,
+        value_label(mean, r["never"]), (x, mean), xytext=(9, 0), textcoords="offset points",
+        va="center", fontsize=8, color=INK,
     )  # fmt: skip
+
+
+def error_bar(kpi: str, r: Row) -> tuple[float, float]:
+    """The interval below and above the mean, clipped to what the KPI can be.
+
+    With n = 3 the t interval can pass a KPI's range; a time to recover never passes the run
+    end (the row's `high`)."""
+    low, high = BOUNDS.get(kpi, (0.0, math.inf))
+    if r["high"] is not None:
+        high = r["high"]
+    mean, ci = r["mean"], r["ci95"] or 0.0
+    return max(0.0, mean - max(low, mean - ci)), max(0.0, min(high, mean + ci) - mean)
+
+
+def value_label(mean: float, never: int) -> str:
+    """A point's direct label: a censored mean marked as a lower bound, with its never count.
+
+    The never count goes on a second line, so the label stays narrower than the gap to the next
+    mode's interval."""
+    label = f"{mean:.0f}" if mean >= WHOLE_FROM else f"{mean:.2f}"
+    return f"≥{label}\n{never} never" if never else label
 
 
 def _style(ax: Axes, kpi: str, title: str) -> None:

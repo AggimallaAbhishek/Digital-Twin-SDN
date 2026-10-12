@@ -54,20 +54,22 @@ Runs = Mapping[tuple[str, str], Sequence[RunKpis]]  # (mode, scenario) -> one en
 
 def kpi_table(runs: Runs) -> list[Row]:
     """One row per mode, scenario and KPI: mean, ci95, n, and how many runs never recovered
-    (counted at their run end, so the time-to-recover mean is then a lower bound)."""
+    (counted at their run end, so the time-to-recover mean is then a lower bound). `high` is
+    the most a time to recover can be (the latest run end); None for the other KPIs."""
     rows = []
     for (mode, scenario), kpis in runs.items():
         for kpi in KPIS:
             if kpi == "ttr_s":
                 values = [k.ttr_s if k.ttr_s is not None else k.censor_s for k in kpis]
                 never = sum(k.ttr_s is None for k in kpis)
+                high = max((k.censor_s for k in kpis), default=None)
             else:
                 values = [v for k in kpis if (v := getattr(k, kpi)) is not None]
-                never = 0
+                never, high = 0, None
             s = summarise(values)
             rows.append(
                 {"mode": mode, "scenario": scenario, "kpi": kpi}
-                | {"mean": s.mean, "ci95": s.ci95, "n": s.n, "never": never}
+                | {"mean": s.mean, "ci95": s.ci95, "n": s.n, "never": never, "high": high}
             )
     return rows
 

@@ -25,6 +25,8 @@ def test_the_table_has_one_row_per_mode_scenario_and_kpi_with_never_recovered_co
     assert (ttr["mode"], ttr["scenario"], ttr["n"], ttr["never"]) == ("V1", "ap_failure", 3, 1)
     assert ttr["mean"] == pytest.approx(200.0)  # a run that never recovered counts as its end
     assert rows["throughput_mbps"]["never"] == 0
+    # regression (code review 2026-10-12): no run counts past its end, the interval's ceiling
+    assert (ttr["high"], rows["throughput_mbps"]["high"]) == (300.0, None)
 
 
 @pytest.mark.parametrize(

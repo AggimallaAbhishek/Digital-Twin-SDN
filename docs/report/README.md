@@ -4,7 +4,7 @@ One Markdown file per chapter, in reading order. Our own structure until a depar
 
 | File | Chapter | Task | Due | Status |
 |---|---|---|---|---|
-| [00_title_page.md](00_title_page.md) | Title page, abstract | P7.1a / P7.1d (abstract) | Oct 15 / Oct 28 | Title page drafted (course, institute, guide to fill); abstract written Oct 12 |
+| [00_title_page.md](00_title_page.md) | Title page, abstract | P7.1a / P7.1d (abstract) | Oct 15 / Oct 28 | Title page done (course, faculty, department; Oct 13); abstract written Oct 12 |
 | [01_introduction.md](01_introduction.md) | 1. Introduction | P7.1a | Oct 15 | Drafted |
 | [02_related_work.md](02_related_work.md) | 2. Related Work | P7.1a | Oct 15 | Drafted; unconfirmed claims softened to what the abstracts state (2026-10-13) |
 | [03_architecture.md](03_architecture.md) | 3. System Architecture | P7.1b | Oct 20 | Drafted (Oct 10): layers, components, data flow, interfaces; 3 diagrams, 3 tables |

@@ -2,8 +2,6 @@
 GenAI-Driven Digital Twin for Intelligent SDN-Based Wireless Network Optimization
 :::
 
-**Project Report**
-
 | Name | Roll No. |
 |---|---|
 | Aggimalla Abhishek | 23BDS004 |
@@ -12,13 +10,13 @@ GenAI-Driven Digital Twin for Intelligent SDN-Based Wireless Network Optimizatio
 | Sambhav Mishra | 23BDS050 |
 | Bikram Hawaldar | 23BCS033 |
 
-**Submitted:** October 2026
+**Course:** EC466 Software Defined Networks
 
-**Course / department / institute:** _to be filled in_
+**Faculty:** Dr. Jagadeesha R B
 
-**Guide / supervisor:** _to be filled in_
+**Department:** Electronics and Communication Engineering
 
-<!-- Not yet known (P7.1a): course name and code, department, institute, guide/supervisor. Switch to the department template if one exists (decisions Q4b). -->
+<!-- Title page details given by Abhishek 2026-10-13. Switch to the department template if one exists (decisions Q4b). -->
 
 ## Abstract
 

@@ -10,11 +10,13 @@ GenAI-Driven Digital Twin for Intelligent SDN-Based Wireless Network Optimizatio
 | Sambhav Mishra | 23BDS050 |
 | Bikram Hawaldar | 23BCS033 |
 
+**7th Semester**
+
 **Course:** EC466 Software Defined Networks
 
-**Faculty:** Dr. Jagadeesha R B
-
-**Department:** Electronics and Communication Engineering
+**Faculty:** Dr. Jagadeesha R B\
+Department of Electronics and Communication Engineering\
+Indian Institute of Information Technology Dharwad
 
 <!-- Title page details given by Abhishek 2026-10-13. Switch to the department template if one exists (decisions Q4b). -->
 

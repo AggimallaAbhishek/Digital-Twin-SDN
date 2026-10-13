@@ -4,7 +4,7 @@
 
 ## 8.1 Conclusion
 
-<!-- Written 2026-10-12 from Chapters 6 and 7. The H3 numbers are P5.4's; update them if `make intent-eval` at eval-v1 differs. -->
+<!-- Written 2026-10-12 from Chapters 6 and 7. The H3 numbers were confirmed by `make intent-eval` at eval-v1 on 2026-10-13 (30/30, local 21/30). -->
 
 This project built a digital twin of an emulated campus Wi-Fi network and made it the gate that every automated change must pass. The research question asked whether verifying actions in the twin makes an AI-driven SDN controller both more effective and safer, and whether a language model can drive it safely from natural language.
 

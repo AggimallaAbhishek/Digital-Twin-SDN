@@ -161,6 +161,16 @@ Milestones          M0          M1   |                   M2 |             M3    
 | Sambhav Mishra | 23BDS050 | report author | — |
 | Bikram Hawaldar | 23BCS033 | report author | — |
 
+**Remaining work from 2026-10-13** *(deviation #17; comments go to Abhishek, who has Claude make the fixes)*
+
+| Name | Report review (P7.1b–d, P7.2) | Demo role (P7.4, Oct 29; Oct 31) | Examiner questions |
+|---|---|---|---|
+| Aggimalla Abhishek | P7.2 final sign-off of the whole draft (Oct 29); §5.5 | Operator: runs `make demo`, approves and applies, handles the fallbacks; P7.5 fresh clone | How it was built; the LLM's limits |
+| N. Likhith Naik | Ch 3 Architecture, Ch 5 Implementation (Oct 20) | Narrator, minutes 0–3: map, testbed, the crowd arriving | Real network?; Mininet-WiFi, Ryu, AP and QoS control |
+| Sundaram | Ch 4 Method (Oct 25) | Narrator, minutes 3–8: alert, root cause, twin verdicts, steering | The twin's model; the safety gate |
+| Sambhav Mishra | Ch 6 Results (Oct 28); captions on the same page as their tables and figures in Word | Results fallback: Figures 6.1–6.3 and the tables if the demo fails | H1, H2, twin accuracy |
+| Bikram Hawaldar | Ch 1–2, Ch 7–8 and the abstract (Oct 28); title page details and template from the department | Timekeeper and mock examiner (the runbook's 8 questions) | Related work, limitations, future work, three seeds |
+
 | Role | Track |
 |---|---|
 | NET | Phase 1, then P4.4 executor support, then P6.2 demo setup |
@@ -178,11 +188,11 @@ Milestones          M0          M1   |                   M2 |             M3    
 | 2 Telemetry | Oct 8–14 | ✅ Done (Oct 8) | met | P2.1 ✅, P2.2 ✅, P2.3 ✅ (all Oct 8); dataset `data/v1/` (2 h) |
 | 3 Twin | Oct 13–19 | ✅ Done (Oct 9) | met | P3.1–P3.6 ✅; test MAPE 4.5% |
 | 4 ML + executor | Oct 9–19 | ✅ Done (Oct 12) | met (P4.5 at 2/3 seeds, deviation #15) | P4.1 ✅ (honest negative), P4.2 ✅, P4.3 ✅, P4.4 ✅, P4.4a ✅; P4.5 ✅ V3 recovered in 2/3 flash-crowd seeds (V1 0/3), accepted (P4.5-D) |
-| 5 GenAI | Oct 8–22 | 🟦 In progress | | P5.1 ✅ (Oct 7); P5.2 ✅ (Oct 10); P5.5 ✅ (Oct 10): 5/5 live; P5.6 ✅ (Oct 10); P5.4 drafted (Oct 8), awaiting Abhishek's check; P5.3 ✅ (Oct 8): cloud 30/30, local 21/30 |
-| 6 Integration + eval | Oct 20–28 | 🟦 In progress | | P6.1 ✅ (Oct 10, live); P6.2 built, dry run PASS, awaiting Abhishek's run |
-| 7 Report + live demo prep | Oct 13–30 | 🟦 In progress | | P7.1a ✅ (Oct 8); P7.1b drafted (Oct 10) |
+| 5 GenAI | Oct 8–22 | ✅ Done (Oct 13) | met | P5.1 ✅ (Oct 7); P5.2 ✅ (Oct 10); P5.5 ✅ (Oct 10): 5/5 live; P5.6 ✅ (Oct 10); P5.4 ✅ (Oct 13, checked by Abhishek); P5.3 ✅ (Oct 8): cloud 30/30, local 21/30 |
+| 6 Integration + eval | Oct 20–28 | ✅ Done (Oct 13) | met | P6.1 ✅ (Oct 10, live); P6.2 ✅ (Oct 13, Abhishek's run); P6.3–P6.6 ✅ (Oct 12–13; intent eval at eval-v1: 30/30, local 21/30) |
+| 7 Report + live demo prep | Oct 13–30 | 🟦 In progress | | P7.1a ✅ (Oct 8); P7.1b–d drafted, awaiting Abhishek's read; P7.3 ⛔ dropped (deviation #16); open: P7.2, P7.4, P7.5 |
 
-Status values: ⬜ Not started · 🟦 In progress · 🟨 At risk · 🟥 Blocked · ✅ Done
+Status values: ⬜ Not started · 🟦 In progress · 🟨 At risk · 🟥 Blocked · ✅ Done · ⛔ Dropped (by decision, in the deviation log)
 
 ---
 
@@ -392,8 +402,8 @@ Status values: ⬜ Not started · 🟦 In progress · 🟨 At risk · 🟥 Block
 | P7.1b 🟦 | System architecture + design sections | TWIN + NET | Oct 20 | Drafted with diagrams *(2026-10-10: `03_architecture.md` (layers, components, data flow, interfaces; 3 diagrams, 3 tables) and `05_implementation.md` (testbed, scenarios + interference model, telemetry + dataset, engineering; 1 diagram, 1 table) drafted. Awaiting Abhishek's read, then tick)* |
 | P7.1c 🟦 | Method: twin model, heuristics, intent pipeline, safety model | ML + GENAI | Oct 25 | Drafted *(2026-10-10: `04_method.md` drafted: twin state and sync, the analytical model (capacity, demand, sharing, loss, M/M/1/K latency, Jain), forecasting and anomaly detection, heuristics and the loop, the LLM's three roles, the safety model. Method only; numbers stay in Chapter 6. Awaiting Abhishek's read)* |
 | P7.1d 🟦 | Results + discussion + limitations + future work (GNN, RL, RAG, hardware) | ML + all | Oct 28 | Drafted from P6.6 figures only *(2026-10-12: `06_results.md` 6.1 setup, 6.3 twin accuracy, 6.4 GenAI, 6.5 forecasting + anomaly drafted from finished tasks (every number checked against its source file); `07_discussion.md` limitations and threats to validity. 6.2, the H2 part of 6.3 and 7.1 written from the campaign (`make results` only, 2026-10-12; figures 6.1–6.3 copied from `experiments/results/figures/`). 8.1 conclusion and the abstract written 2026-10-12 (H3 numbers from P5.4; update if `make intent-eval` at eval-v1 differs). Awaiting Abhishek's read. 8.2 future work drafted (learned twin, RL optimiser, RAG, hardware, per-run isolation). `make report` builds the Word report (decision P7-A))* |
-| P7.2 | Full draft reviewed end to end by Abhishek | DOC | **Oct 29** | Every section read and approved |
-| P7.3 | **Backup demo recording** (5–8 min screen capture of the live demo script), used only if the live demo fails | GENAI + DOC | Oct 28 | Stored locally + link in README |
+| P7.2 | Full draft reviewed end to end by Abhishek | DOC | **Oct 29** | Every section read and approved *(2026-10-13: chapters split for review across the team (§6, deviation #17); Abhishek signs off the whole)* |
+| P7.3 ⛔ | **Backup demo recording** (5–8 min screen capture of the live demo script), used only if the live demo fails | GENAI + DOC | Oct 28 | Stored locally + link in README *(2026-10-13: dropped by Abhishek (deviation #16); the runbook's last fallback is the evaluation's results instead)* |
 | P7.4 | **Live demonstration rehearsal** ×2 on the actual demo machine, from a cold start (`make demo`), including the failure fallbacks, **one of them with internet off** (LLM falls back to local) | all | Oct 29 | Two clean end-to-end runs; talking points rehearsed |
 | P7.5 🟦 | Repo clean-up: README, setup, runbooks; fresh clone → demo works | DOC | Oct 29 | Verified from a fresh clone *(2026-10-12: README updated (live demo, evaluation commands, layout as built). **Fresh clone of HEAD 69e35c5: `make setup` + `make check` pass** (1325 tests, 97.57%). Still to do: the demo from a fresh clone (needs the VM))* |
 | ★ | **Submit** | all | **Oct 30** | Submitted; Oct 31 is spare |
@@ -444,3 +454,5 @@ Every change to this plan goes here **before** the work starts.
 | 13 | 2026-10-09 | v2.3 | (a) The P4.5 loop is **`api/loop.py`**, not `twin/loop.py`. (b) **V2 applies actions without an accepted twin verdict, in evaluation runs only** (ADR-005) | (a) twin may not import ml or the executor (import rules). (b) H2 needs V2 to really act; estimating its harm in the twin would be circular | (b) is one written exception to the safety rule: a config combination (`mode: V2` + `evaluation: true`), tested, noted in every audit entry | ADR-005 | Abhishek |
 | 14 | 2026-10-09 | v2.3 | `controller/executor/` may also read `twin.state.model` and `twin.sim.apply` (RULEBOOK §4 amended); two new import-linter contracts forbid the rest of twin to the executor and all of twin to the Ryu app | Code review: the executor already took the twin's state and its QoS flow match, and the old contract didn't check twin at all | None on behaviour; the boundary is now enforced | ADR-006 | Abhishek |
 | 15 | 2026-10-12 | v2.3 | **P4.5 closed with its Done-when met in 2 of 3 seeds** ("V3 beats V1 on time to recover (3 seeds)": V3 recovered s42, s44; s43 not) | The bounded heuristics ran out of moves in s43; changing them before the freeze would risk P6.3. The campaign (9 V3 runs over 3 scenarios) is the H1 test (decision P4.5-D) | The 2/3 result is a stated limitation in the report; no code change | — | Abhishek |
+| 16 | 2026-10-13 | v2.3 | **P7.3 backup demo recording dropped** | Abhishek's decision: the live demo passed from the runbook alone (P6.2) | If the live demo fails beyond its fallbacks, the team shows the evaluation's figures and tables (report Chapter 6) instead of a video; P7.4 rehearsals stay | — | Abhishek |
+| 17 | 2026-10-13 | v2.3 | **Remaining review and demo work shared across the team** (§6 table): each member reviews chapters and has a demo role and examiner questions; development stays with Abhishek | Every member must be able to speak to a part of the system at the live demo | P7.1b–d reviews split by chapter; P7.4 rehearsals with fixed roles; Abhishek still signs off P7.2 | — | Abhishek |

@@ -1,7 +1,7 @@
 # Live demo runbook (P6.2)
 
 One person runs this from a cold start. Total: about 15 minutes, of which 11 are the scenario
-playing live. Every step has a fallback; if a fallback fails too, go to the backup recording (P7.3).
+playing live. Every step has a fallback; if a fallback fails too, show the evaluation's results instead (last row of Fallbacks).
 
 ## Before the audience arrives (10 minutes)
 
@@ -71,4 +71,4 @@ Short, honest answers from the evaluation (27 runs, report Chapter 6). Say the w
 | No alert after the crowd | Point at the map (ap1 dark) and the load chart; the detector's threshold is set for precision |
 | Loop does nothing | `logs/demo/api.log` shows each loop tick; verdicts are in **Recent actions** / `GET /actions` |
 | Internet down | Fonts fall back to system fonts; the LLM falls back to the local model; everything else is local |
-| Anything else | Stop and play the backup recording (P7.3) |
+| Anything else | Stop the demo and walk through the evaluation instead: Figures 6.1–6.3 and Tables 6.1–6.5 in the report (`experiments/results/results.md`), with the twin's accuracy (§6.3) |

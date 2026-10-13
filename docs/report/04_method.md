@@ -18,7 +18,7 @@ The twin's **lag** is the time from the newest record it used to the moment the 
 
 ## 4.2 Analytical performance model
 
-The simulator (`twin/sim/analytical.py`) maps a state to predicted KPIs for every flow and for the network. The verifier runs it twice, on the current state and on the state with the proposed actions applied, and compares the two. It is analytical rather than learned (deviation #2), so a prediction takes milliseconds and every number can be traced to a formula.
+The simulator (`twin/sim/analytical.py`) maps a state to predicted KPIs for every flow and for the network. The verifier runs it twice, on the current state and on the state with the proposed actions applied, and compares the two. It is analytical rather than learned (deviation #2), so a prediction takes well under a millisecond (§6.3) and every number can be traced to a formula.
 
 **Capacity.** Each AP that is up offers its measured downlink capacity $C = 4.6$ Mbit/s. A same-channel AP nearby reduces it (§5.2):
 

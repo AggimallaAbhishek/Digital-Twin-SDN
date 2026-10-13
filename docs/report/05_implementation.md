@@ -114,13 +114,18 @@ A run during which the host slept is detected (the VM's clock falls behind) and 
 
 It also writes a manifest with the commits and per-split row counts. Every row carries its run, seed, split, scenario time, a `phase` label (normal before the run's disruption, stress from it on) and the disruption's name. Datasets are versioned and never edited in place.
 
-## 5.4 Software engineering: tests, checks, reproducibility
+## 5.4 Operator dashboard and demo
 
-**Structure and boundaries.** The repository has one top-level package per component (Table 3.1), plus `common/` for the shared schemas and helpers, and `experiments/` for batches and analysis. Which package may import which is declared as ten import-linter contracts and checked on every change. For example:
+The dashboard (`dashboard/`, Streamlit) is a client of the REST API and nothing more: it reaches the system only over HTTP, and the operator token stays in its server process, never in the browser. It shows the campus map (each AP's ring in its channel colour, its disc shaded by load, the stations), alerts with their root-cause reports, the actions waiting for an operator with approve, deny and apply buttons, recent actions with their outcomes, load per AP, per-class traffic KPIs, and the twin's predictions next to what was measured. The copilot and the intent box sit in the sidebar. The map and the queue refresh every 5 s. One command, `make demo`, starts the services, the API with the control loop and alert monitor, and the dashboard, then plays the flash-crowd scenario on the VM (runbook: `docs/runbooks/demo.md`).
+
+## 5.5 Software engineering: tests, checks, reproducibility
+
+**Structure and boundaries.** The repository has one top-level package per component (Table 3.1), plus `common/` for the shared schemas and helpers, and `experiments/` for batches and analysis. Which package may import which is declared as twelve import-linter contracts and checked on every change. For example:
 
 - the twin may not import the ML code, the LLM layer, the API or the controller;
 - the LLM layer may not import the controller, the testbed or the twin;
-- the Ryu application may not import the twin.
+- the Ryu application may not import the twin;
+- the dashboard reaches the system only over HTTP, and nothing imports it.
 
 Each package validates its own configuration file and refuses unknown keys.
 
@@ -131,7 +136,7 @@ Each package validates its own configuration file and refuses unknown keys.
 - the import contracts;
 - the test suite with branch coverage.
 
-The unit tests run with network sockets disabled, so a test can never reach the VM, the database or a language model by accident. At the time of writing the suite has **1,225 tests at 97.4% branch coverage**, against a required 75%. Code that runs only on the VM is covered by scripted live checks instead: the controller, AP agent, mobility, traffic, QoS and reproducibility checks under `testbed/checks/`. A separate `make security` target runs `bandit` and `pip-audit`. Pre-commit hooks include `gitleaks`, so secrets cannot be committed. Secrets live only in an untracked `.env` file.
+The unit tests run with network sockets disabled, so a test can never reach the VM, the database or a language model by accident. At the time of writing the suite has **1,338 tests at 97.6% branch coverage**, against a required 75%. Code that runs only on the VM is covered by scripted live checks instead: the controller, AP agent, mobility, traffic, QoS and reproducibility checks under `testbed/checks/`. A separate `make security` target runs `bandit` and `pip-audit`. Pre-commit hooks include `gitleaks`, so secrets cannot be committed. Secrets live only in an untracked `.env` file.
 
 **Safety in the code, not only in the design.** Every safety rule of §3.3 is enforced in code and covered by tests:
 

@@ -67,7 +67,7 @@ The design departs from the original plan (PROJECT_PLAN §3) in three places, al
 
 ## 3.2 Components and responsibilities
 
-Table 3.1 lists the components as built. Each is a Python package with a single responsibility. The imports between packages are restricted, and the restriction is checked automatically on every change (§5.4). For example, the twin may not import the controller, the ML code or the LLM layer, and the LLM layer may not import the controller, the testbed or the twin.
+Table 3.1 lists the components as built. Each is a Python package with a single responsibility. The imports between packages are restricted, and the restriction is checked automatically on every change (§5.5). For example, the twin may not import the controller, the ML code or the LLM layer, and the LLM layer may not import the controller, the testbed or the twin.
 
 | Component | Responsibility | Package |
 |---|---|---|
@@ -89,6 +89,7 @@ Table 3.1 lists the components as built. Each is a Python package with a single 
 | Copilot | Tool-using agent that answers operator questions from live evidence | `genai/agent/` |
 | Root-cause explainer | Turns an anomaly alert and the surrounding evidence into a diagnosis with suggested fixes | `genai/rca/` |
 | REST API | One interface for operators, the dashboard and the LLM tools | `api/` |
+| Operator dashboard | Web UI over the REST API: campus map, alerts with root cause, the approval queue, recent actions, twin prediction against measurement, copilot and intents | `dashboard/` |
 
 *Table 3.1: Components as built.*
 

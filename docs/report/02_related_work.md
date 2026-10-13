@@ -2,7 +2,7 @@
 
 This chapter covers five lines of work that the system builds on: network digital twins, learned network performance models, LLM-based intent-based networking, programmable enterprise WLANs, and emulation of software-defined wireless networks. Each section says what we take from that work and where we differ. Section 2.6 places our system relative to all five.
 
-<!-- Source: docs/literature/ (P0.4). Claims marked [check] are still to be confirmed against the full text by Abhishek before submission. -->
+<!-- Source: docs/literature/ (P0.4). 2026-10-13: the claims not confirmed against the full text were softened or removed (RouteNet's 15.4% figure, Mininet-WiFi's award, Mekrache's pre-activation check); nothing here goes beyond what the sources' abstracts state. -->
 
 ## 2.1 Network digital twins
 
@@ -12,7 +12,7 @@ Our system follows the same split between a mirror of the live state and a perfo
 
 ## 2.2 Learned network performance models
 
-RouteNet [2] is a graph neural network (GNN) that learns how topology, routing and traffic together determine the per-path delay, jitter and loss of a network. Because it works on graph-structured data, it generalises to topologies, routings and traffic loads not seen in training; the authors report a worst-case mean relative error of 15.4% on unseen scenarios [check]. They also use the model inside SDN optimisation, scoring candidate routing configurations without running them on the network.
+RouteNet [2] is a graph neural network (GNN) that learns how topology, routing and traffic together determine the per-path delay, jitter and loss of a network. Because it works on graph-structured data, its authors report that it generalises to topologies, routings and traffic loads not seen in training. They also use the model inside SDN optimisation, scoring candidate routing configurations without running them on the network.
 
 We share the role of a fast performance model inside the control loop: score candidate actions in the twin, then apply only an accepted one. We also follow RouteNet's way of reporting accuracy, as relative error against measured KPIs on unseen scenarios, in our twin validation. We do not use a GNN. RouteNet models wired paths, while the bottleneck in our network is the shared Wi-Fi medium (per-AP airtime and co-channel interference), which we model explicitly. A RouteNet-style learned surrogate is left as future work.
 
@@ -30,7 +30,7 @@ Our flash-crowd and AP-failure scenarios depend on the same observation: clients
 
 ## 2.5 Emulating software-defined wireless networks
 
-Mininet-WiFi [5] extends the Mininet emulator with virtual Wi-Fi stations and APs while keeping Mininet's OpenFlow support and lightweight, process-based virtualisation. It was built to fill the lack of tools for prototyping and evaluating SDN in wireless settings, and the paper demonstrates it with two IEEE 802.11 use cases. It received the best paper award at the 2nd Workshop on Management of SDN and NFV Systems, held with CNSM 2015 [check].
+Mininet-WiFi [5] extends the Mininet emulator with virtual Wi-Fi stations and APs while keeping Mininet's OpenFlow support and lightweight, process-based virtualisation. It was built to fill the lack of tools for prototyping and evaluating SDN in wireless settings, and the paper demonstrates it with two IEEE 802.11 use cases.
 
 Our entire testbed runs on Mininet-WiFi with the Ryu controller over OpenFlow 1.3. Building it showed two limits that matter for this project. On our virtual machine each emulated AP carries about 4.6 Mbit/s regardless of its configured bitrate, and APs on the same channel do not slow each other down. We therefore model co-channel interference explicitly, as a documented capacity reduction applied to each AP, and report the emulated radio as a limitation (Chapter 7). Emulated stations also never roam on their own, so re-association after an AP failure is scripted.
 
@@ -40,9 +40,9 @@ Our entire testbed runs on Mininet-WiFi with the Ryu controller over OpenFlow 1.
 |---|---|---|---|---|
 | Almasan et al. [1] | Yes (general architecture) | Not specific | No | The NDT's purpose |
 | RouteNet [2] | Learned GNN model | No (wired paths) | No | Scores candidate routings |
-| Mekrache et al. [3] | No | 5G | Yes (LLM-centric life cycle) | [check] |
+| Mekrache et al. [3] | No | 5G | Yes (LLM-centric life cycle) | Not described |
 | Odin [4] | No | Yes (enterprise WLAN) | No | No |
 | Mininet-WiFi [5] | Emulator (testbed) | Yes | No | Not applicable |
 | **This work** | **Analytical twin** | **Yes (campus Wi-Fi)** | **Yes (LLM, schema-checked)** | **Every action, twin verdict required** |
 
-None of the five works combines all four elements. Digital twins and learned models predict the effect of a change but are not tied to natural-language control. The LLM intent system translates natural language but does not, as far as its abstract shows, simulate each resulting action before activating it [check]. The wireless works make WLANs programmable and testable but have no predictive gate. Our system joins these elements: an LLM and an optimizer may propose, but only actions that a digital twin of the Wi-Fi network accepts are applied, and they are rolled back if the live network disagrees.
+None of the five works combines all four elements. Digital twins and learned models predict the effect of a change but are not tied to natural-language control. The LLM intent system translates natural language, but a step that simulates each resulting action before activating it is not part of the architecture as described. The wireless works make WLANs programmable and testable but have no predictive gate. Our system joins these elements: an LLM and an optimizer may propose, but only actions that a digital twin of the Wi-Fi network accepts are applied, and they are rolled back if the live network disagrees.

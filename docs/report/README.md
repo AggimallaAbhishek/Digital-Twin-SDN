@@ -6,7 +6,7 @@ One Markdown file per chapter, in reading order. Our own structure until a depar
 |---|---|---|---|---|
 | [00_title_page.md](00_title_page.md) | Title page, abstract | P7.1a / P7.1d (abstract) | Oct 15 / Oct 28 | Title page drafted; abstract written last |
 | [01_introduction.md](01_introduction.md) | 1. Introduction | P7.1a | Oct 15 | Drafted |
-| [02_related_work.md](02_related_work.md) | 2. Related Work | P7.1a | Oct 15 | Drafted; `[check]` claims await the full-text check (P0.4) |
+| [02_related_work.md](02_related_work.md) | 2. Related Work | P7.1a | Oct 15 | Drafted; unconfirmed claims softened to what the abstracts state (2026-10-13) |
 | [03_architecture.md](03_architecture.md) | 3. System Architecture | P7.1b | Oct 20 | Drafted (Oct 10): layers, components, data flow, interfaces; 3 diagrams, 3 tables |
 | [04_method.md](04_method.md) | 4. Method | P7.1c | Oct 25 | Drafted (Oct 10): twin, model, ML, heuristics, LLM roles, safety; awaiting review |
 | [05_implementation.md](05_implementation.md) | 5. Implementation and Testbed | P7.1b | Oct 20 | Drafted (Oct 10): testbed, scenarios + interference model, telemetry + dataset, engineering; 1 diagram, 1 table |

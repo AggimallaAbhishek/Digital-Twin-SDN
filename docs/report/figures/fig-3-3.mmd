@@ -1,9 +1,9 @@
-flowchart LR
+flowchart TB
     Q["Operator question<br/>or anomaly alert"] --> AG["Copilot / explainer"]
     AG -- "get_topology · get_metrics · get_alerts" --> API["REST API"]
     AG -- "simulate_in_twin" --> API
-    API --> TW["Twin verifier"]
-    TW -- "Verdict (recorded in the audit log)" --> API
+    API -- "verify" --> TW["Twin verifier"]
+    TW -- "Verdict<br/>(audit log)" --> API
     API --> AG
     AG --> R["Answer or report<br/>+ evidence + suggested actions"]
     R -. "operator approves and applies<br/>(operator token)" .-> EX["Executor"]

@@ -106,29 +106,29 @@ sequenceDiagram
     participant C as Collector
     participant DB as InfluxDB
     participant L as Control loop
-    participant T as Twin (state, simulator, verifier)
+    participant T as Twin
     participant X as Executor
     participant A as AP agent
 
     loop every 1 s
-        C->>N: GET AP, station, KPI, port and flow stats
-        C->>DB: write validated records (run_id tagged)
+        C->>N: GET stats
+        C->>DB: write records
     end
-    L->>X: check(): finish due watches
-    X->>DB: KPIs since the change
-    X-->>A: revert, if KPIs regressed beyond the noise floor
-    L->>DB: last 10 s of telemetry
+    L->>X: check()
+    X->>DB: KPIs since change
+    X-->>A: revert if worse
+    L->>DB: last 10 s
     L->>T: build TwinState
-    L->>L: heuristics propose actions for overloaded APs
-    L->>T: verify(state, actions)
-    T-->>L: Verdict (accepted?, predicted KPIs, impact, needs approval?)
+    L->>L: heuristics propose
+    L->>T: verify(actions)
+    T-->>L: Verdict
     L->>X: record(actions, verdicts)
-    alt accepted and no approval needed
+    alt accepted, no approval needed
         L->>X: apply(action)
-        X->>A: POST channel / associate / power / QoS
-        X->>X: watch for 30 s (no new proposals meanwhile)
+        X->>A: POST change
+        X->>X: watch 30 s
     else needs approval
-        X-->>L: waits for an operator
+        X-->>L: wait for operator
     end
 ```
 
@@ -149,12 +149,12 @@ The result is a `Verdict`: accepted or not, the predicted and baseline KPIs, the
 **The LLM paths** enter the same pipeline at the verifier, as Figure 3.3 shows. An operator intent is parsed into a `Policy` under a JSON schema. A deterministic compiler, not the model, turns the policy into actions, and those are verified like any other proposal. The copilot and the root-cause explainer read the network through the tool layer and can ask the twin about a change. What they propose is recorded with its verdict and returned to the operator as a suggestion. They hold no means of applying it.
 
 ```mermaid
-flowchart LR
+flowchart TB
     Q["Operator question<br/>or anomaly alert"] --> AG["Copilot / explainer"]
     AG -- "get_topology · get_metrics · get_alerts" --> API["REST API"]
     AG -- "simulate_in_twin" --> API
-    API --> TW["Twin verifier"]
-    TW -- "Verdict (recorded in the audit log)" --> API
+    API -- "verify" --> TW["Twin verifier"]
+    TW -- "Verdict<br/>(audit log)" --> API
     API --> AG
     AG --> R["Answer or report<br/>+ evidence + suggested actions"]
     R -. "operator approves and applies<br/>(operator token)" .-> EX["Executor"]

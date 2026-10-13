@@ -42,42 +42,42 @@ All 27 runs of the campaign passed at the first attempt; none was re-run. Tables
 **Table 6.1: Lecture flash crowd**
 
 | KPI | V1 plain SDN | V2 heuristics, no twin | V3 full system |
-|---|---|---|---|
+|------------------------------|-----------------------|-----------------------|-----------------------|
 | Time to recover (s) | ≥ 390 (3 of 3 never) | ≥ 374 ± 67 (2 never) | ≥ 359 ± 101 (1 never) |
 | Throughput, affected flows (Mbit/s) | 0.20 ± 0.00 | 0.52 ± 0.03 | 0.53 ± 0.08 |
 | p95 video latency (ms) | 21 ± 1 | 24 ± 8 | 25 ± 9 |
 | Loss, affected flows (%) | 43.9 ± 0.3 | 9.2 ± 4.9 | 8.6 ± 2.3 |
 | Jain fairness | 0.51 ± 0.00 | 0.78 ± 0.00 | 0.79 ± 0.04 |
 
-![Figure 6.1: Lecture flash crowd, mean ± 95% interval over three seeds per variant. Both variants that act (V2, V3) carry more than twice the throughput of plain SDN and cut loss from 44% to under 10%.](figures/fig-6-1.png)
+![Figure 6.1: Lecture flash crowd, mean ± 95% interval over three seeds per variant. Both variants that act (V2, V3) carry more than twice the throughput of plain SDN and cut loss from 44% to under 10%. A run that never recovered counts at its run end, so a value marked ≥ is a lower bound; "N never" under a variant gives how many of its three runs that was. Intervals are cut at what a measure can be: loss 0–100%, fairness at most 1, time to recover at most the run end.](figures/fig-6-1.png)
 
 **The flash crowd.** Without control (V1), the ten students who walk into the lecture hall all stay on ap1. The affected flows lose 44% of their packets and carry 0.20 Mbit/s each, and the AP never comes back under 80% utilisation. Both controlled variants steer clients to the neighbouring APs: throughput rises to 0.52–0.53 Mbit/s and loss falls to 9%, with intervals far from V1's. Fairness rises from 0.51 to 0.78–0.79, just under the 0.8 target, which is **not met**. One V3 seed reached 0.80. Latency stays low in every variant (21–25 ms), so in this scenario congestion shows as loss, not delay. V3 recovered in 2 of 3 seeds (313 s and 375 s), V2 in 1 (343 s) and V1 in none. V2 and V3 are not distinguishable here: client steering is applied without an operator in both, and the twin rejected only one steer in the three V3 runs.
 
 **Table 6.2: AP failure (ap2 goes down)**
 
 | KPI | V1 plain SDN | V2 heuristics, no twin | V3 full system |
-|---|---|---|---|
+|------------------------------|-----------------------|-----------------------|-----------------------|
 | Time to recover (s) | ≥ 360 (3 of 3 never) | ≥ 142 ± 470 (1 never) | ≥ 300 ± 258 (2 never) |
 | Throughput, affected flows (Mbit/s) | 0.64 ± 0.09 | 0.84 ± 0.44 | 0.58 ± 0.20 |
 | p95 video latency (ms) | 18 ± 0 | 348 ± 1402 | 672 ± 1413 |
 | Loss, affected flows (%) | 4.8 ± 1.0 | 10.0 ± 32.5 | 18.8 ± 31.4 |
 | Jain fairness | 0.96 ± 0.00 | 0.91 ± 0.06 | 0.89 ± 0.04 |
 
-![Figure 6.2: AP failure, mean ± 95% interval over three seeds per variant. The wide intervals of V2 and V3 come from single runs in which a steer degraded the video and could not be rolled back.](figures/fig-6-2.png)
+![Figure 6.2: AP failure, mean ± 95% interval over three seeds per variant. The wide intervals of V2 and V3 come from single runs in which a failed rollback left one station without an AP. The time-to-recover intervals end at the run end, not at their upper 95% limit. Notation as in Figure 6.1.](figures/fig-6-2.png)
 
-**The AP failure.** When ap2 goes down, its stations re-associate to ap1 by themselves. Recovery is measured on ap1, the AP the load moves to (Section 6.1). Under V1 the moved flows keep working well (4.8% loss, 18 ms), but ap1 stays above 80% utilisation, so V1 never counts as recovered. V2 recovered in 2 of 3 seeds (17 s and 50 s), V3 in 1 (180 s). The averages hide one failure mode, visible per run. In one V2 seed and two V3 seeds, a steer moved video clients onto a path where their probes timed out: p95 latency is pinned at the 1 s probe timeout, loss is 25–26%, and the executor measured the regression but **could not roll the steer back** (`rollback_failed`). Each of those three steers had been *accepted* by the twin. These three runs alone make the intervals of V2 and V3 span almost the whole scale. In the seeds without that failure, V2 carried more than V1 (0.92–0.96 Mbit/s against 0.62–0.68), and V3 about the same (0.67). In this scenario, doing nothing protected the video better than the loop did.
+**The AP failure.** When ap2 goes down, its stations re-associate to ap1 by themselves. Recovery is measured on ap1, the AP the load moves to (Section 6.1). Under V1 the moved flows keep working well (4.8% loss, 18 ms), but ap1 stays above 80% utilisation, so V1 never counts as recovered. V2 recovered in 2 of 3 seeds (17 s and 50 s), V3 in 1 (180 s). The averages hide one failure mode, visible per run, and it is the loop's own (Section 7.1). In one V2 seed and two V3 seeds, the loop steered station sta8 off the overloaded ap2 to ap4, 4–25 s *before* ap2 failed. The steer itself worked. But its 30 s watch then measured the AP failure (loss up, latency up) and blamed the steer, and the executor rolled it back. The rollback tried to move sta8 back to ap2, which was now down. The testbed's steer first disconnects the station and then joins the target AP; joining a disabled AP fails, so sta8 was left with **no AP for the rest of the run** (`rollback_failed`), losing 93–98% of its packets. That one station, among the four affected flows, accounts for the 25–26% mean loss and the p95 latency pinned at the 1 s probe timeout. These three runs alone make the intervals of V2 and V3 span almost the whole scale. In the seeds without that failure, V2 carried more than V1 (0.92–0.96 Mbit/s against 0.62–0.68), and V3 about the same (0.67). In this scenario, doing nothing protected the video better than the loop did, because of a failed rollback, not a bad steer.
 
 **Table 6.3: Co-channel interference (ap3 forced onto channel 1)**
 
 | KPI | V1 plain SDN | V2 heuristics, no twin | V3 full system |
-|---|---|---|---|
+|------------------------------|-----------------------|-----------------------|-----------------------|
 | Time to recover (s) | ≥ 420 (3 of 3 never) | 146 ± 445 (all recovered) | ≥ 420 (3 of 3 never) |
 | Throughput, affected flows (Mbit/s) | 0.18 ± 0.00 | 0.60 ± 0.46 | 0.31 ± 0.03 |
 | p95 video latency (ms) | 11 ± 1 | 22 ± 7 | 11 ± 3 |
 | Loss, affected flows (%) | 48.2 ± 0.4 | 9.1 ± 34.2 | 25.7 ± 7.5 |
 | Jain fairness | 0.93 ± 0.00 | 0.95 ± 0.05 | 0.94 ± 0.00 |
 
-![Figure 6.3: Co-channel interference, mean ± 95% interval over three seeds per variant. Only V2, which changed the channel without an operator, recovered.](figures/fig-6-3.png)
+![Figure 6.3: Co-channel interference, mean ± 95% interval over three seeds per variant. Only V2, which changed the channel without an operator, recovered. Notation as in Figure 6.1.](figures/fig-6-3.png)
 
 **The interference.** The fix for a forced channel is to change it back, a **high-impact** action that by design always waits for an operator's approval (Section 4.6). The campaign runs unattended, with no operator. In every V3 run the heuristics proposed the channel change and the twin accepted it, but it was never approved, so it was never applied. V3 could only steer clients away from ap3, which halved the loss (48% → 26%) and raised throughput from 0.18 to 0.31 Mbit/s, without recovering. V2 applies every proposal directly, the channel change included, and recovered in all three seeds (33 s, 52 s and 352 s).
 
@@ -86,7 +86,7 @@ All 27 runs of the campaign passed at the first attempt; none was re-run. Tables
 **Table 6.4: H1, time to recover of V3 against V1**
 
 | Scenario | V1 | V3 | V3 faster by | Never recovered (V1, V3) |
-|---|---|---|---|---|
+|------------------------|--------------|--------------|--------------|------------------------|
 | Lecture flash crowd | ≥ 390 s | ≥ 359 s | 8% | 3, 1 |
 | AP failure | ≥ 360 s | ≥ 300 s | 17% | 3, 2 |
 | Co-channel interference | ≥ 420 s | ≥ 420 s | 0% | 3, 3 |
@@ -114,7 +114,7 @@ Bulk transfers are predicted least well. Their sending rate depends on TCP's rea
 **Table 6.5: Actions per variant, from the executor ledgers (9 runs each)**
 
 | | V1 | V2 heuristics, no twin | V3 full system |
-|---|---|---|---|
+|----------------------------------------------|----------------|------------------------|------------------------|
 | Proposals recorded | 0 | 64 | 65 |
 | Applied | 0 | 64 | 53 |
 | Rejected by the twin, and so not applied | – | – | 4 |
@@ -130,7 +130,7 @@ V1 proposes nothing. All of V2's and V3's actions are client steers or channel c
 
 **What the twin blocked.** The twin rejected 3 of the actions V2 applied, all of them client steers. Two of the three were then rolled back for a measured regression: in one, the measured throughput fell from 3.0 to 1.3 Mbit/s, and in the other the measured latency rose from 12 to 29 ms. The third was kept. In V3 the twin rejected 4 steers, and none of them reached the network. So the twin does block actions that would have hurt KPIs and that V2 applied: **H2 holds**. But it blocked few. Of the 23 V2 actions that the watch measured as harmful, the twin had flagged 2. Most regressions (20 in V2, 18 in V3) came from actions the twin had *accepted*. In both variants, the main protection against those was the watch-and-rollback step, not the twin.
 
-**Safety.** In V3, every applied action had an accepted verdict, and no high-impact change reached the network without an operator. Its 8 accepted channel changes were waiting for approval when their runs ended (Section 6.2). V2 applied 9 channel changes with no operator: 6 were kept and 3 rolled back. The safety rule V3 kept is the reason it could not repair the interference in an unattended run. **Rollback is not guaranteed.** In 3 of the 117 applied actions (V2 one, V3 two, all in the AP failure), the executor measured the regression but could not restore the previous state. Over the stress window of those runs, the affected video flows lost about a quarter of their packets, and their p95 latency was pinned at the 1 s probe timeout.
+**Safety.** In V3, every applied action had an accepted verdict, and no high-impact change reached the network without an operator. Its 8 accepted channel changes were waiting for approval when their runs ended (Section 6.2). V2 applied 9 channel changes with no operator: 6 were kept and 3 rolled back. The safety rule V3 kept is the reason it could not repair the interference in an unattended run. **Rollback is not guaranteed, and the watch can blame the wrong cause.** In 3 of the 117 applied actions (V2 one, V3 two, all in the AP failure), the rollback failed and left a station without an AP (Section 6.2). In all three, the regression the watch measured was the scripted AP failure, not the action. Over both variants, 4 of the 43 regressions the executor measured had a scripted disruption inside their watch window. The other 39 did not, so the finding that most measured harm followed actions the twin had accepted stands.
 
 ## 6.4 Intent accuracy and LLM safety (H3)
 

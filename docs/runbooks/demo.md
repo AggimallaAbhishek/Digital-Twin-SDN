@@ -45,6 +45,21 @@ refreshes every 5 seconds. `make demo-stop` takes up to ~25 s: the API lets a lo
 - **The LLM never touches the network.** It reads through tools and can only ask the twin; approvals need the operator token, which the model never holds.
 - **Measured, not claimed:** RCA diagnosed 3 of 3 live faults; the copilot answered 5 of 5 diagnostic questions; every LLM action has its twin verdict in the audit log (6 of 6).
 
+## Questions examiners are likely to ask
+
+Short, honest answers from the evaluation (27 runs, report Chapter 6). Say the weak results before you are asked; the numbers are in the report.
+
+| Question | Answer |
+|---|---|
+| Does the full system recover faster than plain SDN (H1)? | **Not shown.** Plain SDN never recovered in any of its 9 runs, so every comparison is a lower bound and H1 is *inconclusive* in all three scenarios (§6.2). What we can show: in the flash crowd the loop more than doubles the affected flows' throughput (0.20 → 0.53 Mbit/s) and cuts their loss from 44% to under 10%. |
+| Why did V2 (no twin) beat V3 under interference? | The fix is a channel change, which is high impact and always waits for an operator. The campaign ran unattended, so V3's accepted channel changes (8) were never approved. V2 applied 9 with nobody watching, which is the risk the gate exists to prevent. In this demo you approve it live. |
+| Does the twin actually block anything (H2)? | Yes, but few. It rejected 3 of V2's 64 actions, and 2 of those then measurably hurt; in V3 its 4 rejections never reached the network. Most measured harm came from actions it *accepted*: it predicts the steady state, not the first 30 s. That is why the watch and rollback are part of the gate (§6.3). |
+| What went wrong after the AP failure? | Our own bug, found in the data. The loop moved a station off ap2 shortly before ap2 failed. The watch blamed the failure on that move, and the rollback tried to move the station back onto the dead AP, which left it with no AP. The fix is known: never roll back onto an AP that is down (§7.1). This demo's scenario has no AP failure. |
+| How accurate is the twin? | 4.5% throughput error over 586 held-out situations (video 4.0%), 0.09 ms per simulation, within 1.04 s of the network (§6.3). Bulk TCP is its weakest case (12–21%). |
+| Can the LLM break the network? | No. Its output is schema-validated, compiled by deterministic code into bounded actions and checked in the twin; it never holds the operator token. 30 of 30 intents correct on the main model, 21 of 30 on the offline model (§6.4). |
+| Why only three seeds? | Time: each run takes ~11 min of emulation. The 95% intervals are therefore wide, and we claim differences only where they do not overlap (§6.1, §7.3). |
+| Is this a real network? | No, Mininet-WiFi on one machine. The comparison between variants is fair (only the controller differs), but the absolute numbers do not transfer to real radios (§7.2). |
+
 ## Fallbacks
 
 | Problem | Do this |

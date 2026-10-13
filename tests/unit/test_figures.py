@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
+import struct
 from pathlib import Path
 from typing import Any
 
-from experiments.analysis.figures import error_bar, kpi_figure, value_label
+from experiments.analysis.figures import (
+    DPI,
+    PAGE_WIDTH_IN,
+    error_bar,
+    kpi_figure,
+    mode_tick,
+    value_label,
+)
 from experiments.analysis.results import KPIS
 
 
@@ -44,15 +52,23 @@ def _rows() -> list[dict[str, Any]]:
 def test_a_scenario_figure_is_written_as_png(tmp_path: Path) -> None:
     path = tmp_path / "kpis_ap_failure.png"
     kpi_figure(_rows(), "ap_failure", path)
-    assert path.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+    data = path.read_bytes()
+    assert data[:8] == b"\x89PNG\r\n\x1a\n"
+    # regression (report check 2026-10-12): five panels in one row, shrunk to the page's text
+    # width, set the labels at ~3 pt; the figure is drawn at the width it is printed
+    width, height = struct.unpack(">II", data[16:24])  # the IHDR chunk
+    assert width == round(PAGE_WIDTH_IN * DPI)
+    assert height / width >= 0.5
 
 
-def test_a_censored_label_stacks_its_never_count_under_the_value() -> None:
-    # regression (campaign figures 2026-10-12): "≥374 (2 never)" on one line ran into the next
-    # mode's interval, a panel is ~1 inch per mode
-    assert value_label(374.33, 2) == "≥374\n2 never"
+def test_a_censored_mean_is_a_lower_bound_and_its_never_count_goes_under_the_mode() -> None:
+    # regression (campaign figures 2026-10-12): "≥374 (2 never)" next to the point ran into the
+    # next mode's interval; at ~0.7 in per mode even two lines did. The axis has the room.
+    assert value_label(374.33, 2) == "≥374"
     assert value_label(0.531, 0) == "0.53"
     assert value_label(146.0, 0) == "146"
+    assert mode_tick("V2", 2) == "V2\n2 never"
+    assert mode_tick("V3", 0) == "V3"
 
 
 def test_an_interval_is_clipped_to_what_the_kpi_can_be() -> None:
@@ -62,3 +78,5 @@ def test_an_interval_is_clipped_to_what_the_kpi_can_be() -> None:
     assert error_bar("ttr_s", ttr) == (142.0, 218.0)
     assert error_bar("loss_pct", {"mean": 10.0, "ci95": 32.5, "high": None}) == (10.0, 32.5)
     assert error_bar("jain", {"mean": 0.9, "ci95": None, "high": None}) == (0.0, 0.0)
+    # the tighter of the KPI's own range and the row's bound wins
+    assert error_bar("loss_pct", {"mean": 90.0, "ci95": 30.0, "high": 120.0}) == (30.0, 10.0)

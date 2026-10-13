@@ -8,6 +8,7 @@ value label and its mode on the axis, and results.md is the table view).
 from __future__ import annotations
 
 import math
+import textwrap
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,11 @@ from experiments.analysis.campaign import KPI_TITLES
 from experiments.batch import LOOP_MODES
 
 WHOLE_FROM = 10.0  # labels drop the decimals from here on
+PAGE_WIDTH_IN = 6.3  # the report's text width (A4, 1 in margins): drawn at the printed size
+GRID_ROWS, GRID_COLUMNS = 2, 3  # five KPIs and the legend fill it (zip(strict=True) checks)
+PANEL_HEIGHT_IN = 2.6
+TITLE_WRAP_CHARS = 26  # what fits a panel title at 9 pt
+DPI = 200
 MODES = LOOP_MODES
 MODE_COLOURS = dict(zip(MODES, ("#2a78d6", "#eb6834", "#1baf7a"), strict=True))
 SURFACE, INK, MUTED, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#e4e3df"
@@ -29,8 +35,8 @@ Row = dict[str, Any]  # Any: a row of the results table (results.kpi_table), JSO
 
 def kpi_figure(rows: Sequence[Row], scenario: str, path: Path) -> None:
     """Write `path` (PNG): one scenario's rows (the results table), mean ± 95% CI per mode."""
-    fig = Figure(figsize=(3.2 * len(KPI_TITLES), 3.4), facecolor=SURFACE)
-    axes = fig.subplots(1, len(KPI_TITLES))
+    fig = Figure(figsize=(PAGE_WIDTH_IN, PANEL_HEIGHT_IN * GRID_ROWS), facecolor=SURFACE)
+    *axes, legend_ax = fig.subplots(GRID_ROWS, GRID_COLUMNS).flat  # the last cell holds the legend
     cells = {(r["mode"], r["kpi"]): r for r in rows}
     drawn: set[str] = set()
     for ax, (kpi, title) in zip(axes, KPI_TITLES.items(), strict=True):
@@ -39,17 +45,19 @@ def kpi_figure(rows: Sequence[Row], scenario: str, path: Path) -> None:
             if r is not None and r["mean"] is not None:
                 _point(ax, x, mode, kpi, r)
                 drawn.add(mode)
-        _style(ax, kpi, title)
+        ticks = [mode_tick(m, cells.get((m, kpi), {}).get("never", 0)) for m in MODES]
+        _style(ax, kpi, title, ticks)
     handles = [  # only the modes with data in this figure
         Line2D([], [], marker="o", linestyle="", color=MODE_COLOURS[m], label=m)
         for m in MODES
         if m in drawn
     ]
-    fig.legend(handles=handles, loc="upper right", ncol=3, frameon=False, fontsize=9)
+    legend_ax.axis("off")
+    legend_ax.legend(handles=handles, loc="center", frameon=False, fontsize=9)
     title = f"{scenario.replace('_', ' ')}: mean ± 95% CI over seeds"
-    fig.suptitle(title, x=0.01, ha="left", fontsize=11, color=INK)
-    fig.tight_layout(rect=(0, 0, 1, 0.92))
-    fig.savefig(path, dpi=200)
+    fig.suptitle(title, x=0.01, ha="left", fontsize=10, color=INK)
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
+    fig.savefig(path, dpi=DPI)
 
 
 def _point(ax: Axes, x: int, mode: str, kpi: str, r: Row) -> None:
@@ -74,28 +82,33 @@ def error_bar(kpi: str, r: Row) -> tuple[float, float]:
     end (the row's `high`)."""
     low, high = BOUNDS.get(kpi, (0.0, math.inf))
     if r["high"] is not None:
-        high = r["high"]
+        high = min(high, r["high"])
     mean, ci = r["mean"], r["ci95"] or 0.0
     return max(0.0, mean - max(low, mean - ci)), max(0.0, min(high, mean + ci) - mean)
 
 
 def value_label(mean: float, never: int) -> str:
-    """A point's direct label: a censored mean marked as a lower bound, with its never count.
-
-    The never count goes on a second line, so the label stays narrower than the gap to the next
-    mode's interval."""
+    """A point's direct label; a censored mean (runs that never recovered) is a lower bound."""
     label = f"{mean:.0f}" if mean >= WHOLE_FROM else f"{mean:.2f}"
-    return f"≥{label}\n{never} never" if never else label
+    return f"≥{label}" if never else label
 
 
-def _style(ax: Axes, kpi: str, title: str) -> None:
+def mode_tick(mode: str, never: int) -> str:
+    """A mode's axis label, with how many of its runs never recovered.
+
+    The axis has the width next to a point lacks."""
+    return f"{mode}\n{never} never" if never else mode
+
+
+def _style(ax: Axes, kpi: str, title: str, ticks: Sequence[str]) -> None:
     """A recessive panel: zero baseline, light grid, mode names on the axis."""
     ax.set_facecolor(SURFACE)
-    ax.set_title(title, fontsize=9.5, color=INK, loc="left")
+    # wrapped: a panel is a third of the page wide
+    ax.set_title(textwrap.fill(title, TITLE_WRAP_CHARS), fontsize=9, color=INK, loc="left")
     ax.set_ylim(bottom=0.0)  # magnitudes: a cut axis would exaggerate the gaps
     if kpi == "jain":  # a ratio: its whole range (loss keeps its own scale, not 0-100)
         ax.set_ylim(0.0, 1.05)
-    ax.set_xticks(range(len(MODES)), MODES, fontsize=9, color=MUTED)
+    ax.set_xticks(range(len(MODES)), ticks, fontsize=8, color=MUTED)
     ax.set_xlim(-0.5, len(MODES) - 0.2)
     ax.tick_params(axis="y", labelsize=8, colors=MUTED, length=0)
     ax.tick_params(axis="x", length=0)

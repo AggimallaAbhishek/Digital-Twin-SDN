@@ -2,23 +2,37 @@
 GenAI-Driven Digital Twin for Intelligent SDN-Based Wireless Network Optimization
 :::
 
-| Name | Roll No. |
+<!-- Headings centred through pandoc's "Author" style (based on Title: centred, 12 pt); Word tables are full width. Title page details given by Abhishek 2026-10-13. Switch to the department template if one exists (decisions Q4b). -->
+
+::: {custom-style="Author"}
+&nbsp;
+
+**Submitted by**
+:::
+
+| Name | Roll No. | Semester |
+|---|---|---|
+| Aggimalla Abhishek | 23BDS004 | 7th Semester |
+| N. Likhith Naik | 23BDS037 | 7th Semester |
+| Sundaram | 23BDS060 | 7th Semester |
+| Sambhav Mishra | 23BDS050 | 7th Semester |
+| Bikram Hawaldar | 23BCS033 | 7th Semester |
+
+::: {custom-style="Author"}
+&nbsp;
+
+**Course details**
+:::
+
+| Item | Details |
 |---|---|
-| Aggimalla Abhishek | 23BDS004 |
-| N. Likhith Naik | 23BDS037 |
-| Sundaram | 23BDS060 |
-| Sambhav Mishra | 23BDS050 |
-| Bikram Hawaldar | 23BCS033 |
+| Course | EC466 Software Defined Networks |
+| Faculty | Dr. Jagadeesha R B, Department of Electronics and Communication Engineering |
+| Institute | Indian Institute of Information Technology Dharwad |
 
-**7th Semester**
-
-**Course:** EC466 Software Defined Networks
-
-**Faculty:** Dr. Jagadeesha R B\
-Department of Electronics and Communication Engineering\
-Indian Institute of Information Technology Dharwad
-
-<!-- Title page details given by Abhishek 2026-10-13. Switch to the department template if one exists (decisions Q4b). -->
+```{=openxml}
+<w:p><w:r><w:br w:type="page"/></w:r></w:p>
+```
 
 ## Abstract
 

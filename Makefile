@@ -3,7 +3,7 @@
 RUN := uv run
 FAST_TESTS := -m "not vm and not llm and not integration"
 
-.PHONY: api campaign campaign-mode results report report-figures intent-eval dashboard demo demo-stop qos-vm validation-batch loop-batch genai-batch genai-live rca-replay help setup env hooks fmt lint types imports test test-all check security up down ps logs sync-vm smoke-vm campus-vm controller-vm vm-clock ap-agent-vm mobility-vm traffic-vm scenario-vm scenario-repro-vm collect batch dataset llm-check llm-client-check
+.PHONY: api campaign campaign-mode results report report-figures report-latex report-latex-pdf intent-eval dashboard demo demo-stop qos-vm validation-batch loop-batch genai-batch genai-live rca-replay help setup env hooks fmt lint types imports test test-all check security up down ps logs sync-vm smoke-vm campus-vm controller-vm vm-clock ap-agent-vm mobility-vm traffic-vm scenario-vm scenario-repro-vm collect batch dataset llm-check llm-client-check
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -143,6 +143,12 @@ report: ## P7 the report: docs/report/*.md -> docs/report/build/report.docx
 
 report-figures: ## P7 render the report's Mermaid diagrams -> docs/report/figures/ (needs Node + npm registry)
 	$(RUN) python -m experiments.report --figures
+
+report-latex: ## P7 the report as an Overleaf project -> docs/report/build/overleaf/ + overleaf.zip
+	$(RUN) python -m experiments.report_latex
+
+report-latex-pdf: ## P7 the Overleaf project, compiled with Tectonic -> docs/report/build/report-latex.pdf
+	$(RUN) python -m experiments.report_latex --pdf
 
 dashboard: ## P6.1 operator dashboard on http://127.0.0.1:8501 (needs `make api`)
 	@set -a; . ./.env; set +a; PYTHONPATH=. $(RUN) streamlit run dashboard/app.py --server.address=127.0.0.1 --server.port=8501

@@ -62,9 +62,13 @@ make results            # every table and figure -> experiments/results/ (no VM,
 ```bash
 make report           # docs/report/*.md -> docs/report/build/report.docx (open in Word, accept "update fields")
 make report-figures   # only after changing a diagram: re-render docs/report/figures/ (needs Node)
+make report-latex     # the submitted version: an Overleaf project, docs/report/build/overleaf.zip
+make report-latex-pdf # the same, compiled locally -> docs/report/build/report-latex.pdf (needs Tectonic)
 ```
 
 The Markdown chapters are the source: comments made in the Word file must be carried back into them, because a rebuild doesn't keep them. A department template saved as `docs/report/template.docx` is used for the styles when present.
+
+The LaTeX version (deviation #18) has boxed tables and framed diagrams. Its title page and preamble are in `docs/report/latex/`. Upload `overleaf.zip` with New Project → Upload Project and compile with XeLaTeX. Locally, `report-latex-pdf` needs [Tectonic](https://tectonic-typesetting.github.io) (`brew install tectonic`), which downloads its TeX packages on the first run.
 
 ## Repository layout
 

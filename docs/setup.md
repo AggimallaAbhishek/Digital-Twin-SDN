@@ -37,6 +37,8 @@ On the VM, add the public key to `~/.ssh/authorized_keys`. Passwordless sudo is 
 
 > Each team member uses their **own** key. Never share private keys (RULEBOOK §14).
 
+**Report tools (Mac, optional).** `make report` and `make report-latex` need only the dev dependencies (pandoc comes with `pypandoc-binary`). `make report-figures` needs Node (it runs the Mermaid CLI through `npx`). `make report-latex-pdf` needs Tectonic (`brew install tectonic`; the first run downloads its TeX packages). Overleaf needs none of them.
+
 ## 3. Install steps (on the VM)
 
 ```bash

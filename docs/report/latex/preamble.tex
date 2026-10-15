@@ -1,0 +1,60 @@
+% ---- Report preamble (works with pdfLaTeX, Overleaf's default, and XeLaTeX) ----
+\usepackage{newunicodechar}
+\newunicodechar{±}{\ensuremath{\pm}}
+\newunicodechar{≥}{\ensuremath{\geq}}
+\newunicodechar{→}{\ensuremath{\rightarrow}}
+\newunicodechar{·}{\ensuremath{\cdot}}
+\newunicodechar{×}{\ensuremath{\times}}
+\newunicodechar{−}{\ensuremath{-}}
+
+% Figure captions already carry "Figure X.Y:", so LaTeX adds no label of its own
+\usepackage{caption}
+\captionsetup{font=small,labelformat=empty,skip=6pt}
+
+% Fewer gaps: let figures fill more of a page (pandoc's template already places them htbp).
+% Leave \floatpagefraction at its default: raising it made LaTeX stack two figures on one page
+% next to a longtable, running one off the page
+\renewcommand{\topfraction}{0.9}
+\renewcommand{\bottomfraction}{0.8}
+\renewcommand{\textfraction}{0.07}
+\setcounter{topnumber}{3}
+\setcounter{bottomnumber}{2}
+\setcounter{totalnumber}{4}
+
+% Keep each figure within 70% of the page height
+\makeatletter
+\AtBeginDocument{%
+  \@ifundefined{pandocbounded}{}{%
+    \renewcommand*\pandocbounded[1]{%
+      \sbox{\pandoc@box}{#1}%
+      \Gscale@div\@tempa{0.7\textheight}{\dimexpr\ht\pandoc@box+\dp\pandoc@box\relax}%
+      \Gscale@div\@tempb{\linewidth}{\wd\pandoc@box}%
+      \ifdim\@tempb\p@<\@tempa\p@\let\@tempa\@tempb\fi
+      \ifdim\@tempa\p@<\p@\scalebox{\@tempa}{\usebox{\pandoc@box}}%
+      \else\usebox{\pandoc@box}\fi}}}
+\makeatother
+
+% Tighter lists and paragraphs
+\usepackage{enumitem}
+\setlist{itemsep=2pt,topsep=4pt}
+\setlength{\parskip}{4pt plus 2pt}
+
+% Headings carry their own numbers ("1. Introduction"; pandoc adds none): a plain bold style
+% with no space for a number, and tighter spacing
+\usepackage{titlesec}
+\titleformat{\section}{\Large\bfseries}{}{0pt}{}
+\titlespacing*{\section}{0pt}{14pt}{6pt}
+\titlespacing*{\subsection}{0pt}{10pt}{4pt}
+
+% Uncomment to start each chapter on a new page (adds blank space at chapter ends)
+% \let\oldsection\section
+% \renewcommand{\section}{\clearpage\oldsection}
+
+% Boxed tables with a shaded header row; framed diagrams
+\usepackage{colortbl}
+\definecolor{tablehead}{HTML}{E6F0FA}
+\definecolor{tablerule}{HTML}{7A8794}
+\definecolor{framegray}{HTML}{9AA5B1}
+\arrayrulecolor{tablerule}
+\renewcommand{\arraystretch}{1.2}
+\newcommand{\diagramframe}[1]{{\setlength{\fboxsep}{8pt}\setlength{\fboxrule}{0.8pt}\fcolorbox{framegray}{white}{#1}}}

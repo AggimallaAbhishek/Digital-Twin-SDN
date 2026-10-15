@@ -7,6 +7,10 @@ GenAI-Driven Digital Twin for Intelligent SDN-Based Wireless Network Optimizatio
 ::: {custom-style="Author"}
 &nbsp;
 
+**Group 22**
+
+&nbsp;
+
 **Submitted by**
 :::
 

@@ -5,6 +5,7 @@
 The system is written in Python. The controller-side and twin code run on a macOS host. The emulated network runs in an Ubuntu VM on the same machine. Figure 5.1 shows what runs where.
 
 ```mermaid
+%%{init: {"theme": "base", "themeVariables": {"primaryColor": "#ffffff", "primaryTextColor": "#222222", "primaryBorderColor": "#666666", "lineColor": "#555555", "edgeLabelBackground": "#ffffff"}}}%%
 flowchart LR
     subgraph MAC["Host (macOS, Python 3.11)"]
         API["REST API · control loop<br/>twin · executor · alert monitor"]
@@ -29,6 +30,18 @@ flowchart LR
     GEN --> API
     GEN --> OLL
     GRA --> INF
+
+    style MAC fill:#E6F0FA,stroke:#4F86C6,color:#222222
+    style DOCKER fill:#FFF8DC,stroke:#C9A43A,color:#222222
+    style VM fill:#FDF1E3,stroke:#D4914A,color:#222222
+    classDef host fill:#ffffff,stroke:#4F86C6,stroke-width:1.5px
+    classDef store fill:#ffffff,stroke:#C9A43A,stroke-width:1.5px
+    classDef vm fill:#ffffff,stroke:#D4914A,stroke-width:1.5px
+    classDef llm fill:#F1ECFB,stroke:#8B7BC8,stroke-width:1.5px
+    class API,COL host
+    class GEN,OLL llm
+    class INF,GRA store
+    class MN,AG,RY vm
 ```
 
 *Figure 5.1: Deployment. The VM is reached over a host-only network; the API listens on localhost only.*

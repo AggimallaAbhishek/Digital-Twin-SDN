@@ -1,12 +1,21 @@
+%%{init: {"theme": "base", "themeVariables": {"primaryTextColor": "#222222", "lineColor": "#555555", "actorBkg": "#ffffff", "actorBorder": "#777777", "actorTextColor": "#222222", "signalColor": "#444444", "signalTextColor": "#222222", "labelBoxBkgColor": "#FCE8EE", "labelBoxBorderColor": "#C96B86", "loopTextColor": "#222222", "sequenceNumberColor": "#ffffff"}}}%%
 sequenceDiagram
     autonumber
+    box rgb(253,241,227) Testbed VM
     participant N as Network (VM)
+    participant A as AP agent
+    end
+    box rgb(255,248,220) Telemetry
     participant C as Collector
     participant DB as InfluxDB
+    end
+    box rgb(230,240,250) Control
     participant L as Control loop
-    participant T as Twin
     participant X as Executor
-    participant A as AP agent
+    end
+    box rgb(232,245,236) Digital twin
+    participant T as Twin
+    end
 
     loop every 1 s
         C->>N: GET stats

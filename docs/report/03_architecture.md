@@ -7,6 +7,7 @@
 The system is a closed control loop around an emulated campus Wi-Fi network. Its central design choice is the position of the digital twin. The twin sits **between the components that propose changes and the component that makes them**, so every proposed change, whether it comes from a heuristic optimizer or from a language model, is tested on the twin before it can reach the network. Figure 3.1 shows the four layers and the telemetry path beside them.
 
 ```mermaid
+%%{init: {"theme": "base", "themeVariables": {"primaryColor": "#ffffff", "primaryTextColor": "#222222", "primaryBorderColor": "#666666", "lineColor": "#555555", "edgeLabelBackground": "#ffffff", "clusterBkg": "#fafafa", "clusterBorder": "#999999"}}}%%
 flowchart TB
     OP["Operator<br/>REST API · approvals · chat"]
 
@@ -48,6 +49,24 @@ flowchart TB
     NET -- "AP, station, port, flow stats, KPIs" --> COL --> DB
     DB -- "sync every tick" --> ST
     DB -- "live KPIs (watch)" --> EXE
+
+    style INTEL fill:#F1ECFB,stroke:#8B7BC8,color:#222222
+    style TWIN fill:#E8F5EC,stroke:#5FA36E,color:#222222
+    style CTRL fill:#E6F0FA,stroke:#4F86C6,color:#222222
+    style DATA fill:#FDF1E3,stroke:#D4914A,color:#222222
+    style TEL fill:#FFF8DC,stroke:#C9A43A,color:#222222
+    classDef op fill:#FCE8EE,stroke:#C96B86,stroke-width:1.5px
+    classDef intel fill:#ffffff,stroke:#8B7BC8,stroke-width:1.5px
+    classDef twin fill:#ffffff,stroke:#5FA36E,stroke-width:1.5px
+    classDef ctrl fill:#ffffff,stroke:#4F86C6,stroke-width:1.5px
+    classDef data fill:#ffffff,stroke:#D4914A,stroke-width:1.5px
+    classDef tel fill:#ffffff,stroke:#C9A43A,stroke-width:1.5px
+    class OP op
+    class ML,LLM intel
+    class ST,SIM,VER twin
+    class EXE,RYU ctrl
+    class AGENT,NET data
+    class COL,DB tel
 ```
 
 *Figure 3.1: Layers of the system. Decisions flow down the middle and telemetry flows up the side. The only arrow into the control plane comes from the verifier.*
@@ -100,15 +119,24 @@ Two parts of the network are outside OpenFlow's reach, and this shapes the contr
 Figure 3.2 follows one tick of the control loop (every 5 s), from measurement to a kept or rolled-back change.
 
 ```mermaid
+%%{init: {"theme": "base", "themeVariables": {"primaryTextColor": "#222222", "lineColor": "#555555", "actorBkg": "#ffffff", "actorBorder": "#777777", "actorTextColor": "#222222", "signalColor": "#444444", "signalTextColor": "#222222", "labelBoxBkgColor": "#FCE8EE", "labelBoxBorderColor": "#C96B86", "loopTextColor": "#222222", "sequenceNumberColor": "#ffffff"}}}%%
 sequenceDiagram
     autonumber
+    box rgb(253,241,227) Testbed VM
     participant N as Network (VM)
+    participant A as AP agent
+    end
+    box rgb(255,248,220) Telemetry
     participant C as Collector
     participant DB as InfluxDB
+    end
+    box rgb(230,240,250) Control
     participant L as Control loop
-    participant T as Twin
     participant X as Executor
-    participant A as AP agent
+    end
+    box rgb(232,245,236) Digital twin
+    participant T as Twin
+    end
 
     loop every 1 s
         C->>N: GET stats
@@ -149,6 +177,7 @@ The result is a `Verdict`: accepted or not, the predicted and baseline KPIs, the
 **The LLM paths** enter the same pipeline at the verifier, as Figure 3.3 shows. An operator intent is parsed into a `Policy` under a JSON schema. A deterministic compiler, not the model, turns the policy into actions, and those are verified like any other proposal. The copilot and the root-cause explainer read the network through the tool layer and can ask the twin about a change. What they propose is recorded with its verdict and returned to the operator as a suggestion. They hold no means of applying it.
 
 ```mermaid
+%%{init: {"theme": "base", "themeVariables": {"primaryColor": "#ffffff", "primaryTextColor": "#222222", "primaryBorderColor": "#666666", "lineColor": "#555555", "edgeLabelBackground": "#ffffff"}}}%%
 flowchart TB
     Q["Operator question<br/>or anomaly alert"] --> AG["Copilot / explainer"]
     AG -- "get_topology · get_metrics · get_alerts" --> API["REST API"]
@@ -158,6 +187,17 @@ flowchart TB
     API --> AG
     AG --> R["Answer or report<br/>+ evidence + suggested actions"]
     R -. "operator approves and applies<br/>(operator token)" .-> EX["Executor"]
+
+    classDef op fill:#FCE8EE,stroke:#C96B86,stroke-width:1.5px
+    classDef intel fill:#F1ECFB,stroke:#8B7BC8,stroke-width:1.5px
+    classDef api fill:#E6F0FA,stroke:#4F86C6,stroke-width:1.5px
+    classDef twin fill:#E8F5EC,stroke:#5FA36E,stroke-width:1.5px
+    classDef out fill:#FFF8DC,stroke:#C9A43A,stroke-width:1.5px
+    class Q op
+    class AG intel
+    class API,EX api
+    class TW twin
+    class R out
 ```
 
 *Figure 3.3: The LLM's path to the network. The dotted step is taken by a person, never by the model.*

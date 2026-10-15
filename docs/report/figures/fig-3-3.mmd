@@ -1,3 +1,4 @@
+%%{init: {"theme": "base", "themeVariables": {"primaryColor": "#ffffff", "primaryTextColor": "#222222", "primaryBorderColor": "#666666", "lineColor": "#555555", "edgeLabelBackground": "#ffffff"}}}%%
 flowchart TB
     Q["Operator question<br/>or anomaly alert"] --> AG["Copilot / explainer"]
     AG -- "get_topology · get_metrics · get_alerts" --> API["REST API"]
@@ -7,3 +8,14 @@ flowchart TB
     API --> AG
     AG --> R["Answer or report<br/>+ evidence + suggested actions"]
     R -. "operator approves and applies<br/>(operator token)" .-> EX["Executor"]
+
+    classDef op fill:#FCE8EE,stroke:#C96B86,stroke-width:1.5px
+    classDef intel fill:#F1ECFB,stroke:#8B7BC8,stroke-width:1.5px
+    classDef api fill:#E6F0FA,stroke:#4F86C6,stroke-width:1.5px
+    classDef twin fill:#E8F5EC,stroke:#5FA36E,stroke-width:1.5px
+    classDef out fill:#FFF8DC,stroke:#C9A43A,stroke-width:1.5px
+    class Q op
+    class AG intel
+    class API,EX api
+    class TW twin
+    class R out

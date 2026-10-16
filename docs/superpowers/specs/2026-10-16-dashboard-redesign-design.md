@@ -1,8 +1,8 @@
 # Dashboard redesign: design
 
-**Date:** 2026-10-16 · **Owner:** Abhishek (approver) · **Status:** draft, awaiting approval
+**Date:** 2026-10-16 · **Owner:** Abhishek (approver) · **Status:** approved 2026-10-16; implemented (see §6b for what changed on the way)
 **Plan:** [2026-10-16-dashboard-redesign-plan.md](../plans/2026-10-16-dashboard-redesign-plan.md)
-**Deviation:** #19 (to be added on approval): out-of-plan work after the `eval-v1` code freeze;
+**Deviation:** #19 in docs/PHASE_PLAN.md: out-of-plan work after the `eval-v1` code freeze;
 the evaluation is finished, so no result depends on the dashboard.
 
 ## 1. Goal
@@ -64,7 +64,7 @@ All display logic is in `dashboard/views.py` as pure, unit-tested functions on t
 
 - `status(topology, zones, actions, alerts) -> Status(level, text)`, level one of `waiting`,
   `calm`, `attention`, `critical`. Rules, first match wins:
-  1. no topology → `waiting`: "Waiting for the network's first data…"
+  1. no topology → `waiting`: "Waiting for data from the network…"
   2. an AP down → `critical`: "ap2 is down (lab)."
   3. a station without an AP → `critical`: "2 clients have no access point."
   4. a congested AP → `critical`: "ap1 is congested in the lecture hall (100%, 13 clients)."
@@ -150,6 +150,33 @@ all measured data.
 - `app.py` is checked in a live `make demo` run in Chrome: screenshots at start-up, normal load,
   congestion, steering, and after an approval; the page must never fade.
 - `make check` green; the RULEBOOK review loop (/simplify, /code-review) on the diff.
+
+## 6b. Changed during implementation (live run of 2026-10-16, approved in the session)
+
+- Banner rules 3 and 4 swapped: congestion is the headline even while clients have no AP, and
+  the count is added ("ap1 is congested … · 1 client has no access point."). A steered client is
+  unassociated for a moment, so the old order made the headline flip on every steer.
+- A change the twin **rejected** shows the twin's first reason (verifier violation, without the
+  action id and ADR reference) and how many more, not its predicted KPIs (all zero when it was
+  rejected on its bounds).
+- The waiting text is "Waiting for data from the network…": true at the start and after a run.
+- Names in the code: `alert_groups` (§4.3's `group_alerts`), `waiting_steps` replaces the old
+  `decision_queue`, `band()` replaces `load_band`/`BANDS`.
+- Load colours fixed by the palette checks: calm `#2A78D6`, busy `#D18A00`, congested `#D03B3B`
+  (the pastel blue and amber of the mockup failed the lightness and chroma checks).
+- The map is sized to the floor plan (x 0–80 m, y 5–65 m), so coverage rings are clipped at its
+  edge. The congested halo is `#F6D6D6`.
+- `status(topology, zones, actions)`: the alerts were not needed for the banner.
+- Alert episodes (§4.3): an entity's alerts form one item until a minute passes without one,
+  even with other entities' alerts in between (the monitor interleaves "ap1" and "network").
+- Category words: `ap_down` → "an access point down", `other` → "something else" (read better
+  in "likely: …").
+- Two more timeline kinds: "applied · watching 30 s" while a change is watched, and "✕ could not
+  apply" (status `failed`); a denied change shows "denied by the operator" on its twin check.
+- The sidebar shows the last 3 exchanges (the sidebar has no room for more; the rest stay in
+  the session). The Streamlit toolbar is set to minimal (no "Deploy" button on the projector).
+- Twin vs measured: fixed 240 px per KPI column, which fits the card at the runbook's window
+  size; it does not stretch on wider screens.
 
 ## 7. Out of scope (parking lot)
 

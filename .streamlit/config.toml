@@ -1,13 +1,16 @@
-# P6.1 dashboard theme (dashboard/app.py): a light "site survey" palette, locked so the
-# projected demo looks the same on every machine. Colours: dashboard/app.py, validated for
-# colour-vision safety and contrast on this background.
+# P6.1 dashboard theme (dashboard/app.py), style F "soft modern" (deviation #19): light, so the
+# projected demo looks the same on every machine. The page's own colours and their palette
+# checks are in dashboard/app.py.
 [theme]
 base = "light"
-backgroundColor = "#EEF2F5"
-secondaryBackgroundColor = "#E2E8EE"
-textColor = "#14212B"
-primaryColor = "#2F5FD0"
+backgroundColor = "#F4F6FA"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#1C2433"
+primaryColor = "#2A78D6"
 font = "sans serif"
+
+[client]
+toolbarMode = "minimal"  # no "Deploy" button during the demo
 
 [browser]
 gatherUsageStats = false

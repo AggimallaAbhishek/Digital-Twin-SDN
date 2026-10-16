@@ -223,3 +223,6 @@ temp/
 *.orig
 # make report output (rebuilt from the Markdown chapters)
 docs/report/build/
+
+# brainstorming visual companion (mockups, session key)
+.superpowers/

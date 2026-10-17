@@ -38,6 +38,16 @@ def safe_html(value: object) -> str:
     return html.escape(text).replace("\n", "<br>")
 
 
+_MD_PUNCTUATION = re.compile(r"([!-/:-@\[-`{-~])")  # every ASCII punctuation mark
+
+
+def md_literal(value: object) -> str:
+    """Text for st.error / st.toast, which render Markdown: every ASCII punctuation mark
+    backslash-escaped (CommonMark shows it as typed), so no image, link or $…$ maths can come
+    from the API's text (rule L-6)."""
+    return _MD_PUNCTUATION.sub(r"\\\1", " ".join(str(value).split()))
+
+
 _BOLD = re.compile(r"\*\*((?:(?!<br>).)+?)\*\*")  # **…** within one line
 
 
@@ -65,7 +75,7 @@ def map_layers(topology: dict[str, Any]) -> tuple[list[Row], list[Row]]:
         channel = f"ch {a['channel']}"
         if a["up"]:
             load = band(a["util"])
-            label = f"{a['name']} · {a['util']:.0%} · {n}"  # the channel is drawn beside it
+            label = f"{a['name']} · {a['util']:.0%} · {n}"  # the channel is drawn below it
         else:
             load, label = "down", f"{a['name']} · down"
         aps.append(
@@ -108,6 +118,26 @@ def latest_steer(actions: list[Row], aps: list[Row]) -> Row | None:
         "x2": dst["x"],
         "y2": dst["y"],
         "label": _clients(len(p["stations"])),
+    }
+
+
+LABEL_CLEAR_M = 7.0  # an AP's disc and its two label lines reach ~6.6 m (46 px at 7 px/m)
+
+
+def arrow_line(arrow: Row, clear_m: float = LABEL_CLEAR_M) -> Row | None:
+    """latest_steer's arrow cut back by `clear_m` at both ends, so it never crosses either AP's
+    disc or labels; None when the APs are too close for any line to remain."""
+    dx, dy = arrow["x2"] - arrow["x"], arrow["y2"] - arrow["y"]
+    length = math.hypot(dx, dy)
+    if length <= 2 * clear_m:
+        return None
+    ux, uy = dx / length * clear_m, dy / length * clear_m
+    return {
+        "x": arrow["x"] + ux,
+        "y": arrow["y"] + uy,
+        "x2": arrow["x2"] - ux,
+        "y2": arrow["y2"] - uy,
+        "label": arrow["label"],
     }
 
 
@@ -473,7 +503,7 @@ CAUSE_WORDS = {  # genai/rca/explainer.py Category
     "bad_action": "a recent change",
     "other": "something else",
 }
-_STATION_LIST = re.compile(r"\bsta\d+(?:,\s*(?:and\s+)?sta\d+){2,}\b")  # three or more names
+_STATION_LIST = re.compile(r"\bsta\d+(?:(?:,\s*(?:and\s+)?|\s+and\s+)sta\d+){2,}\b")  # 3+ names
 
 
 @dataclass(frozen=True)
@@ -497,7 +527,7 @@ def rca_view(report: Row) -> RcaView:
             CAUSE_WORDS.get(c["category"], c["category"].replace("_", " ")),
             c["entity"],
             f"{c['confidence']:.0%}",
-            _short(c["evidence"]),
+            shorten(c["evidence"]),
         )
         for c in report["likely_causes"]
     ]
@@ -505,10 +535,10 @@ def rca_view(report: Row) -> RcaView:
         f"{plain_action(s['action'])} · twin {verdict_word(s['verdict'])}"
         for s in report["suggested_actions"]
     ]
-    return RcaView(_short(report["summary"]), causes, suggestions, report.get("model", ""))
+    return RcaView(shorten(report["summary"]), causes, suggestions, report.get("model", ""))
 
 
-def _short(text: str) -> str:
+def shorten(text: str) -> str:
     """Station lists of three or more names as a count: `3 clients`. One or two names stay:
     they read fine and say who."""
     return _STATION_LIST.sub(lambda m: _clients(m.group(0).count("sta")), text)

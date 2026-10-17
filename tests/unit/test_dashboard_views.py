@@ -12,15 +12,18 @@ from dashboard.views import (
     Status,
     Tile,
     alert_groups,
+    arrow_line,
     band,
     describe,
     kpi_series,
     latest_steer,
     map_layers,
+    md_literal,
     plain_action,
     rca_view,
     rich_html,
     safe_html,
+    shorten,
     status,
     tiles,
     timeline,
@@ -560,6 +563,48 @@ def test_alerts_more_than_a_minute_apart_are_separate_episodes() -> None:
 
 def test_no_alerts_no_groups() -> None:
     assert alert_groups([]) == []
+
+
+@pytest.mark.parametrize(
+    ("arrow", "line"),
+    [
+        (  # straight down, ap1 -> ap3 (30 m): 7 m clear of each AP and its label
+            {"x": 20, "y": 50, "x2": 20, "y2": 20, "label": "2 clients"},
+            {"x": 20.0, "y": 43.0, "x2": 20.0, "y2": 27.0, "label": "2 clients"},
+        ),
+        (  # diagonal, ap1 -> ap4 (50 m): direction (0.8, -0.6)
+            {"x": 20, "y": 50, "x2": 60, "y2": 20, "label": "1 client"},
+            {"x": 25.6, "y": 45.8, "x2": 54.4, "y2": 24.2, "label": "1 client"},
+        ),
+    ],
+)
+def test_the_steer_arrow_keeps_clear_of_both_aps_and_their_labels(
+    arrow: dict[str, Any], line: dict[str, Any]
+) -> None:
+    # live audit 2026-10-17: drawn centre to centre, the dashed line ran through the
+    # source AP's "ap1 · 100% · 13" and "ch 1" labels
+    got = arrow_line(arrow)
+    assert got is not None
+    assert {k: round(v, 6) if isinstance(v, float) else v for k, v in got.items()} == line
+
+
+def test_no_arrow_line_between_aps_too_close_to_leave_room() -> None:
+    assert arrow_line({"x": 20, "y": 50, "x2": 30, "y2": 50, "label": "1 client"}) is None
+
+
+def test_text_for_streamlits_markdown_messages_shows_literally() -> None:
+    # code review 2026-10-17: st.error / st.toast render Markdown, and an intent error can be
+    # the model's text: an image from anywhere, or $…$ maths, must show as typed
+    text = "Bad **intent** ![x](http://evil.example/p.png) costs $5 _now_"
+    assert md_literal(text) == (
+        r"Bad \*\*intent\*\* \!\[x\]\(http\:\/\/evil\.example\/p\.png\) costs \$5 \_now\_"
+    )
+
+
+def test_station_lists_are_shortened_wherever_the_model_writes_them() -> None:
+    # the copilot's answers listed ten names; the root-cause report already counted them
+    assert shorten("moving sta1, sta3, sta9 and sta10 to ap3") == "moving 4 clients to ap3"
+    assert shorten("sta1 and sta2 joined") == "sta1 and sta2 joined"
 
 
 def test_the_copilots_bold_shows_as_bold_and_nothing_else_gets_through() -> None:

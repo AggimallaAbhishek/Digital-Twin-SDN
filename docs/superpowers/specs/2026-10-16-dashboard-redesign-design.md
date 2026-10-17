@@ -177,6 +177,22 @@ all measured data.
   the session). The Streamlit toolbar is set to minimal (no "Deploy" button on the projector).
 - Twin vs measured: fixed 240 px per KPI column, which fits the card at the runbook's window
   size; it does not stretch on wider screens.
+- Design-fix pass (2026-10-17, stress data at 1512/1280/1024 px):
+  - map: the steer arrow stops clear of both APs' discs and label lines (`arrow_line`); its
+    label sits at the middle of the line, beside it. Every text on the map (zone names, AP
+    labels, channels, the arrow's label) is drawn on an outline of itself, so rings, clients
+    and lines never hide it. The congested glow sits under the clients, and the red ✕ of a
+    client without an AP is drawn on top of everything. Charts and the map shrink to their card
+    instead of overflowing it.
+  - legend: "- - →" for the steer (the "⤏" glyph is not in the font), and the rings' colours
+    per channel (ch 1, ch 6, ch 11).
+  - timeline: one unbroken line down the card, through the buttons and root-cause reports; a
+    waiting change sits in a light-blue box; Approve/Apply now and Deny are side by side, never
+    cut off. The toast names the change ("Denied: Turn ap2 off").
+  - the copilot's long station lists are shortened as in root-cause reports; API and intent
+    errors are shown literally (Markdown escaped, rule L-6); with the API down, the header
+    still shows above the message.
+  - clicking the chosen chart again keeps it chosen (the control used to clear itself).
 
 ## 7. Out of scope (parking lot)
 

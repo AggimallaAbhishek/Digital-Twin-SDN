@@ -28,14 +28,19 @@ from dashboard.views import (
     CONGESTED,
     COVERAGE_M,
     KPIS,
+    AlertGroup,
     Item,
+    Row,
+    arrow_line,
     kpi_series,
     latest_steer,
     map_layers,
+    md_literal,
     plain_action,
     rca_view,
     rich_html,
     safe_html,
+    shorten,
     status,
     tiles,
     timeline,
@@ -60,11 +65,11 @@ DASHES = {"ch 1": [1, 0], "ch 6": [8, 4], "ch 11": [2, 4]}  # second cue besides
 CLASSES = {"video": "#7B4FC4", "web": "#C23B7A", "bulk": "#4F6B12"}  # traffic classes
 SOURCES = {"before": "#C9D2DE", "twin predicted": ACCENT, "measured": INK}
 PX_PER_M = 7  # map scale: the floor plan (config/campus_v1.yaml zones) at 7 px per metre
+LABEL_DY, CHANNEL_DY = 30, 46  # px under an AP's centre: its label line, then its channel line
 CHARTS = ("Load per AP", "Traffic KPIs", "Twin vs measured")
 WINDOW_S = 300  # the charts' window, as their titles say ("last 5 minutes")
 ALERTS_S = 600  # alerts this recent make the timeline's episodes
 LATEST = 3  # changes in the twin-vs-measured chart; copilot exchanges in the sidebar
-ARROW_HEAD = 0.75  # where the steer arrow's head sits between the APs: clear of the target disc
 RCA_WINDOW = "5 minutes"  # genai/rca/evidence.py WINDOW_S: the evidence before the alert
 STEP = {  # timeline kind → the words before its time
     "waiting": "waiting for you",
@@ -76,11 +81,13 @@ STEP = {  # timeline kind → the words before its time
 
 CSS = f"""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600;700&display=swap');
 html {{ font-size: 17px; }}
 [data-testid="stMainBlockContainer"] {{ padding-top: 2rem; }}
-html, body, [class*="css"], .stMarkdown {{ font-family: 'IBM Plex Sans', sans-serif;
-  color: {INK}; }}
+html, body, .stApp, .stMarkdown {{ font-family: 'IBM Plex Sans', sans-serif; color: {INK}; }}
+/* charts and the map are fixed-size SVGs: shrink them to their card, never past it */
+[class*="st-key-card"] .vega-embed {{ max-width: 100%; }}
+[class*="st-key-card"] svg.marks {{ max-width: 100%; height: auto; }}
 .stApp {{ background: linear-gradient(160deg, #EEF3FB 0%, #F8F6F2 100%); }}
 [data-testid="stSidebar"] > div:first-child {{ background: #F7F9FC; }}
 /* no fading: Streamlit dims what is being re-run, every few seconds here (design §4.7) */
@@ -109,16 +116,26 @@ html, body, [class*="css"], .stMarkdown {{ font-family: 'IBM Plex Sans', sans-se
 .tile .v {{ font-size: 2rem; font-weight: 700; line-height: 1.1; }}
 .tile .l {{ font-size: .85rem; color: {MUTED}; }}
 .tone-critical {{ color: {CRITICAL}; }} .tone-action {{ color: {ACCENT}; }}
-.tone-good {{ color: #1F7A4D; }} .tone-warn {{ color: #B45309; }}
-.item {{ border-left: 2px solid {LINE}; margin-left: 6px; padding: 0 0 .7rem 16px;
-  position: relative; font-size: .92rem; }}
+.tone-good {{ color: #1F7A4D; }} .tone-warn {{ color: #B45309; }} .tone-calm {{ color: {INK}; }}
+/* the timeline: one unbroken line down the card. Streamlit's gap between elements would cut
+   it, so the card (itself a vertical block) has none, nor the -1rem markdown margin that
+   offsets it; items and the containers under them (keyed tl-…: buttons, root causes) all
+   carry the line themselves */
+.st-key-card-timeline, .st-key-card-timeline [data-testid="stVerticalBlock"] {{ gap: 0; }}
+.st-key-card-timeline [data-testid="stMarkdownContainer"] {{ margin-bottom: 0; }}
+.item, [class*="st-key-tl-"] {{ border-left: 2px solid {LINE}; margin-left: 6px;
+  padding: 0 0 .7rem 16px; }}
+.item {{ position: relative; font-size: .92rem; }}
+.item, .rca, .bubble, .banner {{ overflow-wrap: anywhere; }}
 .item::before {{ content: ""; position: absolute; left: -7px; top: .35rem; width: 12px;
   height: 12px; border-radius: 50%; background: #9AA4B5; }}
 .item.critical::before {{ background: {CRITICAL}; }}
 .item.action::before {{ background: {ACCENT}; }}
 .item.good::before {{ background: #1F9D63; }} .item.warn::before {{ background: #D97706; }}
-.item.waiting {{ background: #F3F8FF; border: 1px solid #CFE0F7; border-radius: 10px;
-  padding: 8px 10px 8px 18px; margin-bottom: .5rem; }}
+.item .box {{ background: #F3F8FF; border: 1px solid #CFE0F7; border-radius: 10px;
+  padding: 8px 10px; }}
+.item.waiting {{ padding-bottom: .4rem; }}
+.item.waiting::before {{ top: .9rem; }}
 .item .meta {{ color: {MUTED}; font-size: .8rem; }}
 .item .what {{ font-weight: 600; }}
 .item .detail {{ color: {MUTED}; font-size: .85rem; }}
@@ -129,8 +146,8 @@ html, body, [class*="css"], .stMarkdown {{ font-family: 'IBM Plex Sans', sans-se
 .pill.critical {{ background: #FBE3E3; color: #A62B2B; }}
 .pill.action {{ background: #E3EDFB; color: #1F5FAF; }}
 .pill.calm {{ background: #EEF1F6; color: {MUTED}; }}
-.rca {{ background: #FBF7F5; border-radius: 8px; padding: 8px 10px; margin-top: .3rem;
-  font-size: .85rem; line-height: 1.45; }}
+.rca {{ background: #FBF7F5; border-radius: 8px; padding: 8px 10px; font-size: .85rem;
+  line-height: 1.45; }}
 .legend {{ color: {MUTED}; font-size: .8rem; display: flex; gap: 14px; flex-wrap: wrap; }}
 .legend b {{ font-size: 1rem; }}
 .bubble {{ border-radius: 12px; padding: 8px 10px; margin: 6px 0; font-size: .88rem;
@@ -143,17 +160,18 @@ html, body, [class*="css"], .stMarkdown {{ font-family: 'IBM Plex Sans', sans-se
 
 @st.cache_resource
 def client() -> ApiClient:
+    """The API client; the operator token stays in this server process."""
     return ApiClient(API_URL, os.getenv("OPERATOR_TOKEN") or None)
 
 
-def config(name: str) -> dict[str, Any]:
+def config(name: str) -> Row:
     """A file of config/, parsed (static settings, read once through the cached callers)."""
-    raw: dict[str, Any] = yaml.safe_load((ROOT / "config" / name).read_text())
+    raw: Row = yaml.safe_load((ROOT / "config" / name).read_text())
     return raw
 
 
 @st.cache_data
-def campus_zones() -> list[dict[str, Any]]:
+def campus_zones() -> list[Row]:
     """Zone rectangles from the campus layout file (static layout, not live state)."""
     raw = config("campus_v1.yaml")
     return [
@@ -168,7 +186,7 @@ def campus_zones() -> list[dict[str, Any]]:
     ]
 
 
-def extent(zones: list[dict[str, Any]], axis: str) -> tuple[float, float]:
+def extent(zones: list[Row], axis: str) -> tuple[float, float]:
     """The floor plan's extent along `axis` ("x" or "y"), in metres."""
     return min(z[axis] for z in zones), max(z[f"{axis}2"] for z in zones)
 
@@ -186,6 +204,7 @@ def local_time(iso: str) -> str:
 
 
 def eyebrow(text: str, where: Any = st) -> None:  # Any: st, st.sidebar or a container
+    """A small upper-case caption above a card."""
     where.markdown(f'<div class="eyebrow">{safe_html(text)}</div>', unsafe_allow_html=True)
 
 
@@ -194,7 +213,7 @@ def white(chart: Any) -> Any:  # Any: altair charts are partly untyped
     return chart.configure(background="#FFFFFF").configure_view(stroke=None)
 
 
-def frame(rows: list[dict[str, Any]]) -> pd.DataFrame:
+def frame(rows: list[Row]) -> pd.DataFrame:
     """Chart data (a DataFrame: typed, unlike altair's inline Data)."""
     return pd.DataFrame(rows)
 
@@ -202,7 +221,7 @@ def frame(rows: list[dict[str, Any]]) -> pd.DataFrame:
 # ---------------------------------------------------------------- the campus map
 
 
-def campus_map(topology: dict[str, Any], actions: list[dict[str, Any]]) -> Any:  # Any: altair
+def campus_map(topology: Row, actions: list[Row]) -> Any:  # Any: altair
     """The floor plan: AP discs coloured by load with their labels, faint coverage rings in
     the channel's colour, the stations, and an arrow for the steer being watched."""
     aps, stations = map_layers(topology)
@@ -217,9 +236,13 @@ def campus_map(topology: dict[str, Any], actions: list[dict[str, Any]]) -> Any: 
         x=x, x2="x2:Q", y=y, y2="y2:Q"
     )
     top = alt.Y("y2:Q", scale=alt.Scale(domain=[y0, y1]), axis=None)
-    zone_name = zones.mark_text(
-        align="left", baseline="top", dx=8, dy=8, color="#8A93A6", fontSize=12
-    ).encode(x=x, y=top, text="zone:N")
+    # drawn over the rings and clients (see layers below), on a white outline
+    zone_names = outlined(
+        zones.mark_text(align="left", baseline="top", dx=8, dy=8, fontSize=12, color=MUTED).encode(
+            x=x, y=top, text="zone:N"
+        ),
+        halo="#F7F9FC",
+    )
     up = alt.Chart(frame([a for a in aps if a["band"] != "down"]))
     rings = up.mark_point(
         shape="circle",
@@ -242,16 +265,18 @@ def campus_map(topology: dict[str, Any], actions: list[dict[str, Any]]) -> Any: 
             legend=None,
         ),
     )
+    clients = alt.Chart(frame(stations))
+    client_tip = [alt.Tooltip("name:N", title="client"), alt.Tooltip("ap:N", title="on")]
     station_layer = (
-        alt.Chart(frame(stations))
-        .mark_point(filled=True, size=36)
-        .encode(
-            x=x,
-            y=y,
-            shape=alt.condition(alt.datum.ap == "no AP", alt.value("cross"), alt.value("circle")),
-            color=alt.condition(alt.datum.ap == "no AP", alt.value(CRITICAL), alt.value("#B8C2D3")),
-            tooltip=[alt.Tooltip("name:N", title="client"), alt.Tooltip("ap:N", title="on")],
-        )
+        clients.transform_filter(alt.datum.ap != "no AP")
+        .mark_point(filled=True, size=36, color="#B8C2D3")
+        .encode(x=x, y=y, tooltip=client_tip)
+    )
+    # a client without an AP is the critical mark: larger, and drawn over everything
+    lost = (
+        clients.transform_filter(alt.datum.ap == "no AP")
+        .mark_point(shape="cross", filled=True, size=140, color=CRITICAL, angle=45)
+        .encode(x=x, y=y, tooltip=client_tip)
     )
     ap_chart = alt.Chart(frame(aps))
     halo = (
@@ -274,18 +299,21 @@ def campus_map(topology: dict[str, Any], actions: list[dict[str, Any]]) -> Any: 
             alt.Tooltip("shares_channel_with:N", title="shares airtime with"),
         ],
     )
-    # the label twice: a thick white outline first, so stations and rings never hide it
-    label_halo = ap_chart.mark_text(
-        dy=30, fontSize=13, fontWeight=600, stroke="#FFFFFF", strokeWidth=5, strokeJoin="round"
-    ).encode(x=x, y=y, text="label:N")
-    labels = ap_chart.mark_text(dy=30, fontSize=13, fontWeight=600, color=INK).encode(
-        x=x, y=y, text="label:N"
+    labels = outlined(
+        ap_chart.mark_text(dy=LABEL_DY, fontSize=13, fontWeight=600, color=INK).encode(
+            x=x, y=y, text="label:N"
+        )
     )
-    channel = ap_chart.mark_text(dy=46, fontSize=11, color="#8A93A6").encode(
-        x=x, y=y, text="channel:N"
+    channels = outlined(
+        ap_chart.mark_text(dy=CHANNEL_DY, fontSize=11, color=MUTED).encode(
+            x=x, y=y, text="channel:N"
+        )
     )
-    layers = [zone_box, zone_name, rings, station_layer, *steer_arrow(actions, aps, x, y)]
-    layers += [halo, discs, label_halo, labels, channel]
+    # back to front: floor plan, coverage, the congested glow (under the clients, never over
+    # them), clients, zone names, the steer arrow, AP discs, their outlined labels, and on top
+    # the clients without an AP
+    layers = [zone_box, rings, halo, station_layer, *zone_names]
+    layers += [*steer_arrow(actions, aps, x, y), discs, *labels, *channels, lost]
     return (
         alt.layer(*layers)
         .properties(width=(x1 - x0) * PX_PER_M, height=(y1 - y0) * PX_PER_M, background="#FFFFFF")
@@ -293,36 +321,50 @@ def campus_map(topology: dict[str, Any], actions: list[dict[str, Any]]) -> Any: 
     )
 
 
+def outlined(text: Any, halo: str = "#FFFFFF") -> list[Any]:  # Any: altair charts
+    """A text layer drawn over a thick outline of itself in `halo`, so the rings, clients and
+    lines under it never hide it: [outline, text], back to front."""
+    under = text.copy(deep=True)
+    under.mark.stroke, under.mark.strokeWidth, under.mark.strokeJoin = halo, 4, "round"
+    return [under, text]
+
+
 def steer_arrow(
-    actions: list[dict[str, Any]], aps: list[dict[str, Any]], x: Any, y: Any
-) -> list[Any]:
-    """The dashed arrow of the steer being watched, its head before the target disc."""
-    arrow = latest_steer(actions, aps)
+    actions: list[Row], aps: list[Row], x: Any, y: Any
+) -> list[Any]:  # Any: altair encodings and charts
+    """The dashed arrow of the steer being watched, clear of both APs and their labels."""
+    steer = latest_steer(actions, aps)
+    # clear of an AP's disc and both its label lines (the lower one ends ~3 px under CHANNEL_DY)
+    arrow = arrow_line(steer, clear_m=(CHANNEL_DY + 3) / PX_PER_M) if steer else None
     if arrow is None:
         return []
     dx, dy = arrow["x2"] - arrow["x"], arrow["y2"] - arrow["y"]
-    head = {  # 75% of the way: clear of the target's disc and label
-        "x": arrow["x"] + ARROW_HEAD * dx,
-        "y": arrow["y"] + ARROW_HEAD * dy,
-        "label": arrow["label"],
-    }
     line = (
         alt.Chart(frame([arrow]))
         .mark_rule(color=ACCENT, strokeWidth=2.5, strokeDash=[6, 4])
         .encode(x=x, y=y, x2="x2:Q", y2="y2:Q")
     )
-    # triangle-up points to +y; Vega turns it clockwise by `angle` degrees
+    # at the line's end; triangle-up points to +y and Vega turns it clockwise by `angle` degrees
     tip = (
-        alt.Chart(frame([head]))
+        alt.Chart(frame([arrow | {"x": arrow["x2"], "y": arrow["y2"]}]))
         .mark_point(shape="triangle-up", filled=True, size=220, color=ACCENT)
         .encode(x=x, y=y, angle=alt.value(math.degrees(math.atan2(dx, dy))))
     )
-    words = (
-        alt.Chart(frame([head]))
-        .mark_text(dx=14, align="left", fontSize=12, fontWeight=600, color=ACCENT)
-        .encode(x=x, y=y, text="label:N")
+    # the label at the middle, beside the line: right of a steep one, above a flat one, so it
+    # never reaches either AP's disc or labels
+    middle = alt.Chart(
+        frame([{"x": arrow["x"] + dx / 2, "y": arrow["y"] + dy / 2, "label": arrow["label"]}])
     )
-    return [line, tip, words]
+    steep = abs(dy) >= abs(dx)
+    words = middle.mark_text(
+        dx=10 if steep else 0,
+        dy=0 if steep else -10,
+        align="left" if steep else "center",
+        fontSize=12,
+        fontWeight=600,
+        color=ACCENT,
+    ).encode(x=x, y=y, text="label:N")
+    return [line, tip, *outlined(words)]
 
 
 MAP_LEGEND = (
@@ -332,9 +374,12 @@ MAP_LEGEND = (
     )
     + '<span><b style="color:#8A93A6">○</b> down</span>'
     + f'<span><b style="color:{CRITICAL}">✕</b> client without an AP</span>'
-    + f'<span><b style="color:{ACCENT}">⤏</b> clients being moved</span>'
-    + f"<span>faint rings: {COVERAGE_M:.0f} m coverage, coloured by channel</span>"
-    + "</div>"
+    + f'<span><b style="color:{ACCENT}">- - →</b> clients being moved</span>'
+    + f"<span>rings: {COVERAGE_M:.0f} m coverage on "
+    + ", ".join(
+        f'<span style="color:{c};font-weight:600">{ch}</span>' for ch, c in CHANNELS.items()
+    )
+    + "</span></div>"
 )
 
 # ---------------------------------------------------------------- the live panels
@@ -347,10 +392,12 @@ def live() -> None:
     try:
         actions = api.get("/actions")["actions"]
     except ApiError as exc:
-        st.error(f"The API is not reachable at {API_URL}: {exc}. Start it with `make api`.")
+        header(None)
+        # the client's message already says how to start the API
+        st.error(f"{md_literal(exc)} · this page reconnects by itself.")
         return
     try:  # 503 before the run's first telemetry: the timeline still shows
-        topology: dict[str, Any] | None = api.get("/topology")
+        topology: Row | None = api.get("/topology")
     except ApiError:
         topology = None
     try:
@@ -374,7 +421,7 @@ def live() -> None:
             st.markdown(MAP_LEGEND, unsafe_allow_html=True)
 
 
-def header(topology: dict[str, Any] | None) -> None:
+def header(topology: Row | None) -> None:
     """The title and the live pill with the twin state's time."""
     when = f"twin state {local_time(topology['ts'])}" if topology else "waiting for data"
     st.markdown(
@@ -385,7 +432,7 @@ def header(topology: dict[str, Any] | None) -> None:
     )
 
 
-def banner(topology: dict[str, Any] | None, actions: list[dict[str, Any]]) -> None:
+def banner(topology: Row | None, actions: list[Row]) -> None:
     """The status banner and its four big numbers."""
     s = status(topology, campus_zones(), actions)
     doing = f' <span class="doing">{safe_html(s.doing)}</span>' if s.doing else ""
@@ -401,7 +448,7 @@ def banner(topology: dict[str, Any] | None, actions: list[dict[str, Any]]) -> No
     )
 
 
-def story(actions: list[dict[str, Any]], alerts: list[dict[str, Any]]) -> None:
+def story(actions: list[Row], alerts: list[Row]) -> None:
     """The "What is happening" timeline: waiting changes with their buttons on top, then the
     twin's checks, outcomes and alert episodes, newest first."""
     eyebrow("What is happening · newest first")
@@ -413,50 +460,62 @@ def story(actions: list[dict[str, Any]], alerts: list[dict[str, Any]]) -> None:
         if item.kind == "waiting" and item.action_id:
             decide_buttons(item)
         if item.kind == "detected" and item.group:
-            explain_button(item)
+            explain_button(item.group)
 
 
 def item_html(item: Item) -> str:
-    """One timeline item as HTML (every API string escaped)."""
+    """One timeline item as HTML (every API string escaped); a waiting change sits in a box."""
     detail = f'<div class="detail">{safe_html(item.detail)}</div>' if item.detail else ""
     css = "waiting action" if item.kind == "waiting" else item.tone
-    return (
-        f'<div class="item {css}"><div class="meta">{local_time(item.at)} · {STEP[item.kind]}</div>'
+    body = (
+        f'<div class="meta">{local_time(item.at)} · {STEP[item.kind]}</div>'
         f'<span class="what">{safe_html(item.title)}</span>'
-        f'<span class="pill {item.tone}">{safe_html(item.badge)}</span>{detail}</div>'
+        f'<span class="pill {item.tone}">{safe_html(item.badge)}</span>{detail}'
     )
+    if item.kind == "waiting":
+        body = f'<div class="box">{body}</div>'
+    return f'<div class="item {css}">{body}</div>'
+
+
+DONE = {"approve": "Approved", "apply": "Applied", "deny": "Denied"}  # the toast after a step
 
 
 def decide_buttons(item: Item) -> None:
-    """Approve or Apply now, and Deny, under a waiting change."""
+    """Approve or Apply now, and Deny, side by side under a waiting change (in a keyed container
+    so the timeline's line runs on beside them)."""
     action_id = str(item.action_id)
-    go, no, _ = st.columns([1, 1, 2])
     label = "Approve" if item.next_step == "approve" else "Apply now"
-    go.button(
-        label,
-        key=f"go-{action_id}",
-        type="primary",
-        on_click=decide,
-        args=(action_id, str(item.next_step)),
-    )
-    no.button("Deny", key=f"no-{action_id}", on_click=decide, args=(action_id, "deny"))
+    what = item.title
+    with st.container(horizontal=True, key=f"tl-act-{action_id}"):
+        st.button(
+            label,
+            key=f"go-{action_id}",
+            type="primary",
+            on_click=decide,
+            args=(action_id, str(item.next_step), what),
+        )
+        st.button("Deny", key=f"no-{action_id}", on_click=decide, args=(action_id, "deny", what))
 
 
-def decide(action_id: str, step: str) -> None:
+def decide(action_id: str, step: str, what: str) -> None:
     """Send the operator's step to the API (the token stays in this process)."""
     try:
         client().operator(action_id, step, by=OPERATOR)
-        st.toast(f"{'Applied' if step == 'apply' else step.capitalize() + 'd'}: {action_id}")
+        st.toast(f"{DONE.get(step, step)}: {md_literal(what)}")
     except ApiError as exc:
-        st.toast(str(exc))
+        st.toast(md_literal(exc))
 
 
-def explain_button(item: Item) -> None:
+def explain_button(group: AlertGroup) -> None:
     """Explain under an alert episode, or its root cause once asked for."""
-    group = item.group
-    assert group is not None  # noqa: S101 - only called for detected items, which carry one
     key = f"{group.entity}-{group.first}"
-    reports: dict[str, dict[str, Any]] = st.session_state.setdefault("rca", {})
+    reports: dict[str, Row] = st.session_state.setdefault("rca", {})
+    with st.container(key=f"tl-rca-{key}"):
+        explain(group, key, reports)
+
+
+def explain(group: AlertGroup, key: str, reports: dict[str, Row]) -> None:
+    """The root-cause report, or the button that asks for it."""
     if key in reports:
         st.markdown(rca_html(reports[key]), unsafe_allow_html=True)
     elif st.button("Explain", key=f"rca-{key}"):
@@ -468,7 +527,7 @@ def explain_button(item: Item) -> None:
         st.rerun(scope="fragment")
 
 
-def rca_html(report: dict[str, Any]) -> str:
+def rca_html(report: Row) -> str:
     """A root-cause report as HTML, in plain words."""
     view = rca_view(report)
     if view.error:
@@ -494,9 +553,9 @@ def rca_html(report: dict[str, Any]) -> str:
 def charts() -> None:
     """One chart at a time, picked with a control that keeps its choice across refreshes."""
     with st.container(key="card-charts"):
-        choice = st.segmented_control(
-            "Chart", CHARTS, default=CHARTS[0], key="chart", label_visibility="collapsed"
-        )
+        if st.session_state.get("chart") is None:  # clicking the chosen chart again clears it
+            st.session_state["chart"] = CHARTS[0]
+        choice = st.segmented_control("Chart", CHARTS, key="chart", label_visibility="collapsed")
         api = client()
         try:
             if choice == "Traffic KPIs":
@@ -579,7 +638,7 @@ def kpi_card(api: ApiClient) -> None:
     st.altair_chart(white(chart))
 
 
-def twin_card(actions: list[dict[str, Any]]) -> None:
+def twin_card(actions: list[Row]) -> None:
     """Before, twin predicted and measured for the latest finished changes."""
     eyebrow("Twin prediction vs what happened · the latest 3 changes")
     finished = [r for r in actions if r.get("measured")]
@@ -626,7 +685,7 @@ def twin_card(actions: list[dict[str, Any]]) -> None:
                     labelAngle=0, labelAlign="left", labelOrient="top", labelFontSize=13
                 ),
             ),
-            column=alt.Column("kpi:N", title=None),
+            column=alt.Column("kpi:N", title=None, sort=[label for label, _ in KPIS]),
         )
         .resolve_scale(x="independent")
     )
@@ -663,7 +722,7 @@ def sidebar() -> None:
             send_intent(api, text)
 
 
-def chat_html(question: str, reply: dict[str, Any]) -> str:
+def chat_html(question: str, reply: Row) -> str:
     """One copilot exchange as two bubbles: the question, and the answer with its tools."""
     answer = reply.get("answer") or f"The copilot could not answer: {reply.get('error', '')}"
     tools = sorted({e["tool"] for e in reply.get("evidence", [])})
@@ -675,7 +734,7 @@ def chat_html(question: str, reply: dict[str, Any]) -> str:
     )
     return (
         f'<div class="bubble you"><b>You:</b> {safe_html(question)}</div>'
-        f'<div class="bubble">{rich_html(answer)}{used}{tips}</div>'
+        f'<div class="bubble">{rich_html(shorten(answer))}{used}{tips}</div>'
     )
 
 
@@ -684,10 +743,10 @@ def send_intent(api: ApiClient, text: str) -> None:
     try:
         result = api.post("/intents", {"text": text})
     except ApiError as exc:
-        st.error(str(exc))
+        st.error(md_literal(exc))
         return
-    if result["error"]:
-        st.error(result["error"])
+    if result["error"]:  # the LLM's or the parser's words: shown literally (rule L-6)
+        st.error(md_literal(result["error"]))
     for a in result["actions"]:
         verdict = verdict_word(result["verdicts"][a["action_id"]])
         tone = "good" if verdict == "accepted" else "warn"
@@ -699,6 +758,7 @@ def send_intent(api: ApiClient, text: str) -> None:
 
 
 def main() -> None:
+    """The page: its style, the sidebar, the live panels and the chart card."""
     st.set_page_config(page_title="Campus Wi-Fi twin", layout="wide")
     st.markdown(CSS, unsafe_allow_html=True)
     sidebar()

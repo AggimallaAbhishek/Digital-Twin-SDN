@@ -38,6 +38,14 @@ def safe_html(value: object) -> str:
     return html.escape(text).replace("\n", "<br>")
 
 
+_BOLD = re.compile(r"\*\*((?:(?!<br>).)+?)\*\*")  # **…** within one line
+
+
+def rich_html(value: object) -> str:
+    """Like safe_html, for the model's prose: its **bold** as bold, and nothing else."""
+    return _BOLD.sub(r"<b>\1</b>", safe_html(value))
+
+
 def band(util: float) -> str:
     """The load band a utilisation (0 to 1) falls in: calm, busy or congested."""
     if util >= CONGESTED:
@@ -348,18 +356,7 @@ def timeline(actions: list[Row], alerts: list[Row], watch: timedelta, limit: int
             at = r["applied_at"] or r["action"]["created_at"]
             done = (datetime.fromisoformat(at) + watch).isoformat()
             items.append(Item("outcome", done, title, _measured(r), *OUTCOMES[r["status"]]))
-    items += [
-        Item(
-            "detected",
-            g.last,
-            f"{g.entity} looks unusual",
-            "",
-            _alerts(g.count),
-            "critical",
-            group=g,
-        )
-        for g in alert_groups(alerts)
-    ]
+    items += _episodes(alert_groups(alerts))
     items.sort(key=lambda i: i.at, reverse=True)
     pinned.sort(key=lambda i: i.at, reverse=True)
     return pinned + items[: max(limit - len(pinned), 0)]
@@ -403,21 +400,53 @@ def _checked(r: Row, title: str) -> Item:
 _ADR = re.compile(r"\s*\(ADR-\d+\)$")  # a verifier reason's decision record: not for the audience
 
 
+KPI_WORDS = {field: label.split()[0] for label, field in KPIS} | {"jain": "fairness"}  # in reasons
+_KPI_FIELD = re.compile(r"\b(?:" + "|".join(KPI_WORDS) + r")\b")
+
+
 def _why_not(verdict: Row) -> str:
-    """A rejected verdict's first reason (without its action id and ADR reference), and how
-    many more."""
+    """A rejected verdict's first reason (without its action id and ADR reference, its KPI
+    fields as words: latency_ms as latency), and how many more."""
     violations = verdict.get("violations") or []
     if not violations:
         return _predicted(verdict)  # rejected on its predicted KPIs: they say why
     first = _ADR.sub("", violations[0].split(": ", 1)[-1])
+    first = _KPI_FIELD.sub(lambda m: KPI_WORDS[m.group(0)], first)
     more = len(violations) - 1
     return f"twin: {first}" + (f" (+{more} more {_plural(more, 'reason')})" if more else "")
 
 
+SHOWN_EPISODES = 2  # alert episodes with their own item; older ones share one summary
+
+
+def _episodes(groups: list[AlertGroup]) -> list[Item]:
+    """The newest alert episodes as items with Explain; the older ones as one summary (at a
+    crowd, every AP alerts and would push the twin's story off the card). `groups` newest
+    first, as alert_groups returns them."""
+    items = [
+        Item(
+            "detected",
+            g.last,
+            f"{g.entity} looks unusual",
+            "",
+            _alerts(g.count),
+            "critical",
+            group=g,
+        )
+        for g in groups[:SHOWN_EPISODES]
+    ]
+    older = groups[SHOWN_EPISODES:]
+    if older:
+        entities = ", ".join(dict.fromkeys(g.entity for g in older))
+        title = f"{len(older)} earlier alert {_plural(len(older), 'episode')}"
+        items.append(Item("detected", older[0].last, title, "", entities, "calm"))
+    return items
+
+
 def _predicted(verdict: Row) -> str:
     before, after = verdict.get("baseline") or {}, verdict.get("predicted") or {}
-    if not before or not after:
-        return ""
+    if not before or not after or not any(d[f] for d in (before, after) for _, f in KPIS):
+        return ""  # no flow affected (throughput, latency and loss all 0; fairness is not one)
     return (
         f"twin: latency {before['latency_ms']:.0f} → {after['latency_ms']:.0f} ms"
         f" · loss {before['loss_pct']:.1f}% → {after['loss_pct']:.1f}%"

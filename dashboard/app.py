@@ -34,6 +34,7 @@ from dashboard.views import (
     map_layers,
     plain_action,
     rca_view,
+    rich_html,
     safe_html,
     status,
     tiles,
@@ -479,7 +480,7 @@ def rca_html(report: dict[str, Any]) -> str:
     )
     tips = "".join(f"<div>suggested: {safe_html(s)}</div>" for s in view.suggestions)
     return (
-        f'<div class="rca"><b>Root cause:</b> {safe_html(view.summary)}{causes}{tips}'
+        f'<div class="rca"><b>Root cause:</b> {rich_html(view.summary)}{causes}{tips}'
         f'<div style="color:{MUTED}">model {safe_html(view.model)}'
         f" · evidence from the {RCA_WINDOW} before the alert"
         "</div></div>"
@@ -674,7 +675,7 @@ def chat_html(question: str, reply: dict[str, Any]) -> str:
     )
     return (
         f'<div class="bubble you"><b>You:</b> {safe_html(question)}</div>'
-        f'<div class="bubble">{safe_html(answer)}{used}{tips}</div>'
+        f'<div class="bubble">{rich_html(answer)}{used}{tips}</div>'
     )
 
 

@@ -19,6 +19,7 @@ from dashboard.views import (
     map_layers,
     plain_action,
     rca_view,
+    rich_html,
     safe_html,
     status,
     tiles,
@@ -331,6 +332,18 @@ def _alert(ts: str, entity: str, score: float = 0.7) -> dict[str, Any]:
     return {"ts": f"2026-10-16T08:{ts}+00:00", "entity": entity, "score": score}
 
 
+def test_only_the_newest_alert_episodes_get_their_own_item() -> None:
+    # live run 2026-10-17: four episodes at the peak pushed the twin's story off the card
+    alerts = [_alert(f"2{n}:00", entity) for n, entity in enumerate(("ap4", "ap3", "net", "ap1"))]
+    items = timeline([], alerts, WATCH)
+    assert [(i.title, i.badge, i.group is not None) for i in items] == [
+        ("ap1 looks unusual", "1 alert", True),
+        ("net looks unusual", "1 alert", True),
+        ("2 earlier alert episodes", "ap3, ap4", False),  # no Explain: a summary
+    ]
+    assert items[2].at == "2026-10-16T08:21:00+00:00"  # the newer of the two
+
+
 def _at(record: dict[str, Any], created: str, applied: str | None = None) -> dict[str, Any]:
     """The record proposed at 08:`created` and applied at 08:`applied`."""
     record["action"]["created_at"] = f"2026-10-16T08:{created}+00:00"
@@ -467,6 +480,25 @@ def test_no_arrow_without_a_steer_being_watched() -> None:
     assert latest_steer([unknown], aps) is None  # an AP the twin does not know
 
 
+def test_a_reason_names_its_kpi_in_words() -> None:
+    # live run 2026-10-17: "latency_ms 6.0% worse", the verifier's field name
+    record = _at(_record(1, "rejected", kind="steer_clients"), "21:00")
+    record["verdict"]["violations"] = [
+        "act_1: latency_ms 6.0% worse and no KPI improves by more than 5%",
+    ]
+    [item] = timeline([record], [], WATCH)
+    assert item.detail == "twin: latency 6.0% worse and no KPI improves by more than 5%"
+
+
+def test_a_prediction_for_no_traffic_is_not_shown() -> None:
+    # live run 2026-10-17: a QoS intent before the video started read "latency 0 → 0 ms"
+    record = _at(_record(1, "kept", kind="steer_clients"), "21:00")
+    zero = {"throughput_mbps": 0.0, "latency_ms": 0.0, "loss_pct": 0.0, "jain": 1.0}
+    record["verdict"] |= {"baseline": zero, "predicted": zero}
+    checked = [i for i in timeline([record], [], WATCH) if i.kind == "checked"]
+    assert checked[0].detail == ""
+
+
 def test_a_rejected_change_shows_why_the_twin_rejected_it() -> None:
     # rejected on its bounds, the twin predicts nothing: its zeros would read as a prediction
     record = _at(_record(1, "rejected", kind="steer_clients"), "21:00")
@@ -528,6 +560,15 @@ def test_alerts_more_than_a_minute_apart_are_separate_episodes() -> None:
 
 def test_no_alerts_no_groups() -> None:
     assert alert_groups([]) == []
+
+
+def test_the_copilots_bold_shows_as_bold_and_nothing_else_gets_through() -> None:
+    # live run 2026-10-17: the answer read "returned **rejected**" with the asterisks
+    answer = "It returned **rejected**: <b>x</b> **unclosed\n\n**So it would not help.**"
+    assert rich_html(answer) == (
+        "It returned <b>rejected</b>: &lt;b&gt;x&lt;/b&gt; **unclosed<br><br>"
+        "<b>So it would not help.</b>"
+    )
 
 
 def test_text_from_the_api_cannot_add_html_or_markdown_to_the_page() -> None:

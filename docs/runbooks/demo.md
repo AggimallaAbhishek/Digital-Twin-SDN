@@ -37,7 +37,7 @@ refreshes every 5 seconds. `make demo-stop` takes up to ~25 s: the API lets a lo
 | 3.5 to 8 min | The V3 loop steers clients to ap3/ap2 | The banner adds "The system is moving N clients to ap3" and the map draws a dashed arrow. **What is happening** tells each change's story: "twin checked · Move 2 clients ap1 → ap3 · accepted" with the predicted latency and loss, then "applied · watching 30 s", then "after the watch · ✓ kept" (or "↺ rolled back") with twin vs measured latency. A change the twin rejected shows why. "Every change was simulated in the twin first; the loop proposes nothing new while a change is being watched and watches it for 30 s." The chart card's **Twin vs measured** shows the latest 3 changes as bars. |
 | any time | — | **Type an intent** (sidebar): *"Give video calls in the lecture hall priority."* The policy compiles to a QoS action; the twin's verdict is shown. |
 | any time | A high-impact change waits | Ask the copilot *"Would moving ap4 to channel 11 help?"*. A channel change is high impact: it is pinned at the top of **What is happening** as "waiting for you" (the "waiting for you" number turns blue). **Approve** it, then click **Apply now** on the same item (approving alone does not change the network), or **Deny** it: nothing high-impact applies without a person. The applied change is watched for 30 s like the loop's own. |
-| 10 min | Scenario ends | The chart card's **Load per AP** and **Traffic KPIs** (last 5 minutes) show the recovery; the timeline keeps the whole story. |
+| 10 min | Scenario ends | The chart card's **Load per AP** and **Traffic KPIs** (last 5 minutes) show the recovery; the timeline keeps the whole story. **Finish the story before minute 10**: a steer applied in the last 30 s can end as "✕ last rollback failed" (see Troubleshooting). |
 
 ## Talking points
 
@@ -69,6 +69,7 @@ Short, honest answers from the evaluation (27 runs, report Chapter 6). Say the w
 | Banner and map say "Waiting for data from the network…" | The scenario has not started yet (agent wait ~1 min), or the collector failed: check the `make demo` output |
 | Copilot or RCA slow / "no language model answered" | Cloud model down: the local model answers instead (slower). If both fail: show the replay results (`make rca-replay` output, `models/genai/v1/`) |
 | No alert after the crowd | Point at the map (ap1 red, the banner says it is congested) and the chart card's **Load per AP**; the detector's threshold is set for precision |
+| "✕ last rollback failed" right after the scenario ends | Not a fault: a steer applied in its last 30 s could not be reverted because the scenario had already stopped the network (its note in `GET /actions` ends "Connection refused"). Seen on 2026-10-17. Any other failed rollback is the known AP-failure issue (report §7.1) |
 | Loop does nothing | `logs/demo/api.log` shows each loop tick; verdicts are in **What is happening** / `GET /actions` |
 | Internet down | Fonts fall back to system fonts; the LLM falls back to the local model; everything else is local |
 | Anything else | Stop the demo and walk through the evaluation instead: Figures 6.1–6.3 and Tables 6.1–6.5 in the report (`experiments/results/results.md`), with the twin's accuracy (§6.3) |

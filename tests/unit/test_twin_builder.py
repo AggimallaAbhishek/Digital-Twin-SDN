@@ -125,3 +125,30 @@ def test_an_ap_with_only_incomplete_rows_counts_as_not_reporting() -> None:
     state = build_state(Snapshot([broken, _ap("ap2", 1)], [], []), CAMPUS, NOW, stale_s=5)
     assert not state.aps["ap1"].up
     assert state.aps["ap1"].channel == 1  # the configured channel
+
+
+def test_an_incomplete_kpi_row_is_ignored_in_favour_of_the_last_complete_one() -> None:
+    # found live (demo, 2026-10-17): a kpi row with an empty latency_ms cell crashed
+    # /twin/simulate (float(None)), so the root-cause explainer's suggestion got no verdict
+    broken = {**_kpi(0.5), "latency_ms": None}
+    state = build_state(Snapshot([_ap("ap1", 1)], [], [_kpi(2), broken]), CAMPUS, NOW, stale_s=5)
+    assert state.flows["sta1-video"].latency_ms == 10.0
+
+
+def test_an_incomplete_station_row_is_ignored_in_favour_of_the_last_complete_one() -> None:
+    broken = {**_sta(0.5), "x": None}
+    state = build_state(Snapshot([_ap("ap1", 1)], [_sta(2), broken], []), CAMPUS, NOW, stale_s=5)
+    assert state.stations["sta1"].position == (1.0, 2.0)
+
+
+def test_an_ignored_row_does_not_make_the_state_look_fresher() -> None:
+    # the state's ts is the time up to which every measurement is known: not a dropped row's
+    broken = {**_kpi(0.5), "latency_ms": None}
+    snapshot = Snapshot([_ap("ap1", 1)], [_sta(1)], [_kpi(3), broken])
+    assert lag_s(build_state(snapshot, CAMPUS, NOW, stale_s=5), NOW) == pytest.approx(3.0)
+
+
+def test_a_flow_with_only_incomplete_rows_is_left_out() -> None:
+    broken = {**_kpi(1), "loss_pct": None}
+    state = build_state(Snapshot([_ap("ap1", 1)], [], [broken]), CAMPUS, NOW, stale_s=5)
+    assert "sta1-video" not in state.flows

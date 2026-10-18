@@ -6,6 +6,8 @@ twin/state/sync.py feeds it the last few seconds of a run from InfluxDB. Rules:
 - An AP is **up** if it reported within `stale_s` of `now`: a disabled AP stops sending stats
   (its channel would be null, which the schema rejects). Otherwise it is down, on its last
   known channel (or the configured one) with zero utilisation.
+- An AP, station or KPI row with an empty cell the twin needs is ignored: the series keeps its
+  latest complete record, and a station or flow with none is left out.
 - AP positions come from config/campus_v1.yaml; station positions from their own telemetry.
 - `ts` is the time up to which every measurement is known: the oldest of the newest ap_stats,
   sta_stats and kpi records (measurements without rows in the snapshot don't count). So
@@ -68,20 +70,27 @@ def load_campus_aps(campus: Mapping[str, Any]) -> CampusAPs:
 
 
 _AP_FIELDS = ("ts", "ap", "channel", "channel_util")
+_STA_FIELDS = ("ts", "sta", "x", "y")
+_KPI_FIELDS = ("ts", "flow_id", "app_class", "throughput_mbps", "latency_ms", "loss_pct")
+
+
+def _complete(rows: Iterable[dict[str, Any]], fields: tuple[str, ...]) -> list[dict[str, Any]]:
+    """The rows with a value in every field the twin needs: the pivoted Flux result can leave a
+    cell empty (None), and such a row is ignored in favour of the series' last complete one."""
+    return [r for r in rows if all(r.get(k) is not None for k in fields)]
 
 
 def build_state(snapshot: Snapshot, campus: CampusAPs, now: datetime, stale_s: float) -> TwinState:
     """The network as the latest telemetry describes it; ValueError if there is none."""
-    newest = [
-        max(r["ts"] for r in rows)
-        for rows in (snapshot.ap_rows, snapshot.sta_rows, snapshot.kpi_rows)
-        if rows
-    ]
+    # empty cells found live: ap_stats (V3 loop), kpi (demo); sta_stats filtered the same way.
+    # Filtered first, so a dropped row cannot make the state look fresher than it is.
+    ap_ok = _complete(snapshot.ap_rows, _AP_FIELDS)
+    sta_ok = _complete(snapshot.sta_rows, _STA_FIELDS)
+    kpi_ok = _complete(snapshot.kpi_rows, _KPI_FIELDS)
+    newest = [max(r["ts"] for r in rows) for rows in (ap_ok, sta_ok, kpi_ok) if rows]
     if not newest:
         raise NoTelemetryError("no telemetry in the snapshot")
-    # an AP row with an empty cell for a field the twin needs is ignored (found live, V3 loop)
-    complete = [r for r in snapshot.ap_rows if all(r.get(k) is not None for k in _AP_FIELDS)]
-    ap_rows = _latest(complete, "ap")
+    ap_rows = _latest(ap_ok, "ap")
     aps = {}
     for name, position in campus.positions.items():
         row = ap_rows.get(name)
@@ -92,7 +101,7 @@ def build_state(snapshot: Snapshot, campus: CampusAPs, now: datetime, stale_s: f
         power = float(power) if power is not None else None
         aps[name] = APState(name, position, channel, up, util, power)
     stations = {}
-    for name, r in _latest(snapshot.sta_rows, "sta").items():
+    for name, r in _latest(sta_ok, "sta").items():
         position = (float(r["x"]), float(r["y"]))
         stations[name] = StationState(name, position, r.get("ap"), campus.zone_of(position))
     flows = {
@@ -104,7 +113,7 @@ def build_state(snapshot: Snapshot, campus: CampusAPs, now: datetime, stale_s: f
             latency_ms=float(r["latency_ms"]),
             loss_pct=float(r["loss_pct"]),
         )
-        for fid, r in _latest(snapshot.kpi_rows, "flow_id").items()
+        for fid, r in _latest(kpi_ok, "flow_id").items()
     }
     return TwinState(min(newest), aps, stations, flows)
 

@@ -89,6 +89,10 @@ class HttpBackend:
             with urllib.request.urlopen(request, timeout=self._timeout) as resp:  # noqa: S310 - as above
                 return resp.status, json.loads(resp.read())
         except urllib.error.HTTPError as exc:
-            return exc.code, json.loads(exc.read() or b"null")
+            raw = exc.read()
+            try:
+                return exc.code, json.loads(raw or b"null")
+            except ValueError:  # a plain-text page (a 500 from uvicorn): its text is the detail
+                return exc.code, raw.decode(errors="replace").strip()
         except (urllib.error.URLError, TimeoutError) as exc:
             raise ValueError(f"the API is unreachable: {exc}") from exc

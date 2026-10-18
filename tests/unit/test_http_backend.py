@@ -102,6 +102,20 @@ def test_http_errors_carry_the_apis_detail(monkeypatch: pytest.MonkeyPatch) -> N
         HttpBackend("http://127.0.0.1:8000").topology()
 
 
+def test_a_plain_text_error_page_keeps_its_status_and_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    # found live (demo, 2026-10-17): a 500 from /twin/simulate is uvicorn's plain-text page, and
+    # the model saw only "Expecting value: line 1 column 1 (char 0)"
+    def crash(request: Any, timeout: float) -> Any:
+        body = io.BytesIO(b"Internal Server Error")
+        raise urllib.error.HTTPError(request.full_url, 500, "", email.message.Message(), body)
+
+    monkeypatch.setattr("urllib.request.urlopen", crash)
+    with pytest.raises(ValueError, match=r"/twin/simulate failed \(500\): Internal Server Error"):
+        HttpBackend("http://127.0.0.1:8000").simulate(
+            ACTION_ADAPTER.validate_python(_action(*EVERY_TYPE[3]))
+        )
+
+
 def test_a_request_is_json_to_the_configured_api(monkeypatch: pytest.MonkeyPatch) -> None:
     sent: list[Any] = []
 

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
+
 import numpy as np
 import pytest
 
@@ -9,6 +12,15 @@ from ml.anomaly.detector import Detector
 from ml.anomaly.metrics import best_threshold, detection_delays, precision_recall_f1
 
 NAMES = ["ap1.util_mean", "ap1.silent", "ap2.util_mean", "ap2.silent", "net.loss_mean"]
+
+
+def test_importing_the_detector_does_not_load_scikit_learn() -> None:
+    # sklearn takes ~1.4 s to import; the API imports this module at start-up (api/alerts.py)
+    # but only a fitted detector needs it. A fresh interpreter, since this suite loads it anyway.
+    code = "import sys, ml.anomaly.detector; print('sklearn' in sys.modules)"
+    command = [sys.executable, "-c", code]
+    result = subprocess.run(command, capture_output=True, text=True, check=True)  # noqa: S603 - our own interpreter, a fixed snippet
+    assert result.stdout.strip() == "False"
 
 
 # ------------------------------------------------------------------ metrics

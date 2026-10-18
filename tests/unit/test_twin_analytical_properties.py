@@ -18,6 +18,14 @@ from twin.state.builder import load_campus_aps
 from twin.state.model import APState, FlowState, StationState, TwinState
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def examples(full: int) -> int:
+    """`full` cases, scaled by the loaded Hypothesis profile (see tests/conftest.py)."""
+    loaded, default = settings().max_examples, settings.get_profile("default").max_examples
+    return max(1, full * int(loaded) // int(default))
+
+
 CAMPUS_RAW = yaml.safe_load((ROOT / "config" / "campus_v1.yaml").read_text())
 CAMPUS = load_campus_aps(CAMPUS_RAW)
 RADIO = load_radio_params(CAMPUS_RAW)
@@ -63,7 +71,7 @@ def _non_web_rate(result: SimResult, state: TwinState, ap: str) -> float:
     )
 
 
-@settings(max_examples=200, deadline=None)
+@settings(max_examples=examples(200), deadline=None)
 @given(states())
 def test_predictions_stay_physical(state: TwinState) -> None:
     result = simulate(state, RADIO, PARAMS)
@@ -85,7 +93,7 @@ def test_predictions_stay_physical(state: TwinState) -> None:
     assert result.kpis.throughput_mbps <= RADIO.ap_capacity_mbps * len(state.up_aps()) + 1e-9
 
 
-@settings(max_examples=200, deadline=None)
+@settings(max_examples=examples(200), deadline=None)
 @given(states(), st.data())
 def test_a_higher_priority_queue_never_hurts_a_flow(state: TwinState, data: st.DataObject) -> None:
     if not state.flows:
@@ -111,7 +119,7 @@ def test_a_higher_priority_queue_never_hurts_a_flow(state: TwinState, data: st.D
         assert after.latency_ms <= before.latency_ms + 1e-9
 
 
-@settings(max_examples=100, deadline=None)
+@settings(max_examples=examples(100), deadline=None)
 @given(states())
 def test_more_capacity_never_lowers_a_flow(state: TwinState) -> None:
     bigger = dataclasses.replace(RADIO, ap_capacity_mbps=RADIO.ap_capacity_mbps * 2)
@@ -121,7 +129,7 @@ def test_more_capacity_never_lowers_a_flow(state: TwinState) -> None:
         assert after.flows[fid].throughput_mbps >= before.flows[fid].throughput_mbps - 1e-9
 
 
-@settings(max_examples=50, deadline=None)
+@settings(max_examples=examples(50), deadline=None)
 @given(states())
 def test_the_result_does_not_depend_on_dict_order(state: TwinState) -> None:
     reordered = TwinState(

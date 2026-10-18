@@ -11,9 +11,12 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
-from sklearn.ensemble import IsolationForest
+
+if TYPE_CHECKING:  # sklearn takes ~1.4 s to import: only fitting a detector loads it
+    from sklearn.ensemble import IsolationForest
 
 MIN_STD = 1e-6  # features that never vary in normal operation (e.g. an AP being silent)
 
@@ -32,6 +35,8 @@ class Detector:
         cls, normal: Sequence[Sequence[float]], names: Sequence[str], seed: int, n_estimators: int
     ) -> Detector:
         """Fit on windows of normal operation (seeded: RULEBOOK E-1)."""
+        from sklearn.ensemble import IsolationForest  # noqa: PLC0415 - kept out of import time
+
         x = np.asarray(normal, dtype=float)
         forest = IsolationForest(n_estimators=n_estimators, random_state=seed).fit(x)
         return cls(forest, list(names), x.mean(axis=0), np.maximum(x.std(axis=0), MIN_STD))

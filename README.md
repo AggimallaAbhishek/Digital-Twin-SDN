@@ -27,6 +27,8 @@ Prerequisites: [uv](https://docs.astral.sh/uv/), Docker Desktop, `make`.
 make setup     # Python 3.11 env + dev tools, generates .env, installs git hooks
 make up        # Mosquitto :1883, InfluxDB :8086, Grafana :3000 (localhost only)
 make check     # lint + format + types + import boundaries + tests (run before every push)
+make test-quick   # ~5 s inner loop while editing: no coverage, fewer property-test cases
+make test-failed  # re-run only what failed last time
 make help      # all commands
 ```
 

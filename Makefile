@@ -3,7 +3,7 @@
 RUN := uv run
 FAST_TESTS := -m "not vm and not llm and not integration"
 
-.PHONY: api campaign campaign-mode results report report-figures report-latex report-latex-pdf intent-eval dashboard demo demo-stop qos-vm validation-batch loop-batch genai-batch genai-live rca-replay help setup env hooks fmt lint types imports test test-all check security up down ps logs sync-vm smoke-vm campus-vm controller-vm vm-clock ap-agent-vm mobility-vm traffic-vm scenario-vm scenario-repro-vm collect batch dataset llm-check llm-client-check
+.PHONY: api campaign campaign-mode results report report-figures report-latex report-latex-pdf intent-eval dashboard demo demo-stop qos-vm validation-batch loop-batch genai-batch genai-live rca-replay help setup env hooks fmt lint types imports test test-quick test-failed test-all check security up down ps logs sync-vm smoke-vm campus-vm controller-vm vm-clock ap-agent-vm mobility-vm traffic-vm scenario-vm scenario-repro-vm collect batch dataset llm-check llm-client-check
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -33,10 +33,16 @@ imports: ## Check module boundaries (RULEBOOK §4)
 	$(RUN) lint-imports
 
 test: ## Fast tests with coverage (no VM, LLM or services)
-	$(RUN) pytest $(FAST_TESTS) --cov
+	HYPOTHESIS_PROFILE=default $(RUN) pytest $(FAST_TESTS) --cov  # full cases even if quick is exported
+
+test-quick: ## Inner loop while editing: no coverage, a tenth of the property-test cases (not the push gate)
+	HYPOTHESIS_PROFILE=quick $(RUN) pytest $(FAST_TESTS)
+
+test-failed: ## Re-run only the tests that failed last time (all of them if none did)
+	$(RUN) pytest $(FAST_TESTS) --last-failed
 
 test-all: ## All tests except VM and LLM (needs `make up`)
-	$(RUN) pytest -m "not vm and not llm" --cov
+	HYPOTHESIS_PROFILE=default $(RUN) pytest -m "not vm and not llm" --cov
 
 check: lint types imports test ## Everything that must pass before you push
 

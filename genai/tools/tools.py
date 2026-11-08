@@ -26,6 +26,7 @@ from genai.tools.backend import Backend
 
 LLM_SOURCE = "llm.intent"  # the LLM layer's action source (common/schemas.py ActionSource)
 ActionId = Annotated[str, Field(pattern=r"^act_[A-Za-z0-9_]+$", max_length=64)]
+MAX_WINDOW_S = 3600  # the longest metrics look-back (GET /metrics allows the same)
 
 
 class NoArgs(Contract):
@@ -41,7 +42,7 @@ class MetricsArgs(Contract):
     metric: Annotated[str, Field(pattern=r"^[a-z_]+$", max_length=32)] = Field(
         description="e.g. throughput_mbps, latency_ms, loss_pct, channel_util, n_clients"
     )
-    window_s: Annotated[int, Field(ge=1, le=3600)] = Field(description="look-back window")
+    window_s: Annotated[int, Field(ge=1, le=MAX_WINDOW_S)] = Field(description="look-back window")
 
 
 class AlertsArgs(Contract):
@@ -170,6 +171,11 @@ class ToolLayer:
         return {"alerts": self._backend.alerts(args.since_s)}
 
     def _simulate(self, args: SimulateArgs) -> dict[str, Any]:
+        # one id, one verdict: re-simulating could swap the action under an operator's approval
+        if args.action.action_id in self._verdicts:
+            raise ValueError(
+                f"refused: {args.action.action_id} was already simulated; use a new id"
+            )
         verdict = self._backend.simulate(args.action)
         self._verdicts[verdict.action_id] = verdict
         return verdict.model_dump(mode="json")
@@ -182,7 +188,9 @@ class ToolLayer:
         if action_id in self._applied:
             return {"error": f"refused: {action_id} was already applied"}
         if verdict.needs_approval and action_id not in self._approved:
-            return {"error": f"refused: {action_id} is high-impact and needs operator approval"}
+            return {
+                "error": f"refused: {action_id} ({verdict.impact} impact) needs operator approval"
+            }
         result = self._backend.apply(action_id)
         self._applied.add(action_id)
         return result

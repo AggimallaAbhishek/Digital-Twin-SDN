@@ -61,7 +61,16 @@ def test_a_second_without_video_samples_counts_as_meeting_the_objective() -> Non
     assert time_to_recover(_aps({"ap1": util}), [], "ap1", 0, RULE) == 5.0
 
 
-@pytest.mark.parametrize("bad", [{"util_limit": 0}, {"hold_s": -1}, {"video_latency_ms": 0}])
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"util_limit": 0},
+        {"hold_s": -1},
+        {"hold_s": 0},  # an empty hold window: "recovered" at onset, whatever the state
+        {"hold_s": 0.5},  # the rows are per second: rounds down to that same empty window
+        {"video_latency_ms": 0},
+    ],
+)
 def test_a_bad_rule_is_refused(bad: dict[str, float]) -> None:
     raw = {"util_limit": 0.8, "video_latency_ms": 50.0, "hold_s": 15.0} | bad
     with pytest.raises(ValueError, match=next(iter(bad))):

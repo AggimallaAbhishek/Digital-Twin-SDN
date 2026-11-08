@@ -34,6 +34,7 @@ class LLMCall(BaseModel):
     latency_s: float
     attempt: int
     valid: bool
+    reached: bool = True  # False: the model never replied (logs before this field all replied)
 
 
 class IntentReport(BaseModel):
@@ -64,17 +65,21 @@ def per_intent(seconds: Sequence[float]) -> dict[str, float]:
 
 
 def call_quality(calls: Sequence[LLMCall]) -> dict[str, dict[str, float]]:
-    """Per model: calls, the share valid on the first try, and invalid outputs caught."""
+    """Per model: calls, the share of replies valid on the first try, invalid outputs caught,
+    and calls that never reached the model (a timeout before the fallback: not an invalid
+    output, so left out of the two validity numbers)."""
     by_model: dict[str, list[LLMCall]] = defaultdict(list)
     for c in calls:
         by_model[c.model].append(c)
     out = {}
     for model, group in sorted(by_model.items()):
-        first = [c for c in group if c.attempt == 1]
+        replied = [c for c in group if c.reached]
+        first = [c for c in replied if c.attempt == 1]
         out[model] = {
             "calls": len(group),
             "valid_first_try": sum(c.valid for c in first) / len(first) if first else 0.0,
-            "invalid_caught": sum(not c.valid for c in group),
+            "invalid_caught": sum(not c.valid for c in replied),
+            "unreachable": len(group) - len(replied),
         }
     return out
 

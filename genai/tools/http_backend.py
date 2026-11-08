@@ -37,25 +37,32 @@ class HttpBackend:
         self._send = send or self._urllib
 
     def topology(self) -> dict[str, Any]:
-        body: dict[str, Any] = self._call("GET", "/topology")
-        return body
+        body = self._call("GET", "/topology")
+        for key in ("aps", "stations", "flows"):
+            _list_field(body, key, "/topology")
+        result: dict[str, Any] = body
+        return result
 
     def metrics(self, entity: str, metric: str, window_s: int) -> list[dict[str, Any]]:
         query = urllib.parse.urlencode({"entity": entity, "metric": metric, "window": window_s})
-        points: list[dict[str, Any]] = self._call("GET", f"/metrics?{query}")["points"]
-        return points
+        return _list_field(self._call("GET", f"/metrics?{query}"), "points", "/metrics")
 
     def alerts(self, since_s: int) -> list[dict[str, Any]]:
-        alerts: list[dict[str, Any]] = self._call("GET", f"/alerts?since={since_s}")["alerts"]
-        return alerts
+        return _list_field(self._call("GET", f"/alerts?since={since_s}"), "alerts", "/alerts")
 
     def recent_actions(self, limit: int) -> list[dict[str, Any]]:
-        records = self._call("GET", "/actions")["actions"][-limit:] if limit > 0 else []
+        if limit <= 0:
+            return []
+        records = _list_field(self._call("GET", "/actions"), "actions", "/actions")[-limit:]
         keep = ("action_id", "status", "applied_at", "note")
-        return [
-            {k: r[k] for k in keep} | {"type": r["action"]["type"], "params": r["action"]["params"]}
-            for r in records
-        ]
+        try:
+            return [
+                {k: r[k] for k in keep}
+                | {"type": r["action"]["type"], "params": r["action"]["params"]}
+                for r in records
+            ]
+        except (KeyError, TypeError) as exc:
+            raise ValueError(f"API GET /actions: unexpected reply (no {exc})") from exc
 
     def simulate(self, action: Action) -> Verdict:
         body = {"actions": [action.model_dump(mode="json", by_alias=True)]}
@@ -94,5 +101,14 @@ class HttpBackend:
                 return exc.code, json.loads(raw or b"null")
             except ValueError:  # a plain-text page (a 500 from uvicorn): its text is the detail
                 return exc.code, raw.decode(errors="replace").strip()
-        except (urllib.error.URLError, TimeoutError) as exc:
+        except OSError as exc:  # URLError, TimeoutError, a connection reset mid-reply
             raise ValueError(f"the API is unreachable: {exc}") from exc
+
+
+def _list_field(body: Any, key: str, path: str) -> list[Any]:  # Any: JSON
+    """`body[key]` if it is a list; else ValueError for the model (C-2: a KeyError or
+    TypeError would escape the tool layer as a 500)."""
+    value = body.get(key) if isinstance(body, dict) else None
+    if not isinstance(value, list):
+        raise ValueError(f"API GET {path}: unexpected reply (no {key!r} list)")
+    return value

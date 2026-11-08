@@ -37,9 +37,11 @@ class SpyBackend(MockBackend):
     def __init__(self) -> None:
         super().__init__()
         self.applied: list[str] = []
+        self.simulated: list[str] = []
         self.reject: set[str] = set()
 
     def simulate(self, action: Any) -> Verdict:
+        self.simulated.append(action.action_id)
         verdict = super().simulate(action)
         if action.action_id in self.reject:
             return verdict.model_copy(update={"accepted": False, "violations": ["regression"]})
@@ -179,6 +181,18 @@ def test_high_impact_needs_an_operator_and_the_llm_cannot_approve(
     assert backend.applied == []
     tools.approve("act_test_channel")  # the operator, through the API/dashboard (not a tool)
     assert tools.call("apply_action", {"action_id": "act_test_channel"})["status"] == "applied"
+
+
+def test_an_approved_id_cannot_be_resimulated_as_another_action(
+    tools: ToolLayer, backend: SpyBackend
+) -> None:
+    # the approval is for what the operator saw: the model must not swap the action under it
+    tools.call("simulate_in_twin", {"action": CHANNEL})
+    tools.approve("act_test_channel")
+    swapped = {**CHANNEL, "params": {"ap": "ap1", "channel": 1}}
+    assert "already simulated" in tools.call("simulate_in_twin", {"action": swapped})["error"]
+    assert tools.call("apply_action", {"action_id": "act_test_channel"})["status"] == "applied"
+    assert backend.simulated == ["act_test_channel"]  # the swap never reached the twin
 
 
 def test_an_action_is_applied_only_once(tools: ToolLayer, backend: SpyBackend) -> None:

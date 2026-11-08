@@ -232,7 +232,8 @@ class LLMClient:
         try:
             raw = self._transport("/api/chat", payload, route.timeout_s)
         except TransportError as exc:
-            self._log(route, attempt, _Reply("", None, None, time.monotonic() - start), str(exc))
+            unreached = _Reply("", None, None, time.monotonic() - start)
+            self._log(route, attempt, unreached, str(exc), reached=False)
             raise
         message = raw["message"]
         return _Reply(
@@ -243,9 +244,12 @@ class LLMClient:
             tool_calls=tuple(_tool_call(c) for c in message.get("tool_calls") or []),
         )
 
-    def _log(self, route: _Route, attempt: int, reply: _Reply, error: str) -> None:
+    def _log(
+        self, route: _Route, attempt: int, reply: _Reply, error: str, *, reached: bool = True
+    ) -> None:
         """One JSON line per model call: sizes and the tool calls the model asked for (L-5).
-        Prompt and reply text are never logged."""
+        Prompt and reply text are never logged. `reached` False: the model never replied, so an
+        error is the transport's, not an invalid output caught (§5.4)."""
         entry = {
             "ts": datetime.now(UTC).isoformat(),
             "model": route.model,
@@ -258,6 +262,7 @@ class LLMClient:
             "latency_s": round(reply.latency_s, 3),
             "tool_calls": [{"name": c.name, "arguments": c.arguments} for c in reply.tool_calls],
             "valid": not error,
+            "reached": reached,
             "error": error,
             "cost_usd": 0.0,  # Ollama (cloud and local) has no per-call charge
         }
@@ -307,9 +312,11 @@ def ollama_transport(base_url: str) -> Transport:
         except OSError as exc:  # URLError and TimeoutError are both OSErrors
             raise TransportError(str(exc)) from exc
         try:
-            reply: dict[str, Any] = json.loads(body)
+            reply = json.loads(body)
         except ValueError as exc:
             raise TransportError(f"reply is not JSON: {body[:80]!r}") from exc
+        if not isinstance(reply, dict) or not isinstance(reply.get("message"), dict):
+            raise TransportError(f"reply has no chat message: {body[:80]!r}")
         return reply
 
     return post

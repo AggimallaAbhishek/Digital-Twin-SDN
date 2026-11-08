@@ -192,9 +192,9 @@ def test_connection_lost_during_repair_raises_unavailable(tmp_path: Path) -> Non
 
     with pytest.raises(LLMUnavailableError, match="connection reset"):
         _client(transport, tmp_path).complete_json(MESSAGES, Answer, prompt_version="t/v1")
-    assert [(e["attempt"], e["error"]) for e in _log_lines(tmp_path)] == [
-        (1, "1 validation error(s)"),
-        (2, "connection reset"),
+    assert [(e["attempt"], e["error"], e["reached"]) for e in _log_lines(tmp_path)] == [
+        (1, "1 validation error(s)", True),  # the model replied; its output was refused
+        (2, "connection reset", False),  # never reached: not an invalid output (§5.4)
     ]
 
 
@@ -275,6 +275,17 @@ def test_ollama_transport_wraps_a_non_json_reply(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr("urllib.request.urlopen", lambda request, timeout: _FakeResponse(b"<html>"))
 
     with pytest.raises(TransportError, match="not JSON"):
+        ollama_transport("http://ollama.test")("/api/chat", {}, 15)
+
+
+@pytest.mark.parametrize("body", [b'{"error": "model not found"}', b"[]", b'{"message": "hi"}'])
+def test_ollama_transport_wraps_a_reply_without_a_message(
+    monkeypatch: pytest.MonkeyPatch, body: bytes
+) -> None:
+    # a TransportError, so the client tries the fallback model instead of crashing (KeyError)
+    monkeypatch.setattr("urllib.request.urlopen", lambda request, timeout: _FakeResponse(body))
+
+    with pytest.raises(TransportError, match="no chat message"):
         ollama_transport("http://ollama.test")("/api/chat", {}, 15)
 
 

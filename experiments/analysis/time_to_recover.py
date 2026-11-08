@@ -33,8 +33,8 @@ class RecoveryRule:
         for name in ("util_limit", "video_latency_ms"):
             if getattr(self, name) <= 0:
                 raise ValueError(f"{name} must be > 0")
-        if self.hold_s < 0:
-            raise ValueError("hold_s must be >= 0")
+        if self.hold_s < 1:  # rows are per second: a shorter hold is an empty window
+            raise ValueError("hold_s must be >= 1")
 
 
 def affected_ap(ap_rows: Sequence[Row], onset_s: float, window_s: float = 30.0) -> str:

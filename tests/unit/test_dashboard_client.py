@@ -102,6 +102,24 @@ def test_an_unreachable_api_says_so(monkeypatch: pytest.MonkeyPatch) -> None:
         ApiClient("http://127.0.0.1:8000", token=TOKEN).get("/topology")
 
 
+def test_a_connection_lost_mid_reply_says_the_api_is_not_answering(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def reset(request: Any, timeout: float) -> Any:
+        raise ConnectionResetError("connection reset by peer")
+
+    monkeypatch.setattr("urllib.request.urlopen", reset)
+    with pytest.raises(ApiError, match="not answering"):
+        ApiClient("http://127.0.0.1:8000", token=TOKEN).get("/topology")
+
+
+def test_a_reply_that_is_not_json_is_an_api_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    # the views show an ApiError; a JSONDecodeError would crash the dashboard page
+    monkeypatch.setattr("urllib.request.urlopen", lambda request, timeout: Response(b"<html>"))
+    with pytest.raises(ApiError, match="not JSON"):
+        ApiClient("http://127.0.0.1:8000", token=TOKEN).get("/topology")
+
+
 def test_only_http_urls() -> None:
     with pytest.raises(ValueError, match="http"):
         ApiClient("file:///etc/passwd", token=None)

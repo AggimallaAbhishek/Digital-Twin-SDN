@@ -92,6 +92,41 @@ def test_an_unreachable_api_is_an_error_for_the_model(monkeypatch: pytest.Monkey
     assert "unreachable" in ToolLayer(backend).call("get_topology", {})["error"]
 
 
+@pytest.mark.parametrize("body", [{}, [], "ok", {"points": None, "alerts": {}, "actions": 1}])
+@pytest.mark.parametrize(
+    ("tool", "args"),
+    [
+        ("get_topology", {}),
+        ("get_metrics", {"entity": "ap1", "metric": "channel_util", "window_s": 60}),
+        ("get_alerts", {"since_s": 60}),
+    ],
+)
+def test_an_unexpected_reply_shape_is_an_error_for_the_model(
+    body: Any, tool: str, args: dict[str, Any]
+) -> None:
+    # a 2xx body is validated at the boundary (C-2): a KeyError would escape as a /chat 500
+    backend = HttpBackend("http://127.0.0.1:8000", send=lambda method, path, b: (200, body))
+    assert "unexpected reply" in ToolLayer(backend).call(tool, args)["error"]
+
+
+def test_an_unexpected_audit_log_entry_is_an_error() -> None:
+    reply = {"actions": [{"action_id": "act_1"}]}  # no status, no action
+    backend = HttpBackend("http://127.0.0.1:8000", send=lambda method, path, b: (200, reply))
+    with pytest.raises(ValueError, match="unexpected reply"):
+        backend.recent_actions(5)
+
+
+def test_a_connection_lost_mid_reply_is_an_error_for_the_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def reset(request: Any, timeout: float) -> Any:
+        raise ConnectionResetError("connection reset by peer")
+
+    monkeypatch.setattr("urllib.request.urlopen", reset)
+    backend = HttpBackend("http://127.0.0.1:8000")
+    assert "unreachable" in ToolLayer(backend).call("get_topology", {})["error"]
+
+
 def test_http_errors_carry_the_apis_detail(monkeypatch: pytest.MonkeyPatch) -> None:
     def refuse(request: Any, timeout: float) -> Any:
         body = io.BytesIO(b'{"detail": "off"}')

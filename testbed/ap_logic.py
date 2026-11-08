@@ -7,6 +7,7 @@ Python 3.8-compatible (ADR-003). REST bodies are validated here before anything 
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 from typing import Any, Dict, Mapping, Tuple
@@ -240,4 +241,5 @@ def _is_int(value: Any) -> bool:
 
 
 def _is_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
+    # finite only: json.loads accepts NaN and Infinity, which slip past a one-sided bound
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)

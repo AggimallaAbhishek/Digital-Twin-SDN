@@ -83,7 +83,7 @@ class FakeBackend(MockBackend):
 
 def test_evidence_shows_what_changed_around_the_alert() -> None:
     backend = FakeBackend()
-    evidence = gather(backend, ALERT)
+    evidence = gather(backend, ALERT, ALERT_TS)
     aps = {a["ap"]: a for a in evidence["aps"]}
     assert aps["ap1"] == {
         "ap": "ap1",
@@ -105,6 +105,32 @@ def test_evidence_shows_what_changed_around_the_alert() -> None:
     assert evidence["recent_actions"][0]["status"] == "rolled_back"
     assert evidence["alert"] == ALERT
     assert ("ap1", "channel_util", 300) in backend.asked  # the 5 minutes before the alert
+
+
+class LaterBackend(FakeBackend):
+    """The alert is explained 2 minutes late: the API's window ends now, not at the alert."""
+
+    def metrics(self, entity: str, metric: str, window_s: int) -> list[dict[str, Any]]:
+        after = [
+            {"ts": (ALERT_TS + timedelta(seconds=t)).isoformat(), "value": 0.0}
+            for t in range(10, 120, 10)
+        ]
+        return super().metrics(entity, metric, window_s) + after
+
+
+def test_an_alert_explained_later_gets_the_evidence_before_it() -> None:
+    backend = LaterBackend()
+    evidence = gather(backend, ALERT, ALERT_TS + timedelta(seconds=120))
+    aps = {a["ap"]: a for a in evidence["aps"]}
+    assert (aps["ap1"]["util_now"], aps["ap1"]["clients_now"]) == (0.98, 8)  # not the later 0s
+    assert aps["ap2"]["reporting"] is False  # as at the alert, though it reports again later
+    assert ("ap1", "channel_util", 420) in backend.asked  # reaches back 5 minutes before it
+
+
+def test_an_old_alert_asks_for_no_more_than_the_metrics_tool_allows() -> None:
+    backend = FakeBackend()
+    gather(backend, ALERT, ALERT_TS + timedelta(days=30))
+    assert {w for _, _, w in backend.asked} == {3600}
 
 
 class ScriptedJSON:

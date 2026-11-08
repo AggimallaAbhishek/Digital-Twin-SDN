@@ -78,7 +78,7 @@ def explain(
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> dict[str, Any]:  # Any: JSON
     """The root-cause report for `alert`; LLM errors propagate (better no report than a guess)."""
-    evidence = gather(backend, alert)
+    evidence = gather(backend, alert, clock())
     messages = [
         {"role": "system", "content": PROMPT.read_text()},
         {"role": "user", "content": f"Evidence:\n{json.dumps(evidence, default=str)}"},

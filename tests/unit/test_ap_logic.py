@@ -240,7 +240,16 @@ def test_limit_request_returns_the_limit_or_none(body: Any, limit: float | None)
     assert parse_limit_request(body) == limit
 
 
-@pytest.mark.parametrize("body", [{"max_mbps": 0.5}, {"max_mbps": "2"}, {"max_mbps": True}])
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"max_mbps": 0.5},
+        {"max_mbps": "2"},
+        {"max_mbps": True},
+        {"max_mbps": float("nan")},  # json.loads accepts NaN / Infinity; tc would get "nanmbit"
+        {"max_mbps": float("inf")},
+    ],
+)
 def test_bad_limit_requests_are_refused(body: Any) -> None:
     with pytest.raises(ValueError, match="max_mbps"):
         parse_limit_request(body)

@@ -290,6 +290,13 @@ def test_part_of_a_verified_set_cannot_be_applied_alone(tmp_path: Path) -> None:
         executor.apply(["act_t_1"], STATE)
 
 
+def test_an_empty_set_is_refused(tmp_path: Path) -> None:
+    executor, actuator, _, _ = _executor(tmp_path)
+    with pytest.raises(ExecutorError, match="no actions"):
+        executor.apply([], STATE)
+    assert actuator.applied == []
+
+
 def test_a_verdict_must_match_its_action(tmp_path: Path) -> None:
     executor, _, _, _ = _executor(tmp_path)
     with pytest.raises(ExecutorError, match="verdict"):

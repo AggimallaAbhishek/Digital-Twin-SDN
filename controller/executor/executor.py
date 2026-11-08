@@ -275,6 +275,8 @@ class Executor:
         return record
 
     def _check_applicable(self, records: list[ActionRecord]) -> None:
+        if not records:
+            raise ExecutorError("no actions to apply")
         group = self._ledger.group(records[0].group_id)
         if {r.action_id for r in records} != {r.action_id for r in group} or len(
             {r.group_id for r in records}

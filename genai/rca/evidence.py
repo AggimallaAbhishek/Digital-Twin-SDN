@@ -10,10 +10,13 @@ the newest audit-log entries.
 
 from __future__ import annotations
 
+import math
 import statistics
 from collections.abc import Iterable
 from datetime import datetime, timedelta
 from typing import Any, Protocol
+
+from genai.tools.tools import MAX_WINDOW_S
 
 WINDOW_S = 300  # the 5 minutes before the alert
 RECENT_S = 60  # "now": the last minute before the alert
@@ -32,15 +35,22 @@ class EvidenceSource(Protocol):
     def recent_actions(self, limit: int) -> list[dict[str, Any]]: ...
 
 
-def gather(backend: EvidenceSource, alert: dict[str, Any]) -> dict[str, Any]:  # Any: JSON
-    """The evidence for `alert` (its `ts` is the time the window ends at)."""
+def gather(
+    backend: EvidenceSource, alert: dict[str, Any], now: datetime
+) -> dict[str, Any]:  # Any: JSON
+    """The evidence for `alert`, explained at `now`: the metric window ends at the alert's `ts`
+    (the backend's window ends at `now`, so it is asked to reach back far enough and the points
+    after the alert are left out). Topology, stations and flows are as they are now."""
     at = datetime.fromisoformat(alert["ts"])
+    late_s = max(0, math.ceil((now - at).total_seconds()))
+    window_s = min(WINDOW_S + late_s, MAX_WINDOW_S)
     topology = backend.topology()
     stations = topology["stations"]  # the GET /topology shape (the twin state)
     aps = []
     for a in topology["aps"]:
         mine = [s["name"] for s in stations if s["ap"] == a["name"]]
-        aps.append(_ap(backend, a["name"], a["up"], at) | {"stations": _by_number(mine)})
+        ap = _ap(backend, a["name"], a["up"], at, window_s)
+        aps.append(ap | {"stations": _by_number(mine)})
     worst = sorted(topology["flows"], key=lambda f: (-f["loss_pct"], -f["latency_ms"]))
     flows = worst[:WORST_FLOWS]
     return {
@@ -55,9 +65,15 @@ def gather(backend: EvidenceSource, alert: dict[str, Any]) -> dict[str, Any]:  #
     }
 
 
-def _ap(backend: EvidenceSource, ap: str, up: bool, at: datetime) -> dict[str, Any]:  # Any: JSON
+def _ap(
+    backend: EvidenceSource, ap: str, up: bool, at: datetime, window_s: int
+) -> dict[str, Any]:  # Any: JSON
     split = at - timedelta(seconds=RECENT_S)
-    series = {m: _points(backend, ap, m) for m in ("channel_util", "n_clients", "channel")}
+    start = at - timedelta(seconds=WINDOW_S)
+    series = {
+        m: [(t, v) for t, v in _points(backend, ap, m, window_s) if start <= t <= at]
+        for m in ("channel_util", "n_clients", "channel")
+    }
 
     def mean(metric: str, recent: bool) -> float | None:
         values = [v for t, v in series[metric] if (t >= split) == recent]
@@ -83,9 +99,11 @@ def _by_number(names: Iterable[str]) -> list[str]:
     return sorted(names, key=lambda n: int("".join(c for c in n if c.isdigit()) or 0))
 
 
-def _points(backend: EvidenceSource, ap: str, metric: str) -> list[tuple[datetime, float]]:
+def _points(
+    backend: EvidenceSource, ap: str, metric: str, window_s: int
+) -> list[tuple[datetime, float]]:
     return sorted(
         (datetime.fromisoformat(p["ts"]), float(p["value"]))
-        for p in backend.metrics(ap, metric, WINDOW_S)
+        for p in backend.metrics(ap, metric, window_s)
         if p["value"] is not None
     )

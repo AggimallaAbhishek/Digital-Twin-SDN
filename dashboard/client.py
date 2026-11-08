@@ -67,10 +67,15 @@ class ApiClient:
             method=method,
             headers={"Content-Type": "application/json", **(headers or {})},
         )
+        route = path.split("?", maxsplit=1)[0]
         try:
             with urllib.request.urlopen(request, timeout=TIMEOUT_S) as resp:  # noqa: S310 - as above
-                return json.loads(resp.read())
+                raw = resp.read()
         except urllib.error.HTTPError as exc:
-            raise ApiError(f"{method} {path.split('?', maxsplit=1)[0]}: {_detail(exc)}") from exc
-        except (urllib.error.URLError, TimeoutError) as exc:
+            raise ApiError(f"{method} {route}: {_detail(exc)}") from exc
+        except OSError as exc:  # URLError, TimeoutError, a connection reset mid-reply
             raise ApiError(f"the API is not answering ({exc}); start it with `make api`") from exc
+        try:
+            return json.loads(raw)
+        except ValueError as exc:
+            raise ApiError(f"{method} {route}: the reply is not JSON") from exc

@@ -288,8 +288,7 @@ def _scope(state: TwinState, policy: Policy, rule: Constraint | Objective) -> li
     return sorted(
         f.flow_id
         for f in state.flows.values()
-        if (zone is None or state.stations[f.sta].zone == zone)
-        and (apps is None or f.app_class in apps)
+        if (zone is None or state.zone_of(f.sta) == zone) and (apps is None or f.app_class in apps)
     )
 
 

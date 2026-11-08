@@ -27,6 +27,15 @@ P95 = 0.95
 QUERY_TIMEOUT_S = 10.0
 Query = Callable[[InfluxConnection, str, float], str]
 Row = dict[str, Any]  # a parsed Flux row: column -> value
+_KPI_FIELDS = ("app_class", "latency_ms", "throughput_mbps", "loss_pct")
+_STA_FIELDS = ("sta", "ts")  # "ap" may be None: not associated
+_AP_FIELDS = ("ap",)
+
+
+def _complete(rows: Sequence[Row], fields: tuple[str, ...]) -> list[Row]:
+    """The rows with a value in every field used here: a pivoted Flux row can leave a cell
+    empty (None), as in the twin's state builder; such a row is ignored, not a crash."""
+    return [r for r in rows if all(r.get(k) is not None for k in fields)]
 
 
 def window_kpis(
@@ -37,6 +46,9 @@ def window_kpis(
 ) -> KPIValues | None:
     """KPIs of one window's rows, over `flows` if given (as the verifier's affected flows; Jain
     stays network-wide, like the verifier's); None if no flow in scope reported."""
+    kpi_rows = _complete(kpi_rows, _KPI_FIELDS)
+    sta_rows = _complete(sta_rows, _STA_FIELDS)
+    ap_rows = _complete(ap_rows, _AP_FIELDS)
     if flows is not None:
         kpi_rows = [r for r in kpi_rows if r.get("flow_id") in flows]
     if not kpi_rows:

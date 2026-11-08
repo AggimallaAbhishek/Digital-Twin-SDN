@@ -48,6 +48,21 @@ def test_no_kpi_rows_means_no_kpis() -> None:
     assert window_kpis([], [_sta("sta1", "ap1")], [{"ap": "ap1"}]) is None
 
 
+def test_rows_with_an_empty_cell_are_ignored() -> None:
+    # a pivoted Flux row can leave a cell empty (None); it must not crash the watch (rollback)
+    gap = {"app_class": "video", "latency_ms": None, "throughput_mbps": 9.0, "loss_pct": 9.0}
+    stations = [_sta("sta1", "ap1"), {"sta": "sta2", "ap": "ap1", "ts": None}]
+    result = window_kpis([_kpi("video", 10), gap], stations, [{"ap": "ap1"}, {"ap": None}])
+    assert result is not None
+    assert (result.latency_ms, result.throughput_mbps, result.loss_pct) == (10, 1.0, 0.0)
+    assert result.jain == 1.0  # one AP, one counted client
+
+
+def test_only_incomplete_kpi_rows_means_no_kpis() -> None:
+    gap = {"app_class": "video", "latency_ms": None, "throughput_mbps": 1.0, "loss_pct": 0.0}
+    assert window_kpis([gap], [], []) is None
+
+
 def test_no_ap_or_client_rows_gives_an_even_jain() -> None:
     result = window_kpis([_kpi("video", 5)], [], [])
     assert result is not None

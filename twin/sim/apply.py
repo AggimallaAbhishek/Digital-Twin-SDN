@@ -86,12 +86,10 @@ def qos_flow_ids(state: TwinState, match: QosMatch) -> list[str]:
     The executor's actuator uses this too, so the network gets what the twin simulated."""
 
     def matches(flow: FlowState) -> bool:
-        station = state.stations.get(flow.sta)
-        zone = station.zone if station is not None else None
         return (
             (match.flow_id is None or flow.flow_id == match.flow_id)
             and (match.app_class is None or flow.app_class == match.app_class)
-            and (match.zone is None or zone == match.zone)
+            and (match.zone is None or state.zone_of(flow.sta) == match.zone)
         )
 
     return sorted(fid for fid, f in state.flows.items() if matches(f))

@@ -272,6 +272,21 @@ def test_a_policy_with_no_flows_in_scope_checks_nothing() -> None:
     assert verdict.accepted
 
 
+def test_a_flow_whose_station_was_not_reported_is_outside_every_zone() -> None:
+    # the state builder drops a station with no complete sta_stats row but keeps its flow
+    state = _state(CROWDED)
+    orphan = FlowState("sta99-video", "sta99", "video", 1.0, 1.0, 0.0)
+    state = TwinState(state.ts, state.aps, state.stations, {**state.flows, orphan.flow_id: orphan})
+    zoned = _policy(
+        {
+            "scope": {"zone": "lecture_hall", "app_class": None},
+            "constraints": [{"kpi": "latency_ms", "op": "<=", "value": 1000, "scope": "policy"}],
+        }
+    )
+    [verdict] = verify(state, [STEER_ONE], CONTEXT.with_policies([zoned]))
+    assert verdict.accepted
+
+
 def test_the_scoped_check_names_the_flows_whose_kpis_it_compared() -> None:
     # the executor measures these same flows after the action (twin vs live, P6.1/P6.5)
     verdicts, affected = verify_scoped(_state(CROWDED), [STEER_ONE], CONTEXT)

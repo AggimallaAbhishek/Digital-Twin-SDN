@@ -71,6 +71,12 @@ class TwinState:
         names = [s.name for s in self.stations.values() if s.ap == ap]
         return tuple(sorted(names, key=_station_number))
 
+    def zone_of(self, sta: str) -> str | None:
+        """The zone of station `sta`; None if it is outside every zone or was not reported (the
+        state builder drops a station with no complete row but keeps its flows)."""
+        station = self.stations.get(sta)
+        return station.zone if station is not None else None
+
     def up_aps(self) -> list[APState]:
         """APs that are up, by name."""
         return [ap for name, ap in sorted(self.aps.items()) if ap.up]

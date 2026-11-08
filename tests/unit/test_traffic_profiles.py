@@ -69,6 +69,8 @@ def _with(path: tuple[str, ...], value: Any) -> dict[str, Any]:
         (("profiles", "video", "protocol"), "sctp", "profiles.video.protocol"),
         (("profiles", "video", "rate_mbps"), None, "profiles.video.rate_mbps"),
         (("profiles", "bulk", "rate_mbps"), 0, "profiles.bulk.rate_mbps"),
+        (("profiles", "bulk", "rate_mbps"), float("nan"), "profiles.bulk.rate_mbps"),  # .nan
+        (("ping", "interval_s"), float("inf"), "ping.interval_s"),
         (("profiles", "bulk", "burst"), True, "profiles.bulk"),
         (("profiles", "web", "object_kb"), 0, "profiles.web.object_kb"),
         (("profiles", "web", "object_kb"), 2.5, "profiles.web.object_kb"),

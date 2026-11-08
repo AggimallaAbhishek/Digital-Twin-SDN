@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import AbstractSet, Any, Mapping, Sequence
 
 from testbed.layout import CampusLayout, StationSpec
+from testbed.numbers import is_number
 
 WALK_SPEED_MPS = 1.2  # normal walking pace
 TICK_S = 1.0  # how often the runner moves walking stations
@@ -72,17 +73,13 @@ def _parse_group(index: int, item: Mapping[str, Any]) -> CrowdGroupSpec:
     if item["from"] == item["to"]:
         raise ValueError(f"{where}: must move between different zones")
     for name, value in (("start_s", start), ("spread_s", spread)):
-        if not _is_number(value) or value < 0:
+        if not is_number(value) or value < 0:
             raise ValueError(f"{where}: {name} must be a number >= 0, got {value!r}")
     return CrowdGroupSpec(stations, item["from"], item["to"], float(start), float(spread))
 
 
 def _is_int(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
-
-
-def _is_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
 def plan_crowd(

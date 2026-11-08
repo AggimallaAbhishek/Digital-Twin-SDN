@@ -7,11 +7,11 @@ Python 3.8-compatible (ADR-003). REST bodies are validated here before anything 
 
 from __future__ import annotations
 
-import math
 import re
 from dataclasses import dataclass
 from typing import Any, Dict, Mapping, Tuple
 
+from testbed.numbers import is_number
 from testbed.qos import QOS_QUEUE_IDS, RATE_LIMIT_MIN_MBPS
 from testbed.traffic.profiles import APP_CLASSES
 
@@ -84,7 +84,7 @@ def parse_channel_request(body: Any) -> int:
 def parse_txpower_request(body: Any) -> int:
     """Validate a POST /aps/{id}/txpower body; return whole dBm (Mininet applies integers)."""
     value = _single_field(body, "dbm")
-    if not _is_number(value) or not TX_POWER_DBM_MIN <= value <= TX_POWER_DBM_MAX:
+    if not is_number(value) or not TX_POWER_DBM_MIN <= value <= TX_POWER_DBM_MAX:
         raise ValueError(
             f"dbm must be a number in [{TX_POWER_DBM_MIN}, {TX_POWER_DBM_MAX}], got {value!r}"
         )
@@ -113,7 +113,7 @@ def parse_limit_request(body: Any) -> float | None:
     value = _single_field(body, "max_mbps")
     if value is None:
         return None
-    if not _is_number(value) or value < RATE_LIMIT_MIN_MBPS:
+    if not is_number(value) or value < RATE_LIMIT_MIN_MBPS:
         raise ValueError(
             f"max_mbps must be null or a number >= {RATE_LIMIT_MIN_MBPS}, got {value!r}"
         )
@@ -238,8 +238,3 @@ def _single_field(body: Any, key: str) -> Any:
 
 def _is_int(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
-
-
-def _is_number(value: Any) -> bool:
-    # finite only: json.loads accepts NaN and Infinity, which slip past a one-sided bound
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)

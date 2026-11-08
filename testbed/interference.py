@@ -19,6 +19,8 @@ import math
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
+from testbed.numbers import is_number
+
 _KEYS = ("ap_capacity_mbps", "cochannel_full_m", "cochannel_zero_m", "orphan_rejoin_s")
 
 
@@ -53,7 +55,7 @@ def load_radio_model(campus: Mapping[str, Any]) -> RadioModel:
     values: dict[str, float] = {}
     for key in _KEYS:
         value: Any = raw.get(key)
-        if not _is_number(value) or value < 0 or (key == "ap_capacity_mbps" and value == 0):
+        if not is_number(value) or value < 0 or (key == "ap_capacity_mbps" and value == 0):
             raise ValueError(f"radio_model.{key} must be a number >= 0 (> 0 for capacity)")
         values[key] = float(value)
     if values["cochannel_zero_m"] <= values["cochannel_full_m"]:
@@ -89,7 +91,3 @@ def tc_commands(intf: str, cap_mbps: float | None) -> list[str]:
 def _weight(distance_m: float, model: RadioModel) -> float:
     span = model.cochannel_zero_m - model.cochannel_full_m
     return min(1.0, max(0.0, (model.cochannel_zero_m - distance_m) / span))
-
-
-def _is_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)

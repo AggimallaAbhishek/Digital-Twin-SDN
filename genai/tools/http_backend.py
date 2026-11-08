@@ -37,23 +37,22 @@ class HttpBackend:
         self._send = send or self._urllib
 
     def topology(self) -> dict[str, Any]:
-        body = self._call("GET", "/topology")
+        body: dict[str, Any] = self._call("GET", "/topology")
         for key in ("aps", "stations", "flows"):
             _list_field(body, key, "/topology")
-        result: dict[str, Any] = body
-        return result
+        return body
 
     def metrics(self, entity: str, metric: str, window_s: int) -> list[dict[str, Any]]:
         query = urllib.parse.urlencode({"entity": entity, "metric": metric, "window": window_s})
-        return _list_field(self._call("GET", f"/metrics?{query}"), "points", "/metrics")
+        return self._get_list(f"/metrics?{query}", "points")
 
     def alerts(self, since_s: int) -> list[dict[str, Any]]:
-        return _list_field(self._call("GET", f"/alerts?since={since_s}"), "alerts", "/alerts")
+        return self._get_list(f"/alerts?since={since_s}", "alerts")
 
     def recent_actions(self, limit: int) -> list[dict[str, Any]]:
         if limit <= 0:
             return []
-        records = _list_field(self._call("GET", "/actions"), "actions", "/actions")[-limit:]
+        records = self._get_list("/actions", "actions")[-limit:]
         keep = ("action_id", "status", "applied_at", "note")
         try:
             return [
@@ -62,7 +61,7 @@ class HttpBackend:
                 for r in records
             ]
         except (KeyError, TypeError) as exc:
-            raise ValueError(f"API GET /actions: unexpected reply (no {exc})") from exc
+            raise ValueError(_unexpected("/actions", f"an entry has no {exc}")) from exc
 
     def simulate(self, action: Action) -> Verdict:
         body = {"actions": [action.model_dump(mode="json", by_alias=True)]}
@@ -75,6 +74,9 @@ class HttpBackend:
             "status": "awaiting operator",
             "detail": "proposed only: an operator approves and applies it in the dashboard",
         }
+
+    def _get_list(self, path: str, key: str) -> list[Any]:  # Any: JSON
+        return _list_field(self._call("GET", path), key, path.split("?", maxsplit=1)[0])
 
     def _call(self, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
         status, data = self._send(method, path, body)
@@ -105,10 +107,14 @@ class HttpBackend:
             raise ValueError(f"the API is unreachable: {exc}") from exc
 
 
-def _list_field(body: Any, key: str, path: str) -> list[Any]:  # Any: JSON
+def _list_field(body: Any, key: str, route: str) -> list[Any]:  # Any: JSON
     """`body[key]` if it is a list; else ValueError for the model (C-2: a KeyError or
     TypeError would escape the tool layer as a 500)."""
     value = body.get(key) if isinstance(body, dict) else None
     if not isinstance(value, list):
-        raise ValueError(f"API GET {path}: unexpected reply (no {key!r} list)")
+        raise ValueError(_unexpected(route, f"no {key!r} list"))
     return value
+
+
+def _unexpected(route: str, what: str) -> str:
+    return f"API GET {route}: unexpected reply ({what})"

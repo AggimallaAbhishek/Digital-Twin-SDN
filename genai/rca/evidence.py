@@ -69,10 +69,8 @@ def _ap(
     backend: EvidenceSource, ap: str, up: bool, at: datetime, window_s: int
 ) -> dict[str, Any]:  # Any: JSON
     split = at - timedelta(seconds=RECENT_S)
-    start = at - timedelta(seconds=WINDOW_S)
     series = {
-        m: [(t, v) for t, v in _points(backend, ap, m, window_s) if start <= t <= at]
-        for m in ("channel_util", "n_clients", "channel")
+        m: _points(backend, ap, m, at, window_s) for m in ("channel_util", "n_clients", "channel")
     }
 
     def mean(metric: str, recent: bool) -> float | None:
@@ -100,10 +98,14 @@ def _by_number(names: Iterable[str]) -> list[str]:
 
 
 def _points(
-    backend: EvidenceSource, ap: str, metric: str, window_s: int
+    backend: EvidenceSource, ap: str, metric: str, at: datetime, window_s: int
 ) -> list[tuple[datetime, float]]:
-    return sorted(
-        (datetime.fromisoformat(p["ts"]), float(p["value"]))
+    """The metric's points in the WINDOW_S up to `at`, oldest first: the backend is asked for
+    `window_s` up to now, so the points after the alert are left out here."""
+    start = at - timedelta(seconds=WINDOW_S)
+    points = (
+        (datetime.fromisoformat(p["ts"]), p["value"])
         for p in backend.metrics(ap, metric, window_s)
         if p["value"] is not None
     )
+    return sorted((t, float(v)) for t, v in points if start <= t <= at)

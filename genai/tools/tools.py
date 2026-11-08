@@ -26,7 +26,7 @@ from genai.tools.backend import Backend
 
 LLM_SOURCE = "llm.intent"  # the LLM layer's action source (common/schemas.py ActionSource)
 ActionId = Annotated[str, Field(pattern=r"^act_[A-Za-z0-9_]+$", max_length=64)]
-MAX_WINDOW_S = 3600  # the longest metrics look-back (GET /metrics allows the same)
+MAX_WINDOW_S = 3600  # the longest look-back of metrics and alerts (api/app.py uses this one)
 
 
 class NoArgs(Contract):
@@ -48,7 +48,7 @@ class MetricsArgs(Contract):
 class AlertsArgs(Contract):
     """Arguments of get_alerts."""
 
-    since_s: Annotated[int, Field(ge=0, le=86400)] = Field(description="look-back window")
+    since_s: Annotated[int, Field(ge=0, le=MAX_WINDOW_S)] = Field(description="look-back window")
 
 
 class SimulateArgs(Contract):
@@ -172,6 +172,7 @@ class ToolLayer:
 
     def _simulate(self, args: SimulateArgs) -> dict[str, Any]:
         # one id, one verdict: re-simulating could swap the action under an operator's approval
+        # held here (the executor's ledger refuses a known id the same way, for its own records)
         if args.action.action_id in self._verdicts:
             raise ValueError(
                 f"refused: {args.action.action_id} was already simulated; use a new id"

@@ -82,6 +82,8 @@ def test_static_scenario_needs_no_mobility_or_events() -> None:
         ({"traffic": [{"profile": "voip", "stations": "*"}]}, "profile"),
         ({"traffic": [{"profile": "web", "stations": "lab"}]}, "stations"),
         ({"traffic": [{"profile": "web", "stations": "*", "start_s": -1}]}, "start_s"),
+        ({"traffic": [{"profile": "web", "stations": "*", "start_s": float("nan")}]}, "start_s"),
+        ({"events": [{"at_s": float("inf"), "type": "ap_down", "ap": "ap1"}]}, "at_s"),
         ({"traffic": [{"profile": "web", "stations": "*", "rate_mbps": 1}]}, "rate_mbps"),
         ({"traffic": [{"profile": "video", "stations": "*", "rate_mbps": 0}]}, "rate_mbps"),
         ({"traffic": [{"profile": "web", "stations": "*", "burst": 1}]}, "unknown"),

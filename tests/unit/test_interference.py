@@ -42,6 +42,8 @@ def test_campus_config_has_the_radio_model() -> None:
         ({"cochannel_full_m": -1}, "cochannel_full_m"),
         ({"cochannel_zero_m": 30}, "cochannel_zero_m"),  # must be beyond full_m
         ({"orphan_rejoin_s": "soon"}, "orphan_rejoin_s"),
+        ({"orphan_rejoin_s": float("nan")}, "orphan_rejoin_s"),  # YAML .nan: passes ">= 0"
+        ({"ap_capacity_mbps": float("inf")}, "ap_capacity_mbps"),
         ({"extra": 1}, "unknown"),
     ],
 )

@@ -44,6 +44,7 @@ from controller.executor.ledger import ActionRecord
 from genai.intent.compiler import FlowRef
 from genai.intent.engine import IntentEngine
 from genai.llm.client import LLMUnavailableError
+from genai.tools.tools import MAX_WINDOW_S
 from twin.state.builder import NoTelemetryError
 from twin.state.model import TwinState
 from twin.verify.verifier import VerifyContext, verify_scoped
@@ -54,7 +55,6 @@ Chat = Callable[[str], dict[str, Any]]  # Any: the copilot's JSON reply to one q
 Explain = Callable[[dict[str, Any]], dict[str, Any]]  # Any: alert JSON -> root-cause report
 Worker = Callable[[threading.Event], None]  # runs until the event is set (Loop.run, monitor.run)
 log = logging.getLogger("api.app")
-MAX_WINDOW_S = 3600
 # a loop tick that is applying or rolling back finishes first (the AP agent answers in ~1 s)
 WORKER_STOP_S = 15.0
 

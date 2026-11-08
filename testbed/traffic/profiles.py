@@ -13,6 +13,8 @@ from typing import Any, Mapping, Union
 
 import yaml
 
+from testbed.numbers import is_number
+
 APP_CLASSES = ("video", "web", "bulk")  # = common/schemas.py AppClass
 DEFAULT_CONFIG = Path(__file__).resolve().parent / "profiles.yaml"
 _PORT_MIN, _PORT_MAX = 1024, 65535
@@ -170,7 +172,7 @@ def known_keys(raw: Mapping[str, Any], allowed: set[str], where: str) -> None:
 
 def _positive(raw: Mapping[str, Any], key: str, where: str) -> float:
     value: Any = raw.get(key)
-    if not _is_number(value) or value <= 0:
+    if not is_number(value) or value <= 0:
         raise ValueError(f"{where} must be a number > 0, got {value!r}")
     return float(value)
 
@@ -184,7 +186,3 @@ def _port(raw: Mapping[str, Any], key: str) -> int:
 
 def _is_int(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
-
-
-def _is_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)

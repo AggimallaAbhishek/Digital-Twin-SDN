@@ -17,6 +17,7 @@ from typing import Any, Mapping, Sequence
 from testbed.ap_logic import AP_NAME, CHANNELS
 from testbed.layout import CampusLayout, StationSpec
 from testbed.mobility.crowd import CrowdGroupSpec, Walk, parse_groups, position_at, station_number
+from testbed.numbers import is_number
 from testbed.traffic.profiles import APP_CLASSES, known_keys
 
 EVENT_TYPES = ("ap_down", "ap_up", "force_channel")  # = common/schemas.py ScenarioEvent.type
@@ -218,14 +219,10 @@ def _zone_of(layout: CampusLayout, xy: tuple[float, float]) -> str:
 
 
 def _number(value: Any, where: str, positive: bool = False) -> float:
-    if not _is_number(value) or value < 0 or (positive and value == 0):
+    if not is_number(value) or value < 0 or (positive and value == 0):
         raise ValueError(f"{where} must be a number {'> 0' if positive else '>= 0'}, got {value!r}")
     return float(value)
 
 
 def _is_int(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
-
-
-def _is_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +31,32 @@ def test_a_helper_that_cannot_start_stops_the_run_before_the_scenario(
     with pytest.raises(ValueError, match="settle_s"):
         run_batch.play(plan, tmp_path, 1.0, "abc", extras)
     assert started == []  # no scenario was started on the VM, so none is left orphaned
+
+
+class _Scenario:
+    """A finished scenario process (the ssh to the VM)."""
+
+    returncode = 0
+
+
+@pytest.mark.parametrize("agent_answers", [True, False])
+def test_on_start_is_told_when_the_scenario_starts_on_the_vm(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, agent_answers: bool
+) -> None:
+    # the demo's clock (logs/demo/run.json) starts when the AP agent first answers: the VM
+    # starts its scenario clock right after the agent (testbed/run_scenario.py)
+    monkeypatch.setattr(run_batch, "run", lambda *a, **k: None)
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: _Scenario())
+    monkeypatch.setattr(run_batch, "wait_for_agent", lambda *a: agent_answers)
+    monkeypatch.setattr(run_batch, "_collect", lambda *a: {"passed": True})
+    monkeypatch.setattr(run_batch, "_wait", lambda *a: None)
+    monkeypatch.setattr(run_batch, "vm_skew_s", lambda: 0.0)
+    monkeypatch.setattr(run_batch, "_fetch_vm_files", lambda *a: None)
+    started: list[datetime] = []
+    plan = RunPlan("live", "lecture_flash_crowd", 44, "test")
+    run_batch.play(plan, tmp_path, 1.0, "abc", run_batch.RunExtras(on_start=started.append))
+    assert len(started) == (1 if agent_answers else 0)
+    assert all(t.tzinfo is not None for t in started)
 
 
 def test_a_run_that_crashes_is_recorded_and_the_batch_goes_on(

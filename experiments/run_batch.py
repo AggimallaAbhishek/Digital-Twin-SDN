@@ -20,6 +20,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -140,6 +141,8 @@ class RunExtras:
     steps: list[ActionStep] | None = None
     loop_mode: str | None = None
     genai_eval: bool = False
+    # told when the scenario starts on the VM (the AP agent's first answer): the demo's clock
+    on_start: Callable[[datetime], None] | None = None
 
 
 NO_EXTRAS = RunExtras()
@@ -160,6 +163,8 @@ def play(
     agent = f"http://{config.vm_host}:{config.agent_port}/aps"
     report: dict[str, Any] = {"run_id": plan.run_id, "split": plan.split, "passed": False}
     if wait_for_agent(agent, agent_wait_s, scenario):
+        if extras.on_start is not None:
+            extras.on_start(datetime.now(UTC))
         report |= _collect(plan, scenario, config, actor)
     else:
         log.error("%s: AP agent never answered", plan.run_id)

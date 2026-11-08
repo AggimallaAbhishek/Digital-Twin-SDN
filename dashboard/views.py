@@ -208,7 +208,9 @@ QUEUE_WORDS = {  # common/schemas.py QOS_QUEUE_IDS: 0 best effort, 1 priority, 2
 }
 
 _ACTION_WORDS: dict[str, Callable[[Row], str]] = {
-    "steer_clients": lambda p: f"Move {_clients(len(p['stations']))} {p['from_ap']} → {p['to_ap']}",
+    "steer_clients": lambda p: (
+        f"Move {_clients(len(p['stations']))} from {p['from_ap']} to {p['to_ap']}"
+    ),
     "set_ap_channel": lambda p: f"Move {p['ap']} to channel {p['channel']}",
     "set_ap_tx_power": lambda p: f"Set {p['ap']} power to {p['dbm']:g} dBm",
     "ap_admin_state": lambda p: f"Turn {p['ap']} {'on' if p['state'] == 'up' else 'off'}",
@@ -420,7 +422,7 @@ def _checked(r: Row, title: str) -> Item:
         "checked",
         r["action"]["created_at"],
         title,
-        _predicted(v) if v.get("accepted") or r["status"] == "denied" else _why_not(v),
+        _predicted(v) if v.get("accepted") or r["status"] == "denied" else why_not(v),
         badge,
         tone,
         action_id=r["action_id"],
@@ -434,7 +436,7 @@ KPI_WORDS = {field: label.split()[0] for label, field in KPIS} | {"jain": "fairn
 _KPI_FIELD = re.compile(r"\b(?:" + "|".join(KPI_WORDS) + r")\b")
 
 
-def _why_not(verdict: Row) -> str:
+def why_not(verdict: Row) -> str:
     """A rejected verdict's first reason (without its action id and ADR reference, its KPI
     fields as words: latency_ms as latency), and how many more."""
     violations = verdict.get("violations") or []

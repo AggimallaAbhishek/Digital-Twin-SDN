@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import json
 import logging
 import os
 import signal
@@ -35,12 +36,13 @@ from api.app import WORKER_STOP_S
 from api.main import REQUEST_DRAIN_S, ApiConfig, load_api_config
 from api.wiring import ROOT, load_yaml
 from experiments import shell
-from experiments.batch import RunPlan
-from experiments.run_batch import play
+from experiments.batch import RunPlan, load_scenario
+from experiments.run_batch import RunExtras, play
 from experiments.shell import git_commit
 
 log = logging.getLogger("experiments.demo")
 LOGS = ROOT / "logs" / "demo"
+RUN_FILE = "run.json"  # in LOGS: the scenario playing, for the dashboard's clock (write_run)
 DASHBOARD_PORT = 8501
 STARTUP_S = 90.0  # the API fits the anomaly detector at start-up (~2 s), Streamlit ~5 s
 # the API's shutdown: open requests (REQUEST_DRAIN_S), then the loop's tick (WORKER_STOP_S),
@@ -151,6 +153,28 @@ def stop(demo: Mapping[str, Service]) -> None:
                 _terminate(pid)
                 log.info("%s stopped (pid %d)", name, pid)
         pid_file.unlink()
+    (LOGS / RUN_FILE).unlink(missing_ok=True)  # no demo playing: the dashboard shows no clock
+
+
+def write_run(scenario: str, started: datetime) -> None:
+    """logs/demo/run.json: what the dashboard's header and story strip follow (the scenario,
+    when it started on the VM and how long it lasts; dashboard/panels.py demo_clock)."""
+    run = {
+        "scenario": scenario,
+        "title": scenario.replace("_", " ").capitalize(),
+        "started_at": started.isoformat(),
+        "duration_s": load_scenario(scenario).duration_s,
+    }
+    LOGS.mkdir(parents=True, exist_ok=True)
+    (LOGS / RUN_FILE).write_text(json.dumps(run, indent=1))
+
+
+def finish_run(at: datetime) -> None:
+    """Mark the run file finished at `at` (the dashboard's clock stops there); no file, no-op."""
+    path = LOGS / RUN_FILE
+    if path.exists():
+        run = json.loads(path.read_text())
+        path.write_text(json.dumps(run | {"finished_at": at.isoformat()}, indent=1))
 
 
 def _terminate(pgid: int) -> None:
@@ -234,7 +258,11 @@ def main(argv: list[str] | None = None) -> int:
     plan = RunPlan(api.run_id, args.scenario, args.seed, "test")
     run_dir = ROOT / "data" / "raw" / "demo" / stamp
     run_dir.mkdir(parents=True, exist_ok=True)
-    report = play(plan, run_dir, AGENT_WAIT_S, git_commit())
+    extras = RunExtras(on_start=lambda started: write_run(args.scenario, started))
+    try:
+        report = play(plan, run_dir, AGENT_WAIT_S, git_commit(), extras)
+    finally:
+        finish_run(datetime.now(UTC))
     ok = bool(report.get("passed"))
     print(f"DEMO scenario {args.scenario} -> {'PASS' if ok else 'FAIL'} ({run_dir})", flush=True)
     print("DEMO the API and the dashboard keep running; `make demo-stop` ends them", flush=True)

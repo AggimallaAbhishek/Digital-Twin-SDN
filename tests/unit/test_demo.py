@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 import signal
 import time
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -143,3 +145,32 @@ def test_the_old_ledger_is_archived_not_deleted(tmp_path: Path) -> None:
     assert archived.read_text() == "rehearsal"
     assert not ledger.exists()  # the demo starts with an empty audit log
     assert demo.archive_ledger(ledger, "20261011T093010") is None
+
+
+STARTED = datetime(2026, 11, 9, 8, 0, tzinfo=UTC)
+
+
+def test_the_run_file_tells_the_dashboard_what_plays_and_since_when(tmp_path: Path) -> None:
+    # dashboard/panels.py demo_clock reads this file: the header's scenario and demo clock
+    demo.write_run("lecture_flash_crowd", STARTED)
+    run = json.loads((tmp_path / "demo" / "run.json").read_text())
+    assert run == {
+        "scenario": "lecture_flash_crowd",
+        "title": "Lecture flash crowd",
+        "started_at": "2026-11-09T08:00:00+00:00",
+        "duration_s": 600,  # experiments/scenarios/lecture_flash_crowd.yaml
+    }
+    demo.finish_run(STARTED + timedelta(seconds=610))
+    finished = json.loads((tmp_path / "demo" / "run.json").read_text())
+    assert finished == run | {"finished_at": "2026-11-09T08:10:10+00:00"}
+
+
+def test_finishing_without_a_run_file_does_nothing(tmp_path: Path) -> None:
+    demo.finish_run(STARTED)
+    assert not (tmp_path / "demo" / "run.json").exists()
+
+
+def test_stopping_the_demo_removes_its_run_file(tmp_path: Path) -> None:
+    demo.write_run("lecture_flash_crowd", STARTED)
+    demo.stop({})
+    assert not (tmp_path / "demo" / "run.json").exists()  # the dashboard shows no demo clock

@@ -1,0 +1,19 @@
+# Operator dashboard (dashboard/app.py, design docs/superpowers/specs/2026-11-09-dashboard-blueprint-sorbet-design.md §4.2)
+#
+# The story strip under the header: the steps of a demo scenario, in order. Each step lights up
+# when its trigger happens in the run (dashboard/panels.py story_steps):
+#   clock      the demo clock reaches from_s
+#   congested  the first anomaly alert of the run, or an AP congested now
+#   proposed   the first change recorded in the run
+#   applied    the first change applied in the run
+#   outcome    the first change kept or rolled back (applied + the executor's watch)
+# from_s / to_s are the planned seconds into the run (shown until the step happens).
+# A scenario with no story here shows no strip.
+stories:
+  lecture_flash_crowd:  # experiments/scenarios/lecture_flash_crowd.yaml: crowd at 120-160 s, video at 210 s
+    - {label: Normal day, trigger: clock, from_s: 0, to_s: 120}
+    - {label: Crowd builds, trigger: clock, from_s: 120, to_s: 195}
+    - {label: Congestion, trigger: congested, from_s: 210}
+    - {label: Optimiser proposes, trigger: proposed, from_s: 215}
+    - {label: Apply and watch, trigger: applied, from_s: 220, to_s: 250}
+    - {label: Keep or roll back, trigger: outcome, from_s: 250}

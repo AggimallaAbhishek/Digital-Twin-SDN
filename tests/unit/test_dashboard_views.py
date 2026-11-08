@@ -137,7 +137,7 @@ def test_twin_vs_live_pairs_each_watched_action_with_its_prediction() -> None:
     ]
     assert {r["kpi"] for r in rows} == {"throughput Mbit/s", "latency ms", "loss %"}
     assert all(r["outcome"] == "kept" for r in rows)
-    assert {r["what"] for r in rows} == {"Move 2 clients ap1 → ap3"}
+    assert {r["what"] for r in rows} == {"Move 2 clients from ap1 to ap3"}
 
 
 @pytest.mark.parametrize(
@@ -192,12 +192,12 @@ def test_kpi_series_averages_each_class_over_10_s_steps() -> None:
         (
             "steer_clients",
             {"stations": ["sta2", "sta12", "sta13"], "from_ap": "ap1", "to_ap": "ap3"},
-            "Move 3 clients ap1 → ap3",
+            "Move 3 clients from ap1 to ap3",
         ),
         (
             "steer_clients",
             {"stations": ["sta9"], "from_ap": "ap1", "to_ap": "ap2"},
-            "Move 1 client ap1 → ap2",
+            "Move 1 client from ap1 to ap2",
         ),
         ("set_ap_channel", {"ap": "ap4", "channel": 11}, "Move ap4 to channel 11"),
         ("set_ap_tx_power", {"ap": "ap3", "dbm": 14.0}, "Set ap3 power to 14 dBm"),
@@ -366,12 +366,12 @@ def test_the_timeline_tells_the_story_newest_first_with_waiting_changes_on_top()
     items = timeline([kept, rejected, waiting, watching], alerts, WATCH)
     assert [(i.kind, i.title, i.badge, i.tone) for i in items] == [
         ("waiting", "Move ap3 to channel 11", "waiting for you", "action"),
-        ("applied", "Move 2 clients ap1 → ap3", "watching 30 s", "action"),
-        ("checked", "Move 2 clients ap1 → ap3", "accepted", "calm"),
-        ("outcome", "Move 2 clients ap1 → ap3", "✓ kept", "good"),  # applied + the 30 s watch
-        ("checked", "Move 2 clients ap1 → ap3", "✕ rejected", "warn"),
+        ("applied", "Move 2 clients from ap1 to ap3", "watching 30 s", "action"),
+        ("checked", "Move 2 clients from ap1 to ap3", "accepted", "calm"),
+        ("outcome", "Move 2 clients from ap1 to ap3", "✓ kept", "good"),  # applied + the 30 s watch
+        ("checked", "Move 2 clients from ap1 to ap3", "✕ rejected", "warn"),
         ("detected", "ap1 looks unusual", "4 alerts", "critical"),
-        ("checked", "Move 2 clients ap1 → ap3", "accepted", "calm"),
+        ("checked", "Move 2 clients from ap1 to ap3", "accepted", "calm"),
     ]
     assert items[0].next_step == "approve"
     assert items[0].action_id == "act_3"
@@ -432,7 +432,7 @@ def test_a_root_cause_report_reads_in_plain_words() -> None:
         ),
         ("congestion", "ap1", "40%", "sta9 joined"),  # one or two names stay
     ]
-    assert view.suggestions == ["Move 3 clients ap1 → ap3 · twin rejected"]
+    assert view.suggestions == ["Move 3 clients from ap1 to ap3 · twin rejected"]
     assert view.model == "gpt-oss:120b-cloud"
     assert view.error == ""
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -154,6 +155,9 @@ def test_explain_runs_the_root_cause_explainer_over_the_api(
     monkeypatch.setattr(LLMClient, "from_config", Report)
     monkeypatch.setattr("api.main.HttpBackend", lambda url: Backend())
     config = load_copilot_config(load_yaml("copilot.yaml"))
-    alert = {"ts": "2026-10-10T12:00:00+00:00", "detector": "isolation_forest", "entity": "ap2"}
+    # a current alert: the explainer's clock is the wall clock and refuses alerts too old for
+    # their metric window (genai/rca/evidence.py)
+    now = datetime.now(UTC).isoformat()
+    alert = {"ts": now, "detector": "isolation_forest", "entity": "ap2"}
     report = main._explain(config)(alert)
     assert (report["summary"], report["model"]) == ("ap2 went down", "scripted")

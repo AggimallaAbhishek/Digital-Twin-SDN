@@ -237,6 +237,17 @@ def test_an_alert_is_explained_by_the_root_cause_explainer(tmp_path: Path) -> No
     assert response.json() == {"summary": "ap2 went down", "likely_causes": []}
 
 
+def test_an_alert_the_explainer_cannot_explain_says_why(tmp_path: Path) -> None:
+    # e.g. too old for its metric window, or an unexpected API reply: not a bare 500
+    def explain(alert: dict[str, Any]) -> dict[str, Any]:
+        raise ValueError("the alert is too old to explain")
+
+    client, _ = _client(tmp_path, explain=explain)
+    response = client.post("/alerts/explain", json={"alert": ALERT})
+    assert response.status_code == 422
+    assert "too old" in response.json()["detail"]
+
+
 def test_explaining_is_off_without_the_explainer(tmp_path: Path) -> None:
     client, _ = _client(tmp_path)
     assert client.post("/alerts/explain", json={"alert": ALERT}).status_code == 503

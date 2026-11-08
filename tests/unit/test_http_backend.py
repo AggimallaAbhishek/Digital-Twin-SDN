@@ -109,6 +109,22 @@ def test_an_unexpected_reply_shape_is_an_error_for_the_model(
     assert "unexpected reply" in ToolLayer(backend).call(tool, args)["error"]
 
 
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {"aps": [{"name": "ap1"}]},  # no "up"
+        {"stations": [{"name": "sta1"}]},  # no "ap" (None when unassociated, but present)
+        {"flows": [{"flow_id": "sta1-video", "latency_ms": "slow"}]},
+    ],
+)
+def test_an_unexpected_topology_entry_is_an_error(entry: dict[str, Any]) -> None:
+    # the root-cause evidence reads these fields outside the tool layer: a KeyError is a 500
+    reply = {"aps": [], "stations": [], "flows": []} | entry
+    backend = HttpBackend("http://127.0.0.1:8000", send=lambda method, path, b: (200, reply))
+    with pytest.raises(ValueError, match="unexpected reply"):
+        backend.topology()
+
+
 def test_an_unexpected_audit_log_entry_is_an_error() -> None:
     reply = {"actions": [{"action_id": "act_1"}]}  # no status, no action
     backend = HttpBackend("http://127.0.0.1:8000", send=lambda method, path, b: (200, reply))

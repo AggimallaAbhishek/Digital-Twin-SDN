@@ -18,7 +18,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from controller.executor.live_kpis import p95
 
@@ -34,7 +34,17 @@ class LLMCall(BaseModel):
     latency_s: float
     attempt: int
     valid: bool
-    reached: bool = True  # False: the model never replied (logs before this field all replied)
+    reached: bool  # False: the model never replied (a timeout or refused connection)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reached_from_reply(cls, raw: Any) -> Any:  # Any: the raw JSON line
+        """A log line written before the client logged `reached`: a call with an error and no
+        token counts never got a reply (the client logs a transport error that way)."""
+        if isinstance(raw, dict) and "reached" not in raw:
+            unreplied = raw.get("prompt_tokens") is None and raw.get("completion_tokens") is None
+            return raw | {"reached": not (raw.get("error") and unreplied)}
+        return raw
 
 
 class IntentReport(BaseModel):

@@ -40,10 +40,15 @@ def gather(
 ) -> dict[str, Any]:  # Any: JSON
     """The evidence for `alert`, explained at `now`: the metric window ends at the alert's `ts`
     (the backend's window ends at `now`, so it is asked to reach back far enough and the points
-    after the alert are left out). Topology, stations and flows are as they are now."""
+    after the alert are left out). Topology, stations and flows are as they are now. ValueError
+    if the window reaches past what the backend keeps (every AP would look silent)."""
     at = datetime.fromisoformat(alert["ts"])
-    late_s = max(0, math.ceil((now - at).total_seconds()))
-    window_s = min(WINDOW_S + late_s, MAX_WINDOW_S)
+    window_s = WINDOW_S + max(0, math.ceil((now - at).total_seconds()))
+    if window_s > MAX_WINDOW_S:
+        raise ValueError(
+            f"the alert is too old to explain: its {WINDOW_S} s window starts "
+            f"{window_s} s ago, past the {MAX_WINDOW_S} s the metrics go back"
+        )
     topology = backend.topology()
     stations = topology["stations"]  # the GET /topology shape (the twin state)
     aps = []

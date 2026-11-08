@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Dict, Mapping, Tuple
 
-from testbed.numbers import is_number
+from testbed.numbers import is_int, is_number
 from testbed.qos import QOS_QUEUE_IDS, RATE_LIMIT_MIN_MBPS
 from testbed.traffic.profiles import APP_CLASSES
 
@@ -76,7 +76,7 @@ class Link:
 def parse_channel_request(body: Any) -> int:
     """Validate a POST /aps/{id}/channel body; return the channel or raise ValueError."""
     value = _single_field(body, "channel")
-    if not _is_int(value) or value not in CHANNELS:
+    if not is_int(value) or value not in CHANNELS:
         raise ValueError(f"channel must be one of {CHANNELS}, got {value!r}")
     return int(value)
 
@@ -234,7 +234,3 @@ def _single_field(body: Any, key: str) -> Any:
     if not isinstance(body, Mapping) or set(body) != {key}:
         raise ValueError(f'body must be a JSON object with exactly one key, "{key}"')
     return body[key]
-
-
-def _is_int(value: Any) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool)

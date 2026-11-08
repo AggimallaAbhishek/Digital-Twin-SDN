@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -69,9 +70,27 @@ def test_an_unreachable_model_is_not_an_invalid_output_caught() -> None:
     }
 
 
-def test_a_log_line_without_the_reached_field_counts_as_reached() -> None:
-    line = '{"model": "m", "prompt_version": "v", "latency_s": 1, "attempt": 1, "valid": true}'
-    assert LLMCall.model_validate_json(line).reached
+@pytest.mark.parametrize(
+    ("extra", "reached"),
+    [
+        ({"error": "", "prompt_tokens": 11, "completion_tokens": 7}, True),
+        ({"error": "1 validation error(s)", "prompt_tokens": 11, "completion_tokens": 7}, True),
+        # an older log line of a transport error: an error and no reply (no token counts)
+        ({"error": "timed out", "prompt_tokens": None, "completion_tokens": None}, False),
+        ({}, True),
+    ],
+)
+def test_a_log_line_without_the_reached_field_is_read_from_its_reply(
+    extra: dict[str, Any], reached: bool
+) -> None:
+    base = {"model": "m", "prompt_version": "v", "latency_s": 1, "attempt": 1, "valid": False}
+    assert LLMCall.model_validate(base | extra).reached is reached
+
+
+def test_the_reached_field_wins_when_the_log_has_it() -> None:
+    line = {"model": "m", "prompt_version": "v", "latency_s": 1, "attempt": 1, "valid": False}
+    line |= {"error": "x", "prompt_tokens": None, "completion_tokens": None, "reached": True}
+    assert LLMCall.model_validate(line).reached
 
 
 def test_the_eval_files_are_validated_and_summarised(tmp_path: Path) -> None:

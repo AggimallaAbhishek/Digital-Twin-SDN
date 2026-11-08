@@ -127,10 +127,18 @@ def test_an_alert_explained_later_gets_the_evidence_before_it() -> None:
     assert ("ap1", "channel_util", 420) in backend.asked  # reaches back 5 minutes before it
 
 
-def test_an_old_alert_asks_for_no_more_than_the_metrics_tool_allows() -> None:
+def test_the_oldest_alert_with_a_whole_window_is_explained() -> None:
     backend = FakeBackend()
-    gather(backend, ALERT, ALERT_TS + timedelta(days=30))
-    assert {w for _, _, w in backend.asked} == {3600}
+    gather(backend, ALERT, ALERT_TS + timedelta(seconds=3600 - 300))
+    assert {w for _, _, w in backend.asked} == {3600}  # the metrics tool's longest look-back
+
+
+def test_an_alert_older_than_the_metrics_look_back_is_refused() -> None:
+    # its 5 minutes are partly past what /metrics returns: every AP would look silent
+    backend = FakeBackend()
+    with pytest.raises(ValueError, match="too old"):
+        gather(backend, ALERT, ALERT_TS + timedelta(seconds=3600 - 299))
+    assert backend.asked == []
 
 
 class ScriptedJSON:

@@ -34,7 +34,8 @@ _AP_FIELDS = ("ap",)
 
 def _complete(rows: Sequence[Row], fields: tuple[str, ...]) -> list[Row]:
     """The rows with a value in every field used here: a pivoted Flux row can leave a cell
-    empty (None), as in the twin's state builder; such a row is ignored, not a crash."""
+    empty (None); such a row is ignored, not a crash. The same filter as the twin's state
+    builder, copied because the executor may not import twin.state.builder (ADR-006)."""
     return [r for r in rows if all(r.get(k) is not None for k in fields)]
 
 

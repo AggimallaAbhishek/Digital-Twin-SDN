@@ -20,11 +20,42 @@ import urllib.request
 from collections.abc import Callable
 from typing import Any
 
+from pydantic import BaseModel, ConfigDict, ValidationError
+
 from common.schemas import Action, Verdict
 
 # (method, path with query, JSON body or None) -> (HTTP status, parsed JSON body)
 Send = Callable[[str, str, dict[str, Any] | None], tuple[int, Any]]  # Any: JSON
 HTTP_ERROR = 400
+
+
+class _Entry(BaseModel):
+    model_config = ConfigDict(extra="allow")  # the fields read here; the model sees them all
+
+
+class _TopologyAP(_Entry):
+    name: str
+    up: bool
+
+
+class _TopologyStation(_Entry):
+    name: str
+    ap: str | None  # present, None when not associated
+
+
+class _TopologyFlow(_Entry):
+    flow_id: str
+    throughput_mbps: float
+    latency_ms: float
+    loss_pct: float
+
+
+class _Topology(_Entry):
+    """GET /topology as the tools and the root-cause evidence read it (C-2)."""
+
+    aps: list[_TopologyAP]
+    stations: list[_TopologyStation]
+    flows: list[_TopologyFlow]
 
 
 class HttpBackend:
@@ -38,8 +69,12 @@ class HttpBackend:
 
     def topology(self) -> dict[str, Any]:
         body: dict[str, Any] = self._call("GET", "/topology")
-        for key in ("aps", "stations", "flows"):
-            _list_field(body, key, "/topology")
+        try:
+            _Topology.model_validate(body)
+        except ValidationError as exc:
+            error = exc.errors()[0]
+            where = ".".join(str(p) for p in error["loc"])
+            raise ValueError(_unexpected("/topology", f"{where}: {error['msg']}")) from exc
         return body
 
     def metrics(self, entity: str, metric: str, window_s: int) -> list[dict[str, Any]]:
@@ -117,4 +152,4 @@ def _list_field(body: Any, key: str, route: str) -> list[Any]:  # Any: JSON
 
 
 def _unexpected(route: str, what: str) -> str:
-    return f"API GET {route}: unexpected reply ({what})"
+    return f"API {route}: unexpected reply ({what})"

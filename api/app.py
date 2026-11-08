@@ -305,6 +305,8 @@ def _genai_routes(app: FastAPI, services: Services) -> None:
             return services.explain(body.alert.model_dump(mode="json", exclude_none=True))
         except LLMUnavailableError as exc:
             raise HTTPException(503, f"no language model answered: {exc}") from exc
+        except ValueError as exc:  # too old to explain, or evidence the API could not give
+            raise HTTPException(422, f"cannot explain this alert: {exc}") from exc
 
     @app.get("/alerts")
     def alerts(since: Annotated[int, Query(ge=0, le=MAX_WINDOW_S)] = 300) -> dict[str, Any]:

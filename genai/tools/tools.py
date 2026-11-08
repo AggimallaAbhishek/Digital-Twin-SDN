@@ -26,7 +26,7 @@ from genai.tools.backend import Backend
 
 LLM_SOURCE = "llm.intent"  # the LLM layer's action source (common/schemas.py ActionSource)
 ActionId = Annotated[str, Field(pattern=r"^act_[A-Za-z0-9_]+$", max_length=64)]
-MAX_WINDOW_S = 3600  # the longest look-back of metrics and alerts (api/app.py uses this one)
+MAX_WINDOW_S = 3600  # the longest look-back of metrics and alerts, for the tools and the API
 
 
 class NoArgs(Contract):

@@ -13,7 +13,7 @@ from typing import Any, Mapping, Union
 
 import yaml
 
-from testbed.numbers import is_number
+from testbed.numbers import is_int, is_number
 
 APP_CLASSES = ("video", "web", "bulk")  # = common/schemas.py AppClass
 DEFAULT_CONFIG = Path(__file__).resolve().parent / "profiles.yaml"
@@ -153,7 +153,7 @@ def _iperf_profile(name: str, raw: Mapping[str, Any]) -> IperfProfile:
 def _web_profile(raw: Mapping[str, Any]) -> WebProfile:
     known_keys(raw, _WEB_KEYS, "profiles.web")
     object_kb: Any = raw.get("object_kb")
-    if not (_is_int(object_kb) and object_kb > 0):
+    if not (is_int(object_kb) and object_kb > 0):
         raise ValueError(f"profiles.web.object_kb must be an integer > 0, got {object_kb!r}")
     return WebProfile(
         "web",
@@ -179,10 +179,6 @@ def _positive(raw: Mapping[str, Any], key: str, where: str) -> float:
 
 def _port(raw: Mapping[str, Any], key: str) -> int:
     value: Any = raw.get(key)
-    if not (_is_int(value) and _PORT_MIN <= value <= _PORT_MAX):
+    if not (is_int(value) and _PORT_MIN <= value <= _PORT_MAX):
         raise ValueError(f"server.{key} must be an integer port {_PORT_MIN}-{_PORT_MAX}")
     return int(value)
-
-
-def _is_int(value: Any) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool)

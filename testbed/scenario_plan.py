@@ -17,7 +17,7 @@ from typing import Any, Mapping, Sequence
 from testbed.ap_logic import AP_NAME, CHANNELS
 from testbed.layout import CampusLayout, StationSpec
 from testbed.mobility.crowd import CrowdGroupSpec, Walk, parse_groups, position_at, station_number
-from testbed.numbers import is_number
+from testbed.numbers import is_int, is_number
 from testbed.traffic.profiles import APP_CLASSES, known_keys
 
 EVENT_TYPES = ("ap_down", "ap_up", "force_channel")  # = common/schemas.py ScenarioEvent.type
@@ -90,7 +90,7 @@ def parse_scenario(raw: Mapping[str, Any]) -> ScenarioSpec:
             raise ValueError(f"{key} must be an identifier, got {raw.get(key)!r}")
     duration = _number(raw.get("duration_s"), "duration_s", positive=True)
     seed: Any = raw.get("seed")
-    if not _is_int(seed):
+    if not is_int(seed):
         raise ValueError(f"seed must be an integer, got {seed!r}")
     mobility = raw.get("mobility", {"model": "static"})
     if mobility.get("model") not in ("static", "scheduled_crowd"):
@@ -222,7 +222,3 @@ def _number(value: Any, where: str, positive: bool = False) -> float:
     if not is_number(value) or value < 0 or (positive and value == 0):
         raise ValueError(f"{where} must be a number {'> 0' if positive else '>= 0'}, got {value!r}")
     return float(value)
-
-
-def _is_int(value: Any) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool)

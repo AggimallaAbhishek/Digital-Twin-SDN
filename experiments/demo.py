@@ -35,7 +35,7 @@ from pathlib import Path
 from api.app import WORKER_STOP_S
 from api.main import REQUEST_DRAIN_S, ApiConfig, load_api_config
 from api.wiring import ROOT, load_yaml
-from experiments import shell
+from experiments import demo_report, shell
 from experiments.batch import STOP_ON_VM, RunPlan, load_scenario
 from experiments.run_batch import VM, RunExtras, play
 from experiments.shell import git_commit, run
@@ -196,6 +196,16 @@ def finish_run(at: datetime) -> None:
         path.write_text(json.dumps(run | {"finished_at": at.isoformat()}, indent=1))
 
 
+def report_run(run_dir: Path, api: ApiConfig) -> Path | None:
+    """The run's report (experiments/demo_report.py), opened in the browser; None, with the
+    reason logged, if it could not be built: the report never fails the demo."""
+    try:
+        return demo_report.build_and_open(run_dir, api)
+    except Exception:  # whatever went wrong, the demo itself still stands
+        log.exception("could not build the run report; `make demo-report` tries again")
+        return None
+
+
 def _terminate(pgid: int) -> None:
     """SIGTERM to the process group (the service and all it started), SIGKILL if any of it is
     still there after STOP_S; returns once the group is gone, or KILL_WAIT_S after the
@@ -286,6 +296,7 @@ def main(argv: list[str] | None = None) -> int:
         finish_run(datetime.now(UTC))
     ok = bool(report.get("passed"))
     print(f"DEMO scenario {args.scenario} -> {'PASS' if ok else 'FAIL'} ({run_dir})", flush=True)
+    report_run(run_dir, api)
     print("DEMO the API and the dashboard keep running; `make demo-stop` ends them", flush=True)
     return 0 if ok else 1
 

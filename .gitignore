@@ -31,6 +31,8 @@ id_ed25519*
 # Credential and token files
 secrets/
 .secrets/
+secrets*.json
+*.secret
 credentials.json
 *credentials*.json
 service-account*.json
@@ -226,3 +228,5 @@ docs/report/build/
 
 # brainstorming visual companion (mockups, session key)
 .superpowers/
+# graphify knowledge graph: a regenerable cache of the repo, with absolute local paths
+graphify-out/

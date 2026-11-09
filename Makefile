@@ -3,7 +3,7 @@
 RUN := uv run
 FAST_TESTS := -m "not vm and not llm and not integration"
 
-.PHONY: api campaign campaign-mode results report report-figures report-latex report-latex-pdf intent-eval dashboard demo demo-stop qos-vm validation-batch loop-batch genai-batch genai-live rca-replay help setup env hooks fmt lint types imports test test-quick test-failed test-all check security up down ps logs sync-vm smoke-vm campus-vm controller-vm vm-clock ap-agent-vm mobility-vm traffic-vm scenario-vm scenario-repro-vm collect batch dataset llm-check llm-client-check
+.PHONY: api campaign campaign-mode results report report-figures report-latex report-latex-pdf intent-eval dashboard demo demo-stop demo-report qos-vm validation-batch loop-batch genai-batch genai-live rca-replay help setup env hooks fmt lint types imports test test-quick test-failed test-all check security up down ps logs sync-vm smoke-vm campus-vm controller-vm vm-clock ap-agent-vm mobility-vm traffic-vm scenario-vm scenario-repro-vm collect batch dataset llm-check llm-client-check
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -165,6 +165,9 @@ demo: up sync-vm ## P6.2 live demo: API + dashboard, then SCENARIO_DEMO on the V
 
 demo-stop: ## P6.2 stop the demo's API, dashboard and its scenario on the VM
 	$(RUN) python -m experiments.demo --stop
+
+demo-report: ## the newest demo run's report, rebuilt and opened (DEMO_RUN=<stamp>, REFRESH=1 re-reads)
+	@set -a; . ./.env; set +a; $(RUN) python -m experiments.demo_report $(if $(DEMO_RUN),--run $(DEMO_RUN)) $(if $(REFRESH),--refresh)
 
 genai-batch: ## P5.5/P5.6 copilot questions + root-cause on live faults, seed 44 (~35 min, lid open)
 	@set -a; . ./.env; set +a; $(KEEP_AWAKE) $(RUN) python -m experiments.run_batch --config experiments/batch_genai_v1.yaml

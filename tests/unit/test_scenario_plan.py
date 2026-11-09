@@ -11,9 +11,11 @@ import pytest
 from testbed.layout import load_layout, place_stations
 from testbed.mobility.crowd import Walk
 from testbed.scenario_plan import (
+    RUN_OUTPUTS,
     EventSpec,
     Step,
     TrafficSpec,
+    clear_run_outputs,
     max_deviation_pct,
     parse_scenario,
     resolve_selector,
@@ -205,3 +207,15 @@ def test_deviation_around_a_zero_or_tiny_mean(values: list[float], deviation: fl
 def test_deviation_needs_values() -> None:
     with pytest.raises(ValueError, match="no values"):
         max_deviation_pct([])
+
+
+def test_a_reused_run_folder_starts_without_the_last_runs_outputs(tmp_path: Path) -> None:
+    # live 2026-11-09: every demo is run id "live", so ~/p02/runs/live/ kept appending to its
+    # kpi.jsonl and events.jsonl since Oct 10; a killed run's partial line then broke every
+    # later summary (scenario exit 1) and the demo copied back a summary.json from Oct 16
+    for name in RUN_OUTPUTS:
+        (tmp_path / name).write_text('{"from": "the last run"}\n{"t_s"')
+    (tmp_path / "manifest.json").write_text("{}")  # rewritten by every run anyway
+    clear_run_outputs(tmp_path)
+    assert [p.name for p in tmp_path.iterdir()] == ["manifest.json"]
+    clear_run_outputs(tmp_path)  # a new folder: nothing to clear, no error

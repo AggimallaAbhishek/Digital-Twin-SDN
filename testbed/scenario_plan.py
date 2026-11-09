@@ -12,6 +12,7 @@ import math
 import re
 import statistics
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from testbed.ap_logic import AP_NAME, CHANNELS
@@ -22,6 +23,9 @@ from testbed.traffic.profiles import APP_CLASSES, known_keys
 
 EVENT_TYPES = ("ap_down", "ap_up", "force_channel")  # = common/schemas.py ScenarioEvent.type
 P95 = 0.95
+# what a run appends to or derives from its data; a run id used again (the demo's "live")
+# reuses the folder, so these are cleared first (clear_run_outputs)
+RUN_OUTPUTS = ("events.jsonl", "kpi.jsonl", "summary.json")
 
 _SCENARIO_KEYS = {
     "scenario_id",
@@ -150,6 +154,13 @@ def timeline(spec: ScenarioSpec) -> list[Step]:
         )
         for t in times
     ]
+
+
+def clear_run_outputs(run_dir: Path) -> None:
+    """Remove the last run's RUN_OUTPUTS from a reused run folder: appended to, they mixed
+    every earlier run into this one, and one partial line broke its summary (2026-11-09)."""
+    for name in RUN_OUTPUTS:
+        (run_dir / name).unlink(missing_ok=True)  # missing_ok: Python 3.8+, the VM's version
 
 
 def summarize_kpis(records: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:

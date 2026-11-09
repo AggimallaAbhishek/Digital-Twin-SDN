@@ -29,6 +29,29 @@ starts InfluxDB/Grafana, copies the testbed to the VM, starts the API (with the 
 and the alert monitor) and the dashboard, then plays the scenario on the VM. The dashboard
 refreshes every 5 seconds. `make demo-stop` takes up to ~25 s: the API lets a loop tick finish.
 
+## The run report (after the 10 minutes)
+
+When the scenario ends, `make demo` writes a report of that run and opens it in the browser
+(about 10 s: the AI summary is the slow part). It is `data/raw/demo/<stamp>/report.html`, one
+page that prints to PDF from the browser:
+
+- **Outcome**: PASS only if the scenario exited cleanly *and* the telemetry was complete, with
+  the data-quality numbers.
+- **AI summary**: a few sentences by the copilot's model, from the facts on the page only
+  (labelled, with the model's name). No model, no summary: the rest is still there.
+- **Key numbers**: throughput, latency p50/p95 and loss per traffic class.
+- **Timeline**: scenario events, anomaly alerts and the control loop's actions in one list.
+- **Control-loop actions**: what, why, the twin's verdict, and kept / rolled back / rejected.
+- **Charts**: AP utilisation and clients, latency and loss per class, with the actions and
+  alerts marked.
+
+`make demo-report` rebuilds the newest run's report (`DEMO_RUN=<stamp>` for another). It reuses
+the saved facts (`report.json`) when every source was read the first time, and reads them all
+again when one was missing (or with `REFRESH=1`); it asks for the AI summary again if there was
+none. Alerts live in the API's memory only (for an hour), so they can be read again only while
+the demo's API is still running: if the report lists them under "Not in this report", run
+`make demo-report` before `make demo-stop`.
+
 ## The story, minute by minute (lecture-hall flash crowd)
 
 | Scenario time | What happens | What to show and say |

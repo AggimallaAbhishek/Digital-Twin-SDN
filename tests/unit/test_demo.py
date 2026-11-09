@@ -8,13 +8,16 @@ import os
 import signal
 import subprocess
 import time
+import webbrowser
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
-from experiments import demo, shell
+from api.main import load_api_config
+from api.wiring import load_yaml
+from experiments import demo, demo_report, shell
 from experiments.batch import STOP_ON_VM
 from experiments.run_batch import VM
 
@@ -151,6 +154,7 @@ def test_the_old_ledger_is_archived_not_deleted(tmp_path: Path) -> None:
 
 
 STARTED = datetime(2026, 11, 9, 8, 0, tzinfo=UTC)
+API = load_api_config(load_yaml("api.yaml"))
 
 
 def test_the_run_file_tells_the_dashboard_what_plays_and_since_when(tmp_path: Path) -> None:
@@ -245,3 +249,48 @@ def test_a_new_demo_stops_the_earlier_scenario_before_anything_starts(
     monkeypatch.setattr(demo, "check_ports", ports_taken)
     assert demo.main([]) == 1
     assert calls == ["services", "vm", "ports"]
+
+
+def test_the_run_report_is_built_and_opened_when_the_scenario_ends(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    opened: list[str] = []
+    monkeypatch.setattr(webbrowser, "open", opened.append)
+    monkeypatch.setattr(demo_report, "build", lambda run_dir, **kw: run_dir / "report.html")
+    page = demo.report_run(tmp_path, API)
+    assert page == tmp_path / "report.html"
+    assert opened == [page.as_uri()]
+
+
+def test_a_report_that_fails_never_fails_the_demo(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    def broken(run_dir: Path, **kw: object) -> Path:
+        raise KeyError("duration_s")
+
+    monkeypatch.setattr(demo_report, "build", broken)
+    assert demo.report_run(tmp_path, API) is None
+    assert "could not build the run report" in caplog.text
+
+
+def test_the_demo_reports_on_its_run_after_playing_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: list[str] = []
+    for name in ("stop", "check_ports", "start"):
+        monkeypatch.setattr(demo, name, lambda *a: None)
+    monkeypatch.setattr(demo, "stop_vm_scenario", lambda: None)
+    monkeypatch.setattr(demo, "archive_ledger", lambda *a: None)
+    monkeypatch.setattr(demo, "wait_for", lambda url, timeout_s: True)
+    monkeypatch.setattr(demo, "git_commit", lambda: "abc1234")
+
+    def play(plan: object, run_dir: Path, *a: object) -> dict[str, bool]:
+        calls.append("play")
+        return {"passed": True}
+
+    monkeypatch.setattr(demo, "play", play)
+    monkeypatch.setattr(demo, "report_run", lambda run_dir, api: calls.append(str(run_dir)))
+    monkeypatch.setattr(demo, "ROOT", tmp_path)
+    assert demo.main([]) == 0
+    [run_dir] = (tmp_path / "data" / "raw" / "demo").iterdir()
+    assert calls == ["play", str(run_dir)]  # then the report, on the run play() filled

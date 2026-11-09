@@ -47,6 +47,7 @@ from testbed.scenario_plan import (
     EventSpec,
     ScenarioSpec,
     Step,
+    clear_run_outputs,
     parse_scenario,
     resolve_selector,
     summarize_kpis,
@@ -296,6 +297,7 @@ def main(argv: list[str] | None = None) -> int:
     run_id = args.run_id or f"{spec.scenario_id}-{stamp}"
     run_dir = Path(os.environ.get("LOG_DIR", str(Path.home() / "p02"))) / "runs" / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
+    clear_run_outputs(run_dir)  # a run id used again (the demo's "live"): not the last run's data
     layout = load_layout(DEFAULT_LAYOUT)
     model = load_radio_model(yaml.safe_load(DEFAULT_LAYOUT.read_text()))
     walks = plan_crowd(spec.groups, layout, place_stations(layout), seed=spec.seed)

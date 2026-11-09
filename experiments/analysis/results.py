@@ -133,6 +133,15 @@ def stress_window(scenario: Scenario) -> StressWindow:
     return StressWindow(onset.at_s, float(scenario.duration_s), event_ap)
 
 
+def recorded_path(path: Path) -> str:
+    """A dataset's path as results.json records it: relative to the repository, so the file
+    carries no user name and reads the same wherever the project is unpacked."""
+    try:
+        return path.resolve().relative_to(ROOT).as_posix()
+    except ValueError:  # a dataset outside the repository (--v1 and friends): as given
+        return str(path)
+
+
 def ledger_counts(raw: Path) -> dict[str, float]:
     """The H2 / safety counts summed over the ledgers of a raw campaign folder's passed runs (the
     runs the KPI tables use), with the harmful share of applied actions (§5.3: count and %).
@@ -306,7 +315,7 @@ def main(argv: list[str] | None = None) -> int:
     report = {
         "created": datetime.now(UTC).isoformat(timespec="seconds"),
         "git_commit": git_commit(),
-        "datasets": {m: str(d) for m, d in datasets.items()},
+        "datasets": {m: recorded_path(d) for m, d in datasets.items()},
         "missing": missing,
         "runs": {f"{m}/{s}": [asdict(k) for k in ks] for (m, s), ks in runs.items()},
         "table": table,

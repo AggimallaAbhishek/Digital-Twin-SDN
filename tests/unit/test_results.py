@@ -13,6 +13,14 @@ from experiments.analysis.results import h1, kpi_table, markdown, stress_window
 from experiments.batch import load_scenario
 
 
+def test_dataset_paths_are_recorded_relative_to_the_repository(tmp_path: Path) -> None:
+    # found packaging the submission: results.json carried the author's home directory, and the
+    # results file goes into a ZIP other people open
+    inside = results.ROOT / "data" / "evalv1-v1"
+    assert results.recorded_path(inside) == "data/evalv1-v1"
+    assert results.recorded_path(tmp_path / "elsewhere") == str(tmp_path / "elsewhere")
+
+
 def _run(ttr: float | None, throughput: float = 1.0) -> RunKpis:
     return RunKpis("ap1", ttr, 300.0, throughput, 20.0, 1.0, 0.8)
 

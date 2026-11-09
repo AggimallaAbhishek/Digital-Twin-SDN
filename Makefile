@@ -3,7 +3,7 @@
 RUN := uv run
 FAST_TESTS := -m "not vm and not llm and not integration"
 
-.PHONY: api campaign campaign-mode results report report-figures report-latex report-latex-pdf intent-eval dashboard demo demo-stop demo-report qos-vm validation-batch loop-batch genai-batch genai-live rca-replay help setup env hooks fmt lint types imports test test-quick test-failed test-all check security up down ps logs sync-vm smoke-vm campus-vm controller-vm vm-clock ap-agent-vm mobility-vm traffic-vm scenario-vm scenario-repro-vm collect batch dataset llm-check llm-client-check
+.PHONY: api campaign campaign-mode results report report-figures report-latex report-latex-pdf paper paper-check submission intent-eval dashboard demo demo-stop demo-report qos-vm validation-batch loop-batch genai-batch genai-live rca-replay help setup env hooks fmt lint types imports test test-quick test-failed test-all check security up down ps logs sync-vm smoke-vm campus-vm controller-vm vm-clock ap-agent-vm mobility-vm traffic-vm scenario-vm scenario-repro-vm collect batch dataset llm-check llm-client-check
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -155,6 +155,15 @@ report-latex: ## P7 the report as an Overleaf project -> docs/report/build/overl
 
 report-latex-pdf: ## P7 the Overleaf project, compiled with Tectonic -> docs/report/build/report-latex.pdf
 	$(RUN) python -m experiments.report_latex --pdf
+
+paper: ## IEEE paper: numbers, tables, figures from the recorded evaluation -> final_submission/paper/, then main.pdf (Tectonic)
+	$(RUN) python -m experiments.paper_build
+
+paper-check: ## fail if the paper's generated numbers and tables are out of date with the evaluation
+	$(RUN) python -m experiments.paper_build --check
+
+submission: paper ## final submission: Overleaf_Source.zip, Code_and_Data.zip (<100 MB), paper.pdf, revision report -> final_submission/dist/
+	$(RUN) python -m experiments.submission
 
 dashboard: ## P6.1 operator dashboard on http://127.0.0.1:8501 (needs `make api`)
 	@set -a; . ./.env; set +a; PYTHONPATH=. $(RUN) streamlit run dashboard/app.py --server.address=127.0.0.1 --server.port=8501

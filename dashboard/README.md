@@ -19,6 +19,14 @@ make demo         # or both, plus a scenario on the VM (docs/runbooks/demo.md)
     event timeline and twin prediction against measured;
   - **Network map**, **Digital twin**, **AI copilot** (with alert episodes and their root
     cause), **Policies**, **History and logs**.
+
+  `app.py` only picks the page; the Streamlit layout lives in `pages.py` (the other five
+  pages), `overview.py` (header, story strip, the Overview page), `copilot.py` (proposal card,
+  copilot box), `cards.py` (cards several pages share: floor plan, access points, events,
+  twin vs measured), `ui.py` (markup helpers) and `data.py` (settings and one API read per
+  refresh). Each imports only the ones after it in that list; an import-linter layers
+  contract keeps it so. `tests/unit/test_dashboard_app.py` renders every page with a fake
+  API and with the API down (Streamlit `AppTest`).
 - `panels.py`: what the panels show (pure, unit-tested): `demo_clock`, `story_steps`,
   `hero`, `focus_ap`, `ap_rows`, `event_rows`, `proposal_view`, `map_move`, `intent_view`,
   `route`.

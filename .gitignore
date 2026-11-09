@@ -230,3 +230,8 @@ docs/report/build/
 .superpowers/
 # graphify knowledge graph: a regenerable cache of the repo, with absolute local paths
 graphify-out/
+# final submission: the ZIPs/PDF are built by `make submission`; the paper's build output
+final_submission/dist/
+final_submission/paper/main.pdf
+final_submission/paper/main.bbl
+final_submission/paper/main.blg

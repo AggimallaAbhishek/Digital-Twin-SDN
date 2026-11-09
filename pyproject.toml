@@ -212,4 +212,17 @@ name = "the dashboard's wording and colours stay standard-library only (ADR-007)
 type = "forbidden"
 source_modules = ["dashboard.theme", "dashboard.views"]
 # every other dashboard module and the dashboard's third-party packages; extend both lists when they grow
-forbidden_modules = ["dashboard.app", "dashboard.client", "dashboard.panels", "dashboard.svg", "streamlit", "altair", "pandas", "yaml"]
+forbidden_modules = [
+    "dashboard.app", "dashboard.cards", "dashboard.client", "dashboard.copilot", "dashboard.data",
+    "dashboard.overview", "dashboard.pages", "dashboard.panels", "dashboard.svg", "dashboard.ui",
+    "streamlit", "altair", "pandas", "yaml",
+]
+
+[[tool.importlinter.contracts]]
+name = "the dashboard's modules depend only downward (deviation #22)"
+type = "layers"
+containers = ["dashboard"]
+layers = [
+    "app", "pages", "overview", "copilot", "cards", "ui | data", "panels", "svg",
+    "client | views | theme",
+]

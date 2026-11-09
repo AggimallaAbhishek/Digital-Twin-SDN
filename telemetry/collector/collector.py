@@ -294,6 +294,8 @@ class InfluxWriter:
     ) -> None:
         if not is_http_url(target.url):
             raise ValueError(f"INFLUXDB_URL must be an http(s) URL, got {target.url!r}")
+        if retries < 0:  # range(retries + 1) in __call__ would be empty: no attempt, no error
+            raise ValueError(f"write retries must be 0 or more, got {retries}")
         query = urllib.parse.urlencode(
             {"org": target.org, "bucket": target.bucket, "precision": "ns"}
         )

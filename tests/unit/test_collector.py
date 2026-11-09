@@ -3,18 +3,22 @@
 from __future__ import annotations
 
 import contextlib
+import io
 import json
 import threading
 import time
 import urllib.error
 import urllib.request
+from email.message import Message
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from common.influx import InfluxConnection
+from telemetry.collector import collector as collector_module
 from telemetry.collector.collector import (
+    BACKOFF_S,
     Collector,
     CollectorConfig,
     FetchError,
@@ -216,23 +220,29 @@ TARGET = InfluxConnection("http://127.0.0.1:8086/", "org one", "telemetry", "sec
 
 
 class FakeOpener:
-    """Stands in for urllib.request.urlopen: fails `failures` times, then succeeds."""
+    """Stands in for urllib.request.urlopen (unit tests run with sockets disabled): raises
+    `error` on every call, or fails `failures` times and then answers with `body`."""
 
-    def __init__(self, failures: int) -> None:
-        self.failures = failures
-        self.requests: list[urllib.request.Request] = []
+    def __init__(
+        self, failures: int = 0, body: bytes = b"", error: Exception | None = None
+    ) -> None:
+        self.failures, self.body, self.error = failures, body, error
+        self.requests: list[urllib.request.Request | str] = []
 
-    def __call__(self, request: urllib.request.Request, timeout: float) -> Any:
+    def __call__(self, request: urllib.request.Request | str, timeout: float) -> Any:
         self.requests.append(request)
+        if self.error is not None:
+            raise self.error
         if len(self.requests) <= self.failures:
             raise urllib.error.URLError("connection refused")
-        return contextlib.nullcontext()
+        return contextlib.nullcontext(io.BytesIO(self.body))
 
 
 def test_writer_posts_line_protocol_with_the_token(monkeypatch: pytest.MonkeyPatch) -> None:
     opener = FakeOpener(failures=0)
     InfluxWriter(TARGET, timeout_s=3.0, retries=2, opener=opener)(["a x=1i 1", "b y=2.0 2"])
     (request,) = opener.requests
+    assert isinstance(request, urllib.request.Request)  # the writer POSTs a Request, not a URL
     assert request.full_url == (
         "http://127.0.0.1:8086/api/v2/write?org=org+one&bucket=telemetry&precision=ns"
     )
@@ -413,3 +423,116 @@ def test_only_http_urls_are_fetched(url: str) -> None:
 def test_influx_writer_needs_an_http_url() -> None:
     with pytest.raises(ValueError, match="http"):
         InfluxWriter(InfluxConnection("file:///tmp/x", "o", "b", "t"), timeout_s=1.0, retries=0)
+
+
+# ------------------------------------------------------------ writer limits, slow polls, http_fetch
+def test_negative_retries_are_rejected() -> None:
+    with pytest.raises(ValueError, match="retries"):
+        InfluxWriter(TARGET, timeout_s=1.0, retries=-1)
+
+
+def test_zero_retries_is_one_attempt() -> None:
+    opener = FakeOpener(failures=1)
+    with pytest.raises(WriteError):
+        InfluxWriter(TARGET, timeout_s=1.0, retries=0, opener=opener)(["a x=1i 1"])
+    assert len(opener.requests) == 1
+
+
+def test_a_poll_slower_than_the_period_is_logged(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    clock = FakeClock()
+    monkeypatch.setattr(time, "sleep", clock.sleep)
+    vm = FakeVM()
+
+    def slow_fetch(url: str, timeout_s: float) -> Any:
+        if url.endswith("/kpi"):
+            clock.t += 1.5  # longer than the 1 s period
+        return vm(url, timeout_s)
+
+    collector = Collector(CONFIG, META, fetch=slow_fetch, write=FakeWriter(), clock=clock)
+    with caplog.at_level("WARNING", logger="telemetry.collector"):
+        collector.run(duration_s=1.0)
+    assert "poll took 1.50 s (period 1.0 s)" in caplog.text
+
+
+def test_http_fetch_parses_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(urllib.request, "urlopen", FakeOpener(body=b'{"aps": []}'))
+    assert http_fetch("http://192.168.64.2:8081/aps", timeout_s=1.5) == {"aps": []}
+
+
+@pytest.mark.parametrize(
+    ("error", "reason"),
+    [
+        (None, "Expecting value"),  # the body is not JSON
+        (urllib.error.HTTPError("u", 404, "Not Found", Message(), None), "404"),
+        (urllib.error.URLError(ConnectionRefusedError()), "urlopen error"),
+        (TimeoutError("timed out"), "timed out"),
+    ],
+    ids=["not-json", "http-404", "refused", "timeout"],
+)
+def test_http_fetch_turns_every_failure_into_a_fetch_error(
+    monkeypatch: pytest.MonkeyPatch, error: Exception | None, reason: str
+) -> None:
+    monkeypatch.setattr(urllib.request, "urlopen", FakeOpener(body=b"not json", error=error))
+    with pytest.raises(FetchError, match=reason):
+        http_fetch("http://192.168.64.2:8081/aps", timeout_s=1.5)
+
+
+def test_writer_from_env_writes_to_the_environments_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Reading the environment itself is tested in test_common_influx.py.
+    monkeypatch.setattr(InfluxConnection, "from_env", classmethod(lambda cls: TARGET))
+    assert InfluxWriter.from_env(CONFIG).endpoint == (
+        "http://127.0.0.1:8086/api/v2/write?org=org+one&bucket=telemetry&precision=ns"
+    )
+
+
+def test_writer_backs_off_exponentially_between_attempts(monkeypatch: pytest.MonkeyPatch) -> None:
+    sleeps: list[float] = []
+    monkeypatch.setattr(time, "sleep", sleeps.append)
+    with pytest.raises(WriteError):
+        InfluxWriter(TARGET, timeout_s=1.0, retries=2, opener=FakeOpener(failures=5))(["a x=1i 1"])
+    assert sleeps == [BACKOFF_S, 2 * BACKOFF_S]
+
+
+# ------------------------------------------------------------------ CLI (main)
+def _run_main(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, write: Any, run_id: str
+) -> tuple[int, dict[str, Any]]:
+    """main() against the fake VM for exactly one poll (Ctrl-C at the first sleep);
+    returns the exit code and the summary it saved under tmp_path."""
+
+    def ctrl_c(_seconds: float) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(collector_module, "http_fetch", FakeVM())
+    monkeypatch.setattr(InfluxWriter, "from_env", classmethod(lambda cls, config: write))
+    monkeypatch.setattr(collector_module, "LOG_DIR", tmp_path)
+    monkeypatch.setattr(time, "sleep", ctrl_c)
+    code = collector_module.main(["--scenario-id", "normal", "--run-id", run_id])
+    return code, json.loads((tmp_path / f"{run_id}.json").read_text())
+
+
+def test_main_reports_a_pass_after_ctrl_c_and_saves_the_summary(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code, summary = _run_main(monkeypatch, tmp_path, FakeWriter(), "cli-1")
+    assert code == 0
+    assert summary["passed"] is True
+    assert summary["scenario_id"] == "normal"
+    assert summary["records"] > 0
+    assert "COLLECTOR_RESULT run_id=cli-1" in capsys.readouterr().out
+
+
+def test_main_fails_when_nothing_could_be_written(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def failing_write(lines: list[str]) -> None:
+        raise WriteError("InfluxDB down")
+
+    code, summary = _run_main(monkeypatch, tmp_path, failing_write, "cli-2")
+    assert code == 1
+    assert summary["passed"] is False
+    assert capsys.readouterr().out.rstrip().endswith("-> FAIL")

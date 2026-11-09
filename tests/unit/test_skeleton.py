@@ -17,8 +17,13 @@ def test_package_imports(package: str) -> None:
 
 def test_every_root_package_has_a_layering_contract() -> None:
     config = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())["tool"]["importlinter"]
-    # every root package is covered; stricter contracts on sub-packages are welcome (ADR-006)
-    roots = {m.split(".")[0] for c in config["contracts"] for m in c["source_modules"]}
+    # every root package is covered; stricter contracts on sub-packages are welcome (ADR-006).
+    # A forbidden contract names its packages in source_modules, a layers one in containers.
+    roots = {
+        m.split(".")[0]
+        for c in config["contracts"]
+        for m in c.get("source_modules", c.get("containers", []))
+    }
     assert roots == set(config["root_packages"])
 
 

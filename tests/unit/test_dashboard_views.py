@@ -7,7 +7,6 @@ from typing import Any
 import pytest
 
 from dashboard.views import (
-    COVERAGE_M,
     alert_groups,
     band,
     describe,
@@ -53,13 +52,11 @@ def test_the_map_shows_aps_by_channel_and_load_and_stations_by_association() -> 
     ap1 = next(a for a in aps if a["name"] == "ap1")
     assert (ap1["x"], ap1["y"], ap1["channel"], ap1["clients"]) == (20, 50, "ch 1", 2)
     assert (ap1["load"], ap1["band"]) == (0.93, "congested")
-    assert ap1["label"] == "ap1 · 93% · 2"  # the channel is drawn beside it, in grey
     ap2 = next(a for a in aps if a["name"] == "ap2")
-    assert (ap2["band"], ap2["label"]) == ("down", "ap2 · down")
+    assert ap2["band"] == "down"
     # co-channel: ap1 and ap3 share channel 1 and are 30 m apart, inside each other's rings
     assert next(a for a in aps if a["name"] == "ap3")["shares_channel_with"] == ["ap1"]
     assert ap1["shares_channel_with"] == ["ap3"]
-    assert ap1["coverage_m"] == COVERAGE_M
     assert {s["name"]: s["ap"] for s in stations} == {
         "sta1": "ap1",
         "sta2": "ap1",

@@ -15,7 +15,9 @@ dashboard/views.py (pure, unit-tested); this file lays it out.
 from __future__ import annotations
 
 import json
+import math
 import os
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -28,11 +30,12 @@ import yaml
 from dashboard.client import ApiClient, ApiError
 from dashboard.panels import (
     DemoClock,
+    IntentView,
     Live,
     Proposal,
     ap_rows,
     clock_label,
-    congested_now,
+    congestion_onset,
     demo_clock,
     event_rows,
     focus_ap,
@@ -43,25 +46,28 @@ from dashboard.panels import (
     proposal_view,
     route,
     source_word,
+    status_word,
+    still_waiting,
     story_steps,
 )
 from dashboard.svg import floor_plan_svg, twin_bars_svg
-from dashboard.theme import CSS, INDIGO, LAVENDER, MUTED, NAVY, RED, WHITE
+from dashboard.theme import CORAL, CSS, INDIGO, LAVENDER, LINE, MUTED, NAVY, RED, WHITE
 from dashboard.views import (
     CONGESTED,
     KPIS,
     AlertGroup,
     alert_groups,
+    counted,
     kpi_series,
     map_layers,
     md_literal,
     plain_action,
     rca_view,
+    reason,
     rich_html,
     safe_html,
     shorten,
     verdict_word,
-    why_not,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -71,8 +77,11 @@ RUN_FILE = ROOT / "logs" / "demo" / "run.json"  # written by `make demo` (experi
 REFRESH = "5s"  # the live panels
 CHART_REFRESH = "15s"  # the Altair charts: up to 9 series queries a refresh
 READ_TTL_S = 3  # the panels of one refresh share one read of /topology, /actions, /alerts
+MAX_LOOKBACK_S = 3600  # the longest window GET /metrics allows
 ALERTS_S = 600  # alerts this recent make the episodes
+LLM_INTENT_SOURCE = "llm.intent"  # common/schemas.py ActionSource of the intent engine
 WINDOW_S = 300  # the charts' window ("last 5 minutes")
+RCA_WINDOW_MIN = 5  # genai/rca/evidence.py WINDOW_S: the evidence before an alert, in minutes
 SHOWN_CHATS = 2  # copilot exchanges on the Overview card (all of them on the AI copilot page)
 TABS = ("Overview", "Network map", "Digital twin", "AI copilot", "Policies", "History and logs")
 CLASSES = {"video": "#7B4FC4", "web": "#C23B7A", "bulk": "#4F6B12"}  # traffic classes (charts)
@@ -121,19 +130,37 @@ def watch() -> timedelta:
     return timedelta(seconds=config("executor.yaml")["watch_s"])
 
 
+def watch_s() -> int:
+    """The watch in whole seconds, for the page's words ("watching for 30 s")."""
+    return int(watch().total_seconds())
+
+
 @st.cache_data
 def stories() -> dict[str, list[dict[str, Any]]]:
     """The demo stories of the story strip (config/dashboard.yaml)."""
     return load_stories(config("dashboard.yaml"))
 
 
+@st.cache_data(ttl=READ_TTL_S, show_spinner=False)
 def run_file() -> dict[str, Any] | None:
-    """The demo playing now (logs/demo/run.json), or None: no demo, or a file being written."""
+    """The demo playing now (logs/demo/run.json), or None: no demo, or a file being written.
+    Read once per refresh for every panel."""
     try:
         run: dict[str, Any] = json.loads(RUN_FILE.read_text())
     except (OSError, ValueError):
         return None
     return run
+
+
+def demo() -> DemoClock | None:
+    """The demo clock now (None without a demo)."""
+    return demo_clock(run_file(), now())
+
+
+def demo_start() -> datetime | None:
+    """When the demo started, for event times on the demo clock (None: local time)."""
+    clock = demo()
+    return clock.start if clock else None
 
 
 @st.cache_data(ttl=READ_TTL_S, show_spinner=False)
@@ -165,6 +192,7 @@ def live() -> Live | None:
 
 
 def now() -> datetime:
+    """Now, in UTC (the API speaks UTC)."""
     return datetime.now(UTC)
 
 
@@ -173,19 +201,13 @@ def html(markup: str, where: Any = st) -> None:  # Any: st or a container
     where.markdown(markup, unsafe_allow_html=True)
 
 
-def start_of(clock: DemoClock | None) -> datetime | None:
-    return clock.start if clock else None
-
-
 # ---------------------------------------------------------------- header and story strip
 
 
 @st.fragment(run_every=REFRESH)
 def header() -> None:
     """The four header cells: the name, the scenario, the demo clock and the live status."""
-    snap, clock = live(), demo_clock(run_file(), now())
-    if clock is not None and snap is not None:
-        congested_since(clock, snap)  # every page shows the header: the onset is never missed
+    snap, clock = live(), demo()
     if clock is None:
         scenario, clock_html = "No demo running", "—"
     else:
@@ -213,27 +235,40 @@ def header() -> None:
     )
 
 
-@st.cache_resource
-def congestion_memo() -> dict[str, float]:
-    """When this server first saw an AP congested, per run (keyed by the run's start), in
-    seconds into the run: the twin state only knows now. Shared by every browser session."""
-    return {}
+def onset_s(clock: DemoClock) -> float | None:
+    """When an AP was first congested in this run, from the APs' load history (GET /metrics):
+    the twin state only knows now. The look-back is rounded up to 30 s so a refresh reuses
+    the cached answer."""
+    window = min(MAX_LOOKBACK_S, 30 * math.ceil((clock.elapsed_s + 5) / 30))
+    return _onset(clock.start.isoformat(), window)
 
 
-def congested_since(clock: DemoClock, snap: Live) -> float | None:
-    """The run's congestion onset as this server saw it (recorded on first sight)."""
-    memo, key = congestion_memo(), clock.start.isoformat()
-    if key not in memo and congested_now(snap.topology):
-        memo[key] = float(clock.elapsed_s)
-    return memo.get(key)
+@st.cache_data(ttl=15, show_spinner=False)
+def _onset(start: str, window_s: int) -> float | None:
+    try:
+        series = {
+            ap: client().get(f"/metrics?entity={ap}&metric=channel_util&window={window_s}")[
+                "points"
+            ]
+            for ap in ap_names()
+        }
+    except ApiError:
+        return None
+    return congestion_onset(series, datetime.fromisoformat(start))
+
+
+@st.cache_data
+def ap_names() -> list[str]:
+    """The campus's APs (config/campus_v1.yaml), whose load history the story reads."""
+    return [str(a["name"]) for a in config("campus_v1.yaml")["aps"]]
 
 
 def story_strip(snap: Live, clock: DemoClock | None) -> None:
     """The six steps of the demo's story (only while a demo with a story plays)."""
-    story = stories().get(clock_scenario(), []) if clock else []
+    story = stories().get(clock.scenario, []) if clock else []
     if not story or clock is None:
         return
-    steps = story_steps(story, clock, snap, watch(), congested_since(clock, snap))
+    steps = story_steps(story, clock, snap, watch(), onset_s(clock))
     html(
         '<div class="steps">'
         + "".join(
@@ -245,13 +280,8 @@ def story_strip(snap: Live, clock: DemoClock | None) -> None:
     )
 
 
-def clock_scenario() -> str:
-    run = run_file()
-    return str(run.get("scenario", "")) if run else ""
-
-
 def hero_row(snap: Live, start: datetime | None) -> None:
-    """The status card and the three big numbers of the most loaded AP."""
+    """The status card and the three big numbers of the AP it names (panels.focus_ap)."""
     zones = campus()
     card = hero(snap, zones, start)
     focus = focus_ap(snap.topology)
@@ -261,7 +291,7 @@ def hero_row(snap: Live, start: datetime | None) -> None:
         loss = "—" if focus.loss_pct is None else f"{focus.loss_pct:.1f}%"
         tiles = [
             (str(focus.clients), f"Clients on {focus.name}"),
-            (f"{focus.util:.0%}", f"Load on {focus.name}"),
+            (f"{focus.util:.0%}" if focus.up else "off", f"Load on {focus.name}"),
             (loss, f"Packet loss on {focus.name}"),
         ]
     colours = ("sky", "yellow", "lavender")
@@ -346,13 +376,11 @@ def twin_boxes(view: Proposal) -> str:
     css = "twin-box" if view.accepted else "twin-box bad"
 
     def box(label: str, after: float, before: float, unit: str, fmt: str) -> str:
-        was = f"{fmt.format(before)}{unit}"
-        trend = f"down from {was}" if after < before else f"up from {was}"
+        now_, was = fmt.format(after) + unit, fmt.format(before) + unit
+        trend = "no change" if now_ == was else f"{'down' if after < before else 'up'} from {was}"
         return (
             f'<div class="{css}"><div class="k">Twin predicts {label}</div>'
-            f'<div class="n">{fmt.format(after)}{unit}</div>'
-            f'<div class="s">{trend if fmt.format(after) != fmt.format(before) else "no change"}'
-            "</div></div>"
+            f'<div class="n">{now_}</div><div class="s">{trend}</div></div>'
         )
 
     return (
@@ -363,43 +391,35 @@ def twin_boxes(view: Proposal) -> str:
     )
 
 
+# (label, style in the button's key: btn-<colour>-…, on_click, its args)
+ButtonSpec = tuple[str, str, Callable[..., None], tuple[Any, ...]]
+
+
 def decide_buttons(view: Proposal) -> None:
     """Deny (asked once more: a denied change can never be applied) and Approve / Apply."""
     action_id = view.action_id
     confirming = st.session_state.get("deny") == action_id
     if confirming:
         html('<p class="empty"><b>Deny this change?</b> It can\'t be applied afterwards.</p>')
-    left, right = st.columns([1, 1.6])
-    with left:
-        if confirming:
-            st.button(
-                "Yes, deny",
-                key=f"btn-white-yes-{action_id}",
-                on_click=decide,
-                args=(action_id, "deny", view.title),
-            )
-        else:
-            st.button(
-                "Deny", key=f"btn-white-deny-{action_id}", on_click=ask_deny, args=(action_id,)
-            )
-    with right:
-        if confirming:
-            st.button(
-                "Keep it", key=f"btn-indigo-keep-{action_id}", on_click=ask_deny, args=(None,)
-            )
-        else:
-            label = APPROVE_WORDS.get(str(view.next_step), "Approve")
-            if view.next_step == "approve" and view.title.startswith("Move "):
-                label = "Approve move"
-            st.button(
-                label,
-                key=f"btn-indigo-go-{action_id}",
-                on_click=decide,
-                args=(action_id, str(view.next_step), view.title),
-            )
+    left: ButtonSpec
+    right: ButtonSpec
+    if confirming:
+        left = ("Yes, deny", "white-yes", decide, (action_id, "deny", view.title))
+        right = ("Keep it", "indigo-keep", ask_deny, (None,))
+    else:
+        go = APPROVE_WORDS.get(str(view.next_step), "Approve")
+        if view.next_step == "approve" and view.title.startswith("Move "):
+            go = "Approve move"
+        left = ("Deny", "white-deny", ask_deny, (action_id,))
+        right = (go, "indigo-go", decide, (action_id, str(view.next_step), view.title))
+    for column, (label, style, on_click, args) in zip(
+        st.columns([1, 1.6]), (left, right), strict=True
+    ):
+        column.button(label, key=f"btn-{style}-{action_id}", on_click=on_click, args=args)
 
 
 def ask_deny(action_id: str | None) -> None:
+    """Ask once more before a Deny (None: the operator kept the change)."""
     st.session_state["deny"] = action_id
 
 
@@ -490,12 +510,10 @@ def exchange(n: int, item: dict[str, Any], key: str) -> None:
         html(bubble(chip, rich_html(shorten(reply.get("answer", ""))) + used + tips))
         return
     view = intent_view(reply)
-    check = ""
-    if view.check:
-        css, mark = ("ok", "✓") if view.ok else ("no", "✕")
-        check = f'<div class="{css}">{mark} {safe_html(view.check)}</div>'
-    html(bubble(chip, safe_html(view.text) + check))
-    if view.applicable and not item["applied"]:
+    html(bubble(chip, intent_body(view)))
+    snap = live()
+    waiting = snap is not None and still_waiting(view.applicable, snap.actions)
+    if waiting and not item["applied"]:  # not once applied, denied or decided elsewhere
         st.button(
             "Create and apply policy",
             key=f"btn-yellow-policy-{key}-{n}",
@@ -503,7 +521,17 @@ def exchange(n: int, item: dict[str, Any], key: str) -> None:
             args=(n, view.applicable),
         )
     elif item["applied"]:
-        html('<div class="result bg-mint">✓ Applied · the executor watches it for 30 s</div>')
+        watching = f"✓ Applied · the executor watches it for {watch_s()} s"
+        html(f'<div class="result bg-mint">{watching}</div>')
+
+
+def intent_body(view: IntentView) -> str:
+    """An intent's reply: its changes in words, then the twin's check (✓ passed, ✕ refused)."""
+    check = ""
+    if view.check:
+        css, mark = ("ok", "✓") if view.ok else ("no", "✕")
+        check = f'<div class="{css}">{mark} {safe_html(view.check)}</div>'
+    return safe_html(view.text) + check
 
 
 def bubble(chip: str, body: str) -> str:
@@ -552,7 +580,7 @@ def ap_card(snap: Live) -> str:
     return card("Access points", "".join(rows), spaced=False)
 
 
-def event_card(snap: Live, start: datetime | None, limit: int = 5) -> str:
+def event_card(snap: Live, start: datetime | None, limit: int = 6) -> str:
     """The Event timeline card: the newest `limit` events, oldest first."""
     events = event_rows(snap, watch(), start, limit=limit)
     body = "".join(
@@ -565,13 +593,13 @@ def event_card(snap: Live, start: datetime | None, limit: int = 5) -> str:
 
 
 TWIN_KEYS = (
-    '<div class="keys"><span><i style="background:#FF8A73"></i>Before</span>'
+    f'<div class="keys"><span><i style="background:{CORAL}"></i>Before</span>'
     f'<span><i style="background:{LAVENDER};border-style:dashed"></i>Twin predicted</span>'
     f'<span><i style="background:{INDIGO}"></i>Measured live</span></div>'
 )
 
 
-def measured(actions: list[dict[str, Any]] | Any) -> list[dict[str, Any]]:  # Any: a Sequence
+def measured(actions: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
     """The changes whose watch measured the network, newest first."""
     done = [r for r in actions if r.get("measured") and r["applied_at"]]
     return sorted(done, key=lambda r: r["applied_at"], reverse=True)
@@ -588,13 +616,13 @@ def twin_card(snap: Live, record: dict[str, Any] | None = None) -> str:
         title = plain_action(record["action"])
     if record is None:
         body = (
-            '<p class="empty">No change has finished its 30 s watch yet. Each one will show the '
-            "twin's prediction next to what was measured.</p>"
+            f'<p class="empty">No change has finished its {watch_s()} s watch yet. Each '
+            "one will show the twin's prediction next to what was measured.</p>"
         )
         return card(title, body, spaced=False)
     v = record["verdict"]
     bars = twin_bars_svg(v["baseline"], v["predicted"], record["measured"])
-    outcome = record["status"].replace("_", " ")
+    outcome = status_word(record)
     what = (
         f'<p class="empty">{safe_html(plain_action(record["action"]))} · {safe_html(outcome)}</p>'
     )
@@ -607,16 +635,17 @@ def twin_card(snap: Live, record: dict[str, Any] | None = None) -> str:
 @st.fragment(run_every=REFRESH)
 def overview_top() -> None:
     """Story strip and the hero row (refreshed every few seconds)."""
-    snap, clock = live(), demo_clock(run_file(), now())
+    snap, clock = live(), demo()
     if snap is None:
         st.error(f"{md_literal(read_live().get('error', ''))} · this page reconnects by itself.")
         return
     story_strip(snap, clock)
-    hero_row(snap, start_of(clock))
+    hero_row(snap, clock.start if clock else None)
 
 
 @st.fragment(run_every=REFRESH)
 def sheet() -> None:
+    """The floor plan sheet (refreshed every few seconds)."""
     snap = live()
     if snap is not None:
         floor_plan(snap)
@@ -624,17 +653,19 @@ def sheet() -> None:
 
 @st.fragment(run_every=REFRESH)
 def proposal() -> None:
+    """The proposal card (refreshed every few seconds)."""
     snap = live()
     if snap is not None:
-        proposal_card(snap, start_of(demo_clock(run_file(), now())))
+        proposal_card(snap, demo_start())
 
 
 @st.fragment(run_every=REFRESH)
 def bottom_row() -> None:
+    """Access points, event timeline and twin vs measured (refreshed every few seconds)."""
     snap = live()
     if snap is None:
         return
-    start = start_of(demo_clock(run_file(), now()))
+    start = demo_start()
     cols = st.columns(3, gap="medium")
     html(ap_card(snap), cols[0])
     html(event_card(snap, start), cols[1])
@@ -642,6 +673,7 @@ def bottom_row() -> None:
 
 
 def overview() -> None:
+    """The Overview page, laid out as the design image."""
     overview_top()
     left, right = st.columns([1.9, 1], gap="large")
     with left, st.container(key="sheet"):
@@ -655,7 +687,8 @@ def overview() -> None:
 
 
 @st.fragment(run_every=REFRESH)
-def network_map() -> None:
+def network_live() -> None:
+    """The floor plan and the AP table (refreshed every few seconds)."""
     snap = live()
     if snap is None:
         return
@@ -681,6 +714,12 @@ def network_map() -> None:
     head = ("AP", "Channel", "Load", "State", "Clients", "Tx power", "Shares airtime with")
     without = f'<p class="empty">Clients without an access point: {safe_html(lost)}</p>'
     html(card("Access points in detail", table(head, rows) + without))
+
+
+def network_map() -> None:
+    """The Network map page: the live plan and table, then the charts on their own slower
+    refresh (a fragment inside another would rerun with it, every few seconds)."""
+    network_live()
     charts()
 
 
@@ -720,23 +759,23 @@ def charts() -> None:
 
 
 def styled(chart: Any) -> Any:  # Any: altair charts are partly untyped
+    """An Altair chart in the page's look: white card, navy ink, light guide lines."""
     return (
         chart.configure(background=WHITE, font="Hanken Grotesk")
         .configure_view(stroke=None)
-        .configure_axis(labelColor=MUTED, gridColor="#E3E8F0", domainColor=NAVY, tickColor=NAVY)
+        .configure_axis(labelColor=MUTED, gridColor=LINE, domainColor=NAVY, tickColor=NAVY)
         .configure_header(labelColor=NAVY, labelFontWeight="bold", labelFontSize=13)
         .configure_legend(labelColor=NAVY, titleColor=NAVY)
     )
 
 
 def load_chart(api: ApiClient) -> None:
-    html("<h3>Load per AP · last 5 minutes</h3>")
+    """Load per AP over the chart window, one small chart each, the congestion line in red."""
+    html(f"<h3>Load per AP · last {WINDOW_S // 60} minutes</h3>")
     rows = []
-    for a in api.get("/topology")["aps"]:
-        points = api.get(f"/metrics?entity={a['name']}&metric=channel_util&window={WINDOW_S}")[
-            "points"
-        ]
-        rows += [{"ap": a["name"], "t": p["ts"], "util": p["value"]} for p in points]
+    for name in ap_names():  # the campus layout: no second /topology read
+        points = api.get(f"/metrics?entity={name}&metric=channel_util&window={WINDOW_S}")["points"]
+        rows += [{"ap": name, "t": p["ts"], "util": p["value"]} for p in points]
     if not rows:
         html('<p class="empty">No load measured yet.</p>')
         return
@@ -762,7 +801,8 @@ def load_chart(api: ApiClient) -> None:
 
 
 def kpi_chart(api: ApiClient) -> None:
-    html("<h3>Traffic per class · last 5 minutes</h3>")
+    """Throughput, latency and loss per traffic class over the chart window."""
+    html(f"<h3>Traffic per class · last {WINDOW_S // 60} minutes</h3>")
     points = {
         (c, field): api.get(f"/metrics?entity={c}&metric={field}&window={WINDOW_S}")["points"]
         for c in CLASSES
@@ -814,31 +854,34 @@ def digital_twin() -> None:
         cols = st.columns(3, gap="medium")
         for col, record in zip(cols, done[i : i + 3], strict=False):
             html(twin_card(snap, record), col)
-    start = start_of(demo_clock(run_file(), now()))
+    start = demo_start()
     html(
         card("Every twin check", verdict_table(list(snap.actions), start, "No change checked yet."))
     )
 
 
 def verdict_row(r: dict[str, Any], start: datetime | None) -> str:
+    """One twin check as a table row: when, what, from whom, the verdict and its numbers."""
     v = r["verdict"]
-    if v.get("accepted"):
-        p = v.get("predicted") or {}
-        twin = "accepted"
-        detail = f"{p.get('latency_ms', 0):.0f} ms · {p.get('loss_pct', 0):.1f}%" if p else "—"
+    p = v.get("predicted") or {}
+    if not v.get("accepted"):
+        detail = reason(v)
+    elif p:
+        detail = f"{p.get('latency_ms', 0):.0f} ms · {p.get('loss_pct', 0):.1f}%"
     else:
-        twin = "rejected"
-        detail = why_not(v).removeprefix("twin: ")
-    return (
-        f"<tr><td>{safe_html(clock_label(r['action']['created_at'], start))}</td>"
-        f"<td>{safe_html(plain_action(r['action']))}</td>"
-        f"<td>{safe_html(source_word(r['action'].get('source', '')))}</td>"
-        f"<td><b>{twin}</b></td><td>{safe_html(detail)}</td>"
-        f"<td>{safe_html(r['status'].replace('_', ' '))}</td></tr>"
+        detail = "—"
+    return table_row(
+        safe_html(clock_label(r["action"]["created_at"], start)),
+        safe_html(plain_action(r["action"])),
+        safe_html(source_word(r)),
+        f"<b>{safe_html(verdict_word(v))}</b>",
+        safe_html(detail),
+        safe_html(status_word(r)),
     )
 
 
 def copilot_page() -> None:
+    """The AI copilot page: the whole conversation beside the alerts and their root cause."""
     left, right = st.columns([1.2, 1], gap="large")
     with left, st.container(key="card-lavender-copilot-full"):
         copilot_card(shown=None, key="full")
@@ -852,22 +895,23 @@ def alerts_card() -> None:
     snap = live()
     with st.container(key="card-white-alerts"):
         html("<h3>Anomaly alerts</h3>")
-        groups = alert_groups(list(snap.alerts)) if snap else []
+        groups = alert_groups(snap.alerts) if snap else []
         if not groups:
-            html('<p class="empty">No anomaly alert in the last 10 minutes.</p>')
-        start = start_of(demo_clock(run_file(), now()))
+            html(f'<p class="empty">No anomaly alert in the last {ALERTS_S // 60} minutes.</p>')
+        start = demo_start()
         reports: dict[str, Any] = st.session_state.setdefault("rca", {})
         for g in groups[:6]:
             when = safe_html(clock_label(g.first, start))
             html(
                 f'<div class="ev"><div class="t coral">{when}</div>'
                 f"<div><b>{safe_html(g.entity)} looks unusual</b>"
-                f"<span>{g.count} alerts</span></div></div>"
+                f"<span>{counted(g.count, 'alert')}</span></div></div>"
             )
             explain(g, reports)
 
 
 def explain(group: AlertGroup, reports: dict[str, Any]) -> None:
+    """The root-cause report of an alert episode, or the button that asks for it."""
     key = f"{group.entity}-{group.first}"
     if key in reports:
         html(rca_html(reports[key]))
@@ -892,8 +936,8 @@ def rca_html(report: dict[str, Any]) -> str:
     )
     tips = "".join(f'<div class="tools">suggested: {safe_html(s)}</div>' for s in view.suggestions)
     source = (
-        f'<div class="tools">by {safe_html(view.model)} · evidence from the 5 minutes before '
-        "the alert</div>"
+        f'<div class="tools">by {safe_html(view.model)} · evidence from the '
+        f"{RCA_WINDOW_MIN} minutes before the alert</div>"
     )
     return bubble("AI root cause", rich_html(view.summary) + causes + tips + source)
 
@@ -906,7 +950,7 @@ def policies() -> None:
         f'<div class="bubble you">{safe_html(c["text"])}</div>'
         + bubble(
             "intent",
-            safe_html(intent_view(c["reply"]).text)
+            intent_body(intent_view(c["reply"]))
             + ('<div class="ok">✓ applied</div>' if c["applied"] else ""),
         )
         for c in reversed(intents)
@@ -916,8 +960,8 @@ def policies() -> None:
     snap = live()
     if snap is None:
         return
-    start = start_of(demo_clock(run_file(), now()))
-    ai = [r for r in snap.actions if r["action"].get("source", "").startswith("llm")]
+    start = demo_start()
+    ai = [r for r in snap.actions if r["action"].get("source") == LLM_INTENT_SOURCE]
     html(card("Changes the AI proposed", verdict_table(ai, start, "None yet.")))
 
 
@@ -936,22 +980,43 @@ def history() -> None:
     snap = live()
     if snap is None:
         return
-    start = start_of(demo_clock(run_file(), now()))
+    start = demo_start()
     html(event_card(snap, start, limit=40))
     ledger = "".join(
         table_row(
             safe_html(clock_label(r["action"]["created_at"], start)),
             f"<code>{safe_html(r['action_id'])}</code>",
             safe_html(plain_action(r["action"])),
-            safe_html(source_word(r["action"].get("source", ""))),
-            safe_html(r["status"].replace("_", " ")),
+            safe_html(source_word(r)),
+            safe_html(verdict_word(r["verdict"])),
+            safe_html(status_word(r)),
+            safe_html(measured_words(r)),
             safe_html(r.get("note") or ""),
         )
         for r in sorted(snap.actions, key=lambda r: r["action"]["created_at"], reverse=True)
     )
-    head = ("Time", "Id", "Change", "From", "Status", "Note")
+    head = ("Time", "Id", "Change", "From", "Twin", "Status", "Measured", "Note")
     empty = "Empty: no change recorded in this run."
     html(card("Action ledger", table(head, ledger, empty)))
+    alerts = "".join(
+        table_row(
+            safe_html(clock_label(a["ts"], start)),
+            safe_html(a["entity"]),
+            f"{a['score']:.2f}",
+            safe_html(a.get("detector", "")),
+        )
+        for a in sorted(snap.alerts, key=lambda a: a["ts"], reverse=True)
+    )
+    empty = f"No anomaly alert in the last {ALERTS_S // 60} minutes."
+    html(card("Alerts", table(("Time", "Entity", "Score", "Detector"), alerts, empty)))
+
+
+def measured_words(record: dict[str, Any]) -> str:
+    """What the watch measured, in one line; "—" before (or without) a watch."""
+    m = record.get("measured")
+    if not m:
+        return "—"
+    return f"{m['latency_ms']:.0f} ms · {m['loss_pct']:.1f}% · {m['throughput_mbps']:.2f} Mbit/s"
 
 
 # ---------------------------------------------------------------- the page

@@ -31,6 +31,7 @@ GREEN = "#2F8157"
 GREEN_DOT = "#5BE3A8"
 GREY_ZONE = "#DDE2EA"
 TRACK = "#EEF3FC"  # an empty bar
+LINE = "#E3E8F0"  # chart guide lines on a white card
 WHITE = "#FFFFFF"
 
 DISPLAY = "'Chakra Petch', 'Hanken Grotesk', system-ui, sans-serif"  # titles, big numbers
@@ -76,7 +77,7 @@ html, body, .stApp, .stMarkdown, button, input {{ font-family: {BODY}; }}
 [data-stale="true"], .stale-element {{ opacity: 1 !important; filter: none !important;
   transition: none !important; }}
 .stMarkdown p, .stMarkdown li {{ color: inherit; }}
-h1, h2, h3, .display {{ font-family: {DISPLAY}; }}
+h1, h2, h3 {{ font-family: {DISPLAY}; }}
 
 /* ---- header strip ---- */
 .hdr {{ display: grid; grid-template-columns: 2.1fr 1.05fr 0.95fr 1.15fr;

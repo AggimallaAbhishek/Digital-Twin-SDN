@@ -2,20 +2,29 @@
 design.md §4): what the redesigned dashboard's panels show, from the API's JSON and the demo's
 run file (logs/demo/run.json). Pure functions, no Streamlit (tests/unit/test_dashboard_panels.py).
 
-The older view logic (status, timeline, wording, safety of API text) stays in views.py and is
-reused here.
+The shared view logic (actions in words, reasons, alert episodes, safe API text) is in
+views.py and reused here.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from typing import Any
 
-from dashboard.svg import Move
+from dashboard.svg import Move, in_zone, zone_title
 from dashboard.theme import ZONE_TOKENS
-from dashboard.views import FINISHED, alert_groups, band, plain_action, waiting_steps, why_not
+from dashboard.views import (
+    FINISHED,
+    alert_groups,
+    band,
+    counted,
+    plain_action,
+    reason,
+    waiting_steps,
+    why_not,
+)
 
 Row = dict[str, Any]  # Any: JSON values
 RANGE = chr(0x2013)  # an en dash, for time ranges such as 0:00 to 2:00
@@ -81,15 +90,17 @@ class DemoClock:
     elapsed_s: int
     duration_s: int
     ended: bool
+    scenario: str = ""  # its id, for the story strip (config/dashboard.yaml)
 
     def text(self) -> tuple[str, str]:
         """("03:40", "10:00"): elapsed and total, as the header shows them."""
         return _mmss(self.elapsed_s), _mmss(self.duration_s)
 
 
-def _mmss(seconds: float) -> str:
+def _mmss(seconds: float, pad: bool = True) -> str:
+    """mm:ss as the clock shows it (03:30), or m:ss with `pad` False (the story strip: 3:30)."""
     s = max(0, int(seconds))
-    return f"{s // 60:02d}:{s % 60:02d}"
+    return f"{s // 60:02d}:{s % 60:02d}" if pad else f"{s // 60}:{s % 60:02d}"
 
 
 def demo_clock(run: Row | None, now: datetime) -> DemoClock | None:
@@ -97,17 +108,24 @@ def demo_clock(run: Row | None, now: datetime) -> DemoClock | None:
     when the file lacks what the clock needs."""
     if not run or "started_at" not in run or "duration_s" not in run:
         return None
-    start = datetime.fromisoformat(run["started_at"])
-    duration = int(run["duration_s"])
-    end = datetime.fromisoformat(run["finished_at"]) if run.get("finished_at") else now
+    try:  # validated at the boundary (C-2): a bad file is no run, never a crash
+        start = datetime.fromisoformat(run["started_at"])
+        duration = int(run["duration_s"])
+        end = datetime.fromisoformat(run["finished_at"]) if run.get("finished_at") else now
+    except (TypeError, ValueError):
+        return None
+    if start.tzinfo is None or end.tzinfo is None:  # not comparable with now (UTC)
+        return None
     elapsed = int((min(end, now) - start).total_seconds())
     ended = bool(run.get("finished_at")) or elapsed >= duration
+    scenario = str(run.get("scenario", ""))
     return DemoClock(
-        str(run.get("title") or run.get("scenario", "")),
+        str(run.get("title") or scenario),
         start,
         max(0, min(elapsed, duration)),
         duration,
         ended,
+        scenario,
     )
 
 
@@ -132,9 +150,19 @@ class Step:
 
 
 def _mss(seconds: float) -> str:
-    """m:ss, as the story strip writes its times (0:00, 3:30)."""
-    s = max(0, int(seconds))
-    return f"{s // 60}:{s % 60:02d}"
+    return _mmss(seconds, pad=False)
+
+
+def congestion_onset(series: Mapping[str, Sequence[Row]], start: datetime) -> float | None:
+    """Seconds into the run of the first congested load of any AP, from each AP's
+    channel_util history (GET /metrics points); None if none was congested since `start`."""
+    times = [
+        (datetime.fromisoformat(p["ts"]) - start).total_seconds()
+        for points in series.values()
+        for p in points
+        if p["value"] is not None and band(p["value"]) == "congested"
+    ]
+    return min((t for t in times if t >= 0), default=None)
 
 
 def story_steps(
@@ -147,9 +175,9 @@ def story_steps(
     """The story strip (design §4.2): each step is reached by its trigger (the demo clock, the
     first congestion seen, the first change proposed, applied, or decided), events from before
     the run do not count; the latest step reached is "now", the ones before it done.
-    `congested_s`: when an AP was first seen congested in this run (the dashboard remembers
-    it; the twin state only knows now). Anomaly alerts are not congestion: the detector also
-    flags start-up transients (live demo 2026-11-09)."""
+    `congested_s`: when an AP was first congested in this run (congestion_onset, from the
+    APs' load history; the twin state only knows now). Anomaly alerts are not congestion: the
+    detector also flags start-up transients (live demo 2026-11-09)."""
     reached = [_reached(s, clock, live, watch, congested_s) for s in story]
     later: float | None = None  # the earliest time a later step was reached
     for i in reversed(range(len(reached))):
@@ -213,7 +241,7 @@ def _reached(
         return min(_since(start, applied), default=None)
     if trigger == "outcome":  # a change is decided when its watch ends
         decided = (
-            (datetime.fromisoformat(r["applied_at"]) + watch).isoformat()
+            _decided(r, watch).isoformat()
             for r in actions
             if r["status"] in FINISHED and r["applied_at"]
         )
@@ -231,8 +259,12 @@ def load_stories(raw: Row) -> dict[str, list[Row]]:
     if not isinstance(stories, dict):
         raise ValueError("config/dashboard.yaml: stories must be a mapping of scenario -> steps")
     for scenario, steps in stories.items():
+        if not isinstance(steps, list):
+            raise ValueError(f"stories.{scenario}: must be a list of steps")
         for i, step in enumerate(steps):
             where = f"stories.{scenario}[{i}]"
+            if not isinstance(step, dict):
+                raise ValueError(f"{where}: must be a mapping (label, trigger, from_s, to_s)")
             unknown = set(step) - _STEP_KEYS
             if unknown:
                 raise ValueError(f"{where}: unknown keys {sorted(unknown)}")
@@ -306,43 +338,49 @@ def _when(
 ) -> str:
     if level == "calm":
         return f"Status at {clock_label(topo['ts'], start)}"
-    flagged = [g for g in alert_groups(list(alerts)) if subject and g.entity == subject["name"]]
+    flagged = [g for g in alert_groups(alerts) if subject and g.entity == subject["name"]]
     if flagged:
         return f"Anomaly detected at {clock_label(flagged[0].first, start)}"
-    return f"Seen at {clock_label(topo['ts'], start)}"
+    return f"Since {clock_label(topo['ts'], start)}"
 
 
 def _zone_name(ap: Row, zones: Sequence[Row]) -> str:
-    """The zone an AP stands in (edges count as inside, like the twin's zone_of), or ""."""
+    """The zone an AP stands in, or ""."""
     x, y = ap["position"]
-    for z in zones:
-        if z["x"] <= x <= z["x2"] and z["y"] <= y <= z["y2"]:
-            return str(z["zone"])
-    return ""
+    return next((str(z["zone"]) for z in zones if in_zone(z, x, y)), "")
 
 
 @dataclass(frozen=True)
 class Focus:
-    """The AP the three big tiles describe: the most loaded one that is up."""
+    """The AP the three big tiles describe: the one the status card names first."""
 
     name: str
     clients: int
     util: float
     loss_pct: float | None  # the mean loss of its clients' flows; None without flows
+    up: bool = True
 
 
 def focus_ap(topology: Row | None) -> Focus | None:
-    """The most loaded AP that is up, with its clients and their flows' mean packet loss."""
-    if topology is None:
+    """The AP the status card is about (design §4.3: down, then congested, then busiest),
+    with its clients and their flows' mean packet loss."""
+    if topology is None or not topology["aps"]:
         return None
-    up = [a for a in topology["aps"] if a["up"]]
-    if not up:
-        return None
-    ap = max(up, key=lambda a: a["util"])
+    down = [a for a in topology["aps"] if not a["up"]]
+    if down:
+        return Focus(down[0]["name"], 0, 0.0, None, up=False)
+    ap = max(topology["aps"], key=lambda a: a["util"])
     mine = {s["name"] for s in topology["stations"] if s["ap"] == ap["name"]}
     losses = [f["loss_pct"] for f in topology.get("flows", []) if f["sta"] in mine]
     loss = sum(losses) / len(losses) if losses else None
     return Focus(ap["name"], len(mine), ap["util"], loss)
+
+
+def still_waiting(action_ids: Sequence[str], actions: Sequence[Row]) -> bool:
+    """True while every change of `action_ids` still waits in the ledger (verified or
+    approved): "Create and apply policy" is offered only then."""
+    status = {a["action_id"]: a["status"] for a in actions}
+    return bool(action_ids) and all(status.get(i) in ("verified", "approved") for i in action_ids)
 
 
 @dataclass(frozen=True)
@@ -366,7 +404,7 @@ def ap_rows(topology: Row, zones: Sequence[Row]) -> list[ApRow]:
     rows = []
     for a in topology["aps"]:
         zone = _zone_name(a, zones)
-        where = f"{zone[:1].upper()}{zone[1:]}, " if zone else ""
+        where = f"{zone_title(zone)}, " if zone else ""
         if not a["up"]:
             rows.append(
                 ApRow(a["name"], "grey", f"{where}channel {a['channel']}, off", "off", 0, False)
@@ -375,7 +413,7 @@ def ap_rows(topology: Row, zones: Sequence[Row]) -> list[ApRow]:
         n = clients[a["name"]]
         hot = band(a["util"]) == "congested"
         chip = "coral" if hot else ZONE_TOKENS.get(zone, "white")
-        what = f"{where}channel {a['channel']}, {n} {'client' if n == 1 else 'clients'}"
+        what = f"{where}channel {a['channel']}, {counted(n, 'client')}"
         rows.append(
             ApRow(a["name"], chip, what, f"{a['util']:.0%}", min(100, round(a["util"] * 100)), hot)
         )
@@ -384,11 +422,11 @@ def ap_rows(topology: Row, zones: Sequence[Row]) -> list[ApRow]:
 
 # ---------------------------------------------------------------- event timeline
 
-OUTCOME_EVENTS = {  # final status -> (chip colour, title)
-    "kept": ("mint", "Change kept"),
-    "rolled_back": ("coral", "Change rolled back"),
-    "rollback_failed": ("coral", "Rollback failed"),
-    "failed": ("coral", "Could not apply"),
+OUTCOMES = {  # final status -> (chip colour, timeline title, proposal card result)
+    "kept": ("mint", "Change kept", "✓ Kept"),
+    "rolled_back": ("coral", "Change rolled back", "↺ Rolled back"),
+    "rollback_failed": ("coral", "Rollback failed", "✕ Rollback failed"),
+    "failed": ("coral", "Could not apply", "✕ Could not apply"),
 }
 
 
@@ -402,13 +440,20 @@ class Event:
     detail: str
 
 
-def source_word(source: str) -> str:
-    """Who proposed a change, in a word: the optimiser, the AI copilot or an operator."""
+def source_word(record: Row) -> str:
+    """Who proposed a recorded change, in a word: the optimiser, the AI copilot or an
+    operator (by its action's source)."""
+    source = record["action"].get("source", "")
     if source.startswith("optimizer"):
         return "Optimiser"
     if source.startswith("llm"):
         return "AI copilot"
     return "Operator"
+
+
+def status_word(record: Row) -> str:
+    """A recorded change's status in words: "rolled back"."""
+    return str(record["status"]).replace("_", " ")
 
 
 def event_rows(live: Live, watch: timedelta, start: datetime | None, limit: int = 6) -> list[Event]:
@@ -422,24 +467,14 @@ def event_rows(live: Live, watch: timedelta, start: datetime | None, limit: int 
             (datetime.fromisoformat(at), Event(clock_label(at, start), tone, title, detail))
         )
 
-    for g in reversed(alert_groups(list(live.alerts))):  # oldest episode first
-        add(
-            g.first,
-            "coral",
-            f"{g.entity} looks unusual",
-            f"{g.count} anomaly {'alert' if g.count == 1 else 'alerts'}",
-        )
+    for g in reversed(alert_groups(live.alerts)):  # oldest episode first
+        add(g.first, "coral", f"{g.entity} looks unusual", counted(g.count, "anomaly alert"))
     for r in live.actions:
         what, v, created = plain_action(r["action"]), r["verdict"], r["action"]["created_at"]
         if not v.get("accepted"):
             add(created, "coral", "Twin rejects a change", f"{what}; {why_not(v)}")
             continue
-        add(
-            created,
-            "lavender",
-            f"{source_word(r['action'].get('source', ''))} proposes a change",
-            _with_prediction(what, v),
-        )
+        add(created, "lavender", f"{source_word(r)} proposes a change", _with_prediction(what, v))
         if r["status"] == "denied":
             add(created, "white", "Operator denied it", what)
         if r["applied_at"]:
@@ -447,12 +482,11 @@ def event_rows(live: Live, watch: timedelta, start: datetime | None, limit: int 
                 r["applied_at"],
                 "yellow",
                 "Applying the change",
-                f"{what}, watching for {watch.seconds} s",
+                f"{what}, watching for {int(watch.total_seconds())} s",
             )
-        if r["status"] in OUTCOME_EVENTS:
-            at = r["applied_at"] or created
-            done = (datetime.fromisoformat(at) + watch).isoformat()
-            add(done, *OUTCOME_EVENTS[r["status"]], _latency_check(r))
+        if r["status"] in OUTCOMES:
+            tone, title, _ = OUTCOMES[r["status"]]
+            add(_decided(r, watch).isoformat(), tone, title, _latency_check(r))
     timed.sort(key=lambda t: t[0])  # stable: a proposal stays before its denial
     return [e for _, e in timed[-limit:]]
 
@@ -477,12 +511,6 @@ def _latency_check(record: Row) -> str:
 # ---------------------------------------------------------------- proposal card
 
 RESULT_FOR = timedelta(minutes=10)  # how long a finished change stays on the proposal card
-RESULT_WORDS = {
-    "kept": "✓ Kept",
-    "rolled_back": "↺ Rolled back",
-    "rollback_failed": "✕ Rollback failed",
-    "failed": "✕ Could not apply",
-}
 
 
 @dataclass(frozen=True)
@@ -507,36 +535,46 @@ def proposal_view(
     """The change that matters most now: one waiting for the operator, else the one being
     watched, else the newest result (kept, rolled back, rejected) of the last 10 minutes."""
     actions = live.actions
-    waiting = waiting_steps(list(actions))
-    if waiting:
-        r = max(
-            (a for a in actions if a["action_id"] in waiting),
-            key=lambda a: a["action"]["created_at"],
-        )
-        source = source_word(r["action"].get("source", ""))
+    waiting = _newest_waiting(actions)
+    if waiting is not None:
+        r, step = waiting
+        source = source_word(r)
         eyebrow = f"{source} proposal" if source != "AI copilot" else "AI proposal"
-        return replace(_proposal(r, "waiting", eyebrow), next_step=waiting[r["action_id"]])
-    watched = [a for a in actions if a["status"] == "applied" and a["applied_at"]]
-    if watched:
-        r = max(watched, key=lambda a: a["applied_at"])
-        applied = datetime.fromisoformat(r["applied_at"])
+        return replace(_proposal(r, "waiting", eyebrow), next_step=step)
+    watched = _newest_watched(actions)
+    if watched is not None:
+        applied = datetime.fromisoformat(watched["applied_at"])
         progress = min(1.0, max(0.0, (now - applied) / watch))
-        eyebrow = (
-            f"Applied at {clock_label(r['applied_at'], start)} · watching for {watch.seconds} s"
-        )
-        return replace(_proposal(r, "watching", eyebrow), progress=progress)
+        when = clock_label(watched["applied_at"], start)
+        eyebrow = f"Applied at {when} · watching for {int(watch.total_seconds())} s"
+        return replace(_proposal(watched, "watching", eyebrow), progress=progress)
     results = [
         (_decided(a, watch), a)
         for a in actions
-        if a["status"] in RESULT_WORDS or a["status"] == "rejected"
+        if a["status"] in OUTCOMES or a["status"] == "rejected"
     ]
     if not results:
         return None
     at, r = max(results, key=lambda t: t[0])
     if now - at > RESULT_FOR:
         return None
-    source = source_word(r["action"].get("source", ""))
-    return replace(_proposal(r, "result", f"{source} change"), note=_result_note(r))
+    return replace(_proposal(r, "result", f"{source_word(r)} change"), note=_result_note(r))
+
+
+def _newest_waiting(actions: Sequence[Row]) -> tuple[Row, str] | None:
+    """The newest change waiting for the operator, with its next step (approve or apply)."""
+    steps = waiting_steps(actions)
+    waiting = [a for a in actions if a["action_id"] in steps]
+    if not waiting:
+        return None
+    r = max(waiting, key=lambda a: a["action"]["created_at"])
+    return r, steps[r["action_id"]]
+
+
+def _newest_watched(actions: Sequence[Row]) -> Row | None:
+    """The change applied last that is still being watched."""
+    watched = [a for a in actions if a["status"] == "applied" and a["applied_at"]]
+    return max(watched, key=lambda a: a["applied_at"]) if watched else None
 
 
 def _decided(record: Row, watch: timedelta) -> datetime:
@@ -548,8 +586,8 @@ def _decided(record: Row, watch: timedelta) -> datetime:
 
 def _result_note(record: Row) -> str:
     if record["status"] == "rejected":
-        return f"✕ Twin rejected: {why_not(record['verdict']).removeprefix('twin: ')}"
-    note = RESULT_WORDS[record["status"]]
+        return f"✕ Twin rejected: {reason(record['verdict'])}"
+    note = OUTCOMES[record["status"]][2]
     measured = record.get("measured")
     if measured:
         note += (
@@ -584,17 +622,14 @@ def map_move(actions: Sequence[Row]) -> Move | None:
     """The steer to draw on the map: the newest one being watched ("moving"), else the newest
     one waiting for the operator ("proposed"); None when there is neither."""
     steers = [a for a in actions if a["action"]["type"] == "steer_clients"]
-    watched = [a for a in steers if a["status"] == "applied" and a["applied_at"]]
-    if watched:
-        return _move(max(watched, key=lambda a: a["applied_at"]), "moving")
-    waiting = waiting_steps(list(steers))
-    pending = [a for a in steers if a["action_id"] in waiting]
-    if pending:
-        return _move(max(pending, key=lambda a: a["action"]["created_at"]), "proposed")
-    return None
+    watched = _newest_watched(steers)
+    if watched is not None:
+        return _steer_move(watched, "moving")
+    waiting = _newest_waiting(steers)
+    return _steer_move(waiting[0], "proposed") if waiting is not None else None
 
 
-def _move(record: Row, state: str) -> Move:
+def _steer_move(record: Row, state: str) -> Move:
     p = record["action"]["params"]
     return Move(p["from_ap"], p["to_ap"], tuple(p["stations"]), state)
 
@@ -620,14 +655,13 @@ def intent_view(result: Row) -> IntentView:
     actions = result["actions"]
     if not actions:
         return IntentView("Nothing to change: the network already does that.", True, "", ())
-    n = len(actions)
-    changes = f"{n} change{'' if n == 1 else 's'}"
+    changes = counted(len(actions), "change")
     text = f"I can make {changes}: " + "; ".join(plain_action(a) for a in actions) + "."
     verdicts = [result["verdicts"].get(a["action_id"], {}) for a in actions]
     refused = [v for v in verdicts if not v.get("accepted")]
     if refused:
         v = refused[0]
-        why = v["error"] if "error" in v else why_not(v).removeprefix("twin: ")
+        why = v["error"] if "error" in v else reason(v)
         return IntentView(text, False, f"Twin refused: {why}", ())
     return IntentView(
         text, True, f"Twin check passed for {changes}", tuple(a["action_id"] for a in actions)
@@ -636,9 +670,5 @@ def intent_view(result: Row) -> IntentView:
 
 def _since(start: datetime, times: Iterable[str]) -> list[float]:
     """Seconds since `start` of the ISO `times` at or after it (earlier runs do not count)."""
-    out = []
-    for t in times:
-        s = (datetime.fromisoformat(t) - start).total_seconds()
-        if s >= 0:
-            out.append(s)
-    return out
+    seconds = ((datetime.fromisoformat(t) - start).total_seconds() for t in times)
+    return [s for s in seconds if s >= 0]

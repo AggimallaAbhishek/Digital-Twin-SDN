@@ -83,7 +83,7 @@ the SVGs scale to their card).
 ### 4.2 Story steps (`config/dashboard.yaml`, per scenario)
 Each step has a label, a planned window (seconds into the run) and a **trigger**:
 - `clock`: reached when the demo clock reaches `from_s`;
-- `congested`: the first alert in the run, or an AP congested now;
+- `congested`: the first congested load of any AP in the run, from the APs' load history (`GET /metrics` channel_util; `panels.congestion_onset`), or an AP congested now; anomaly alerts are not congestion (the detector also flags start-up transients). A step first seen after a later step reads as passed over ("about 3:30, done");
 - `proposed`: the first action recorded in the run;
 - `applied`: the first `applied_at` in the run;
 - `outcome`: the first kept / rolled-back result (applied + watch).
@@ -154,7 +154,7 @@ A rejected verdict shows coral boxes with the twin's first reason. **Deny** asks
 - One form: an input "Describe an intent or ask a question" and a navy send button.
 - **Routing** (`route(text)`):
   - **ask** if the text ends with "?" or starts with why / what / how / which / who / when /
-    where / is / are / does / do / can / could / should / will / would / explain / show / list;
+    where / is / are / does / do / did / can / could / should / will / would / explain / show / list / tell;
   - **intent** otherwise.
 - A small chip on the bubble says "asked" or "intent".
 
@@ -227,12 +227,12 @@ A rejected verdict shows coral boxes with the twin's first reason. **Deny** asks
 |---|---|
 | `dashboard/theme.py` (new) | colour and font tokens, the page CSS |
 | `dashboard/svg.py` (new) | `floor_plan_svg`, `twin_bars_svg`, small SVG helpers: pure, tested |
-| `dashboard/views.py` | new pure logic: `demo_clock`, `story_steps`, `hero`, `focus_ap`, `ap_rows`, `event_rows`, `proposal_view`, `route`, `intent_view`; steer wording "Move 3 clients from ap1 to ap3"; drop `tiles` (replaced) |
+| `dashboard/panels.py` (new) and `dashboard/views.py` | new pure logic in `panels.py`: `demo_clock`, `story_steps`, `congestion_onset`, `hero`, `focus_ap`, `ap_rows`, `event_rows`, `proposal_view`, `map_move`, `route`, `intent_view`, `still_waiting`; `views.py` keeps the shared wording (steer: "Move 3 clients from ap1 to ap3") and drops the old banner, tiles and timeline |
 | `dashboard/app.py` | rewritten layout: header, pills nav, the six tabs, cards, the forms and buttons |
 | `config/dashboard.yaml` (new) | the story steps per scenario |
 | `experiments/run_batch.py`, `experiments/demo.py` | the `on_start` callback; write, finish and remove `run.json` |
-| `tests/unit/test_dashboard_views.py`, `tests/unit/test_dashboard_svg.py` (new), `tests/unit/test_demo.py` | tests for all the new pure logic, the SVG (structure, escaping, states) and `run.json` |
-| `docs/decisions.md` | a deviation entry for the new look and the run file |
+| `tests/unit/test_dashboard_panels.py` (new), `tests/unit/test_dashboard_views.py`, `tests/unit/test_dashboard_svg.py` (new), `tests/unit/test_demo.py`, `tests/unit/test_run_batch.py` | tests for all the new pure logic, the SVG (structure, escaping, states) and `run.json` |
+| `docs/PHASE_PLAN.md` | deviation #20 (the change log of deviations), and the parking lot |
 | `dashboard/README.md` | updated |
 
 ## 8. Plan (in order; `make check` after each step)

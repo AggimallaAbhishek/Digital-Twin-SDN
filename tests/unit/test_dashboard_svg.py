@@ -57,6 +57,17 @@ def test_the_plan_is_valid_svg_with_its_zones_and_dimensions() -> None:
     assert {"Lecture hall", "Lab", "Corridor", "Library"} <= set(texts)
 
 
+def test_no_unformatted_placeholder_reaches_the_markup() -> None:
+    # a plain string among f-strings would ship "{LINE}" as a colour (found in review)
+    stations = [_sta("sta1", 15, 55), _sta("sta2", 30, 10, None)]
+    plan = floor_plan_svg(APS, stations, ZONES, Move("ap1", "ap3", ("sta1",), "moving"))
+    kpis = {"latency_ms": 5.0, "loss_pct": 1.0}
+    bars = twin_bars_svg(kpis, kpis, kpis)
+    for svg in (plan, bars):
+        assert "{" not in svg
+        assert "}" not in svg
+
+
 def test_a_congested_aps_zone_is_hatched_and_its_disc_is_red() -> None:
     root = _parse(floor_plan_svg(APS, [], ZONES))
     [hall] = [e for e in _by_data(root, "zone", "lecture hall") if e.get("data-state")]

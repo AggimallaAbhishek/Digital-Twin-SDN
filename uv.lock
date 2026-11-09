@@ -368,7 +368,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.8,<3" },
     { name = "pyyaml", specifier = ">=6.0,<7" },
     { name = "scikit-learn", specifier = "==1.9.1" },
-    { name = "streamlit", specifier = ">=1.40,<2" },
+    { name = "streamlit", specifier = ">=1.65,<1.66" },
     { name = "uvicorn", specifier = "==0.54.0" },
 ]
 

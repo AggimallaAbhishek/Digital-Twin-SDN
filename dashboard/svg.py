@@ -20,14 +20,17 @@ from dashboard.theme import (
     GREY_ZONE,
     INDIGO,
     LAVENDER,
+    LINE,
     NAVY,
     OTHER_ZONE,
+    PANEL,
     RED,
     RULE,
     WHITE,
     YELLOW,
     ZONE_COLOURS,
 )
+from dashboard.views import counted
 
 Row = dict[str, Any]  # Any: JSON values (map_layers rows)
 
@@ -50,9 +53,10 @@ class Move:
     state: str  # "proposed" or "moving"
 
     def label(self) -> str:
+        """The words on the move line: "Move 3 clients to ap3"."""
         n = len(self.stations)
         verb = "Moving" if self.state == "moving" else "Move"
-        return f"{verb} {n} {'client' if n == 1 else 'clients'} to {self.to_ap}"
+        return f"{verb} {counted(n, 'client')} to {self.to_ap}"
 
 
 def _e(value: object) -> str:
@@ -84,12 +88,20 @@ class _Plan:
         return PAD_TOP + (self.y1 - y_m) * PX_PER_M
 
 
+def in_zone(zone: Row, x: float, y: float) -> bool:
+    """True when (x, y) is in `zone`'s rectangle; edges count as inside, like the twin's
+    zone_of (which the dashboard may not import)."""
+    return bool(zone["x"] <= x <= zone["x2"] and zone["y"] <= y <= zone["y2"])
+
+
+def zone_title(name: str) -> str:
+    """A zone's name as a label: "lecture hall" -> "Lecture hall"."""
+    return name[:1].upper() + name[1:]
+
+
 def _zone_ap(zone: Row, aps: Sequence[Row]) -> Row | None:
-    """The AP standing in `zone` (edges count as inside), if any."""
-    for a in aps:
-        if zone["x"] <= a["x"] <= zone["x2"] and zone["y"] <= a["y"] <= zone["y2"]:
-            return a
-    return None
+    """The AP standing in `zone`, if any."""
+    return next((a for a in aps if in_zone(zone, a["x"], a["y"])), None)
 
 
 def floor_plan_svg(
@@ -111,10 +123,9 @@ def floor_plan_svg(
         f'width="{_f(plan.w_m * PX_PER_M)}" '
         f'height="{_f(plan.h_m * PX_PER_M)}" fill="none" stroke="{RULE}" stroke-width="1.5"/>',
     ]
-    for z in zones:
-        parts.append(_zone(plan, z, _zone_ap(z, aps)))
-    for z in zones:  # rings over every zone fill, under the clients
-        ap = _zone_ap(z, aps)
+    zoned = [(z, _zone_ap(z, aps)) for z in zones]
+    parts += [_zone(plan, z, ap) for z, ap in zoned]
+    for z, ap in zoned:  # rings over every zone fill, under the clients
         if ap is not None and ap["band"] != "down":
             half = min(z["x2"] - z["x"], z["y2"] - z["y"]) / 2 * RING_SHARE * PX_PER_M
             parts.append(
@@ -175,7 +186,7 @@ def _zone(plan: _Plan, z: Row, ap: Row | None) -> str:
     name = str(z["zone"])
     out.append(
         f'<text class="disp" x="{_f(tx)}" y="{_f(ty)}" font-size="20" fill="{NAVY}" '
-        f'text-anchor="{"start" if left else "end"}">{_e(name[:1].upper() + name[1:])}</text>'
+        f'text-anchor="{"start" if left else "end"}">{_e(zone_title(name))}</text>'
     )
     return "".join(out)
 
@@ -272,7 +283,7 @@ def _dimensions(plan: _Plan) -> str:
         f'<line x1="{_f(plan.x(plan.x0))}" y1="{_f(base)}" '
         f'x2="{_f(plan.x(plan.x1))}" y2="{_f(base)}" '
         f'stroke="{RULE}" stroke-width="1.5"/>'
-        f'<rect x="{_f(mid_x - 30)}" y="{_f(base - 10)}" width="60" height="20" fill="#1F2D45"/>'
+        f'<rect x="{_f(mid_x - 30)}" y="{_f(base - 10)}" width="60" height="20" fill="{PANEL}"/>'
         f'<text x="{_f(mid_x)}" y="{_f(base + 5)}" font-size="15" fill="{WHITE}" '
         f'text-anchor="middle">{_e(f"{plan.w_m:g} m")}</text>'
     )
@@ -311,7 +322,7 @@ def twin_bars_svg(
             gy = BASE_Y - BAR_MAX_H * k / 3
             parts.append(
                 f'<line x1="{_f(x0)}" y1="{_f(gy)}" x2="{_f(x0 + GROUP_W)}" y2="{_f(gy)}" '
-                'stroke="#E3E8F0" stroke-width="1"/>'
+                f'stroke="{LINE}" stroke-width="1"/>'
             )
         for j, (source, fill, dashed) in enumerate(SOURCES):
             v = float(values[source][field])

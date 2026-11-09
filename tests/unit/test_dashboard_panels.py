@@ -23,6 +23,7 @@ from dashboard.panels import (
     Step,
     ap_rows,
     clock_label,
+    congestion_onset,
     demo_clock,
     event_rows,
     focus_ap,
@@ -32,6 +33,7 @@ from dashboard.panels import (
     map_move,
     proposal_view,
     route,
+    still_waiting,
     story_steps,
 )
 from dashboard.svg import Move
@@ -128,6 +130,21 @@ def test_a_step_first_seen_after_a_later_step_was_missed() -> None:
     ]
 
 
+def _util(s: float, value: float | None) -> dict[str, Any]:
+    return {"ts": _iso(s), "value": value}  # a GET /metrics point
+
+
+def test_the_congestion_onset_is_the_first_congested_load_of_the_run() -> None:
+    # from the APs' load history (GET /metrics), not from what a browser happened to see
+    series = {
+        "ap1": [_util(-30, 0.95), _util(200, 0.7), _util(212, 0.83), _util(230, 0.9)],
+        "ap3": [_util(220, 0.81)],
+    }
+    assert congestion_onset(series, START) == 212  # ap1's -30 s point is from before the run
+    assert congestion_onset({"ap1": [_util(10, 0.5)], "ap2": []}, START) is None
+    assert congestion_onset({"ap1": [_util(10, None)]}, START) is None  # an empty Flux cell
+
+
 def test_an_anomaly_alert_alone_is_not_congestion() -> None:
     # live demo 2026-11-09: the detector flagged ap3 at 0:04, during start-up, with every AP
     # calm; the strip jumped to "Congestion, happening now" while the crowd had not moved yet
@@ -193,6 +210,8 @@ def test_the_repos_story_config_loads() -> None:
         ),
         ({"stories": {"s": [{"trigger": "clock", "from_s": 0}]}}, "label"),
         ({"stories": []}, "stories"),
+        ({"stories": {"s": None}}, "stories.s"),  # not a list of steps
+        ({"stories": {"s": ["Normal day"]}}, r"stories.s\[0\]"),  # a step that is not a mapping
         ({"story": {}}, "stories"),
     ],
 )
@@ -255,7 +274,9 @@ def test_anything_else_is_an_intent(text: str) -> None:
 
 def test_the_demo_clock_counts_from_the_runs_start() -> None:
     clock = demo_clock(RUN, START + timedelta(seconds=220))
-    assert clock == DemoClock("Lecture flash crowd", START, 220, 600, ended=False)
+    assert clock == DemoClock(
+        "Lecture flash crowd", START, 220, 600, ended=False, scenario="lecture_flash_crowd"
+    )
     assert clock.text() == ("03:40", "10:00")
 
 
@@ -264,6 +285,20 @@ def test_the_demo_clock_stops_at_the_runs_end() -> None:
     assert clock is not None
     assert (clock.elapsed_s, clock.ended) == (600, True)
     assert clock.text() == ("10:00", "10:00")
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"started_at": "yesterday"},
+        {"duration_s": "ten minutes"},
+        {"started_at": "2026-11-09T08:00:00"},  # no time zone: not comparable with now
+        {"finished_at": "soon"},
+    ],
+)
+def test_a_malformed_run_file_is_no_run(bad: dict[str, Any]) -> None:
+    # the header reads it on every refresh: a bad file must not crash the page (C-2)
+    assert demo_clock(RUN | bad, START) is None
 
 
 def test_without_a_run_there_is_no_demo_clock() -> None:
@@ -336,7 +371,7 @@ def test_the_status_card_names_the_worst_problem_in_plain_words() -> None:
 def test_a_problem_without_an_alert_yet_says_when_the_twin_saw_it() -> None:
     card = hero(Live(_campus({"ap1": 0.95}), [], []), ZONES, START)
     assert (card.eyebrow, card.headline) == (
-        "Seen at 03:20",
+        "Since 03:20",
         "ap1 is congested in the lecture hall",
     )
 
@@ -371,10 +406,26 @@ def test_before_the_first_telemetry_the_card_waits() -> None:
 
 
 def test_the_tiles_describe_the_busiest_ap() -> None:
-    focus = focus_ap(_campus({"ap1": 0.95, "ap4": 0.97}, down=("ap4",)))
+    focus = focus_ap(_campus({"ap1": 0.95, "ap4": 0.5}))
     assert focus == Focus("ap1", 3, 0.95, 49.0)  # loss: the mean of its two video flows
     assert focus_ap(_campus({"ap3": 0.7})) == Focus("ap3", 1, 0.7, 1.0)
     assert focus_ap(None) is None
+
+
+def test_an_ap_down_comes_first_as_in_the_status_card() -> None:
+    # spec §4.3: the focus AP is "down, then congested, then busiest", so the tiles describe
+    # what the status card's headline names
+    focus = focus_ap(_campus({"ap1": 0.95}, down=("ap4",)))
+    assert focus == Focus("ap4", 0, 0.0, None, up=False)
+
+
+def test_an_intent_can_be_applied_only_while_its_changes_still_wait() -> None:
+    waiting = [_record(1, "verified"), _record(2, "approved")]
+    assert still_waiting(("act_1", "act_2"), waiting)
+    applied = [_record(1, "applied"), _record(2, "applied")]
+    assert not still_waiting(("act_1", "act_2"), applied)  # applied from the proposal card
+    assert not still_waiting(("act_1",), [_record(1, "denied")])
+    assert not still_waiting(("act_9",), waiting)  # not in the ledger (archived)
 
 
 def test_an_ap_without_flows_has_no_loss_to_show() -> None:

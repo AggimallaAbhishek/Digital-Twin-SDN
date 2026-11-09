@@ -1,10 +1,11 @@
-"""P6.1 dashboard view logic: the API's JSON turned into what each panel shows. Pure functions,
-no Streamlit, so they are unit-tested (tests/unit/test_dashboard_views.py).
+"""P6.1 dashboard view logic shared by the panels: the API's JSON in plain words. Pure
+functions, no Streamlit, so they are unit-tested (tests/unit/test_dashboard_views.py).
 
-Panels (deviation #19): the status banner and its four numbers (`status`, `tiles`); the "What
-is happening" timeline (`timeline`, with `waiting_steps`, `alert_groups`, `plain_action`) and
-the root-cause report in it (`rca_view`); the campus map (`map_layers`, `latest_steer`); the
-charts (`kpi_series`, `twin_vs_live`). `safe_html` is how any API text goes into the page.
+Actions in words (`plain_action`, `describe`), why the twin refused one (`why_not`, `reason`),
+the changes waiting for the operator (`waiting_steps`), alert episodes (`alert_groups`), the
+root-cause report (`rca_view`), the map's rows (`map_layers`), the charts' series
+(`kpi_series`). `safe_html`, `rich_html` and `md_literal` are how API text goes into the page.
+The panels themselves are in dashboard/panels.py (deviation #20).
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ from __future__ import annotations
 import html
 import math
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from statistics import fmean
@@ -20,7 +21,6 @@ from typing import Any
 
 Row = dict[str, Any]  # Any: JSON values for Altair / Streamlit tables
 
-COVERAGE_M = 30.0  # RSSI >= -75 dBm, the steering bound (docs/scenario.md)
 INTERFERE_M = 60.0  # same-channel APs closer than this share airtime (config/campus_v1.yaml)
 BUSY, CONGESTED = 0.6, 0.8  # P4.5-A: utilisation of 0.8 or more is congested
 KPIS = (  # (label, Verdict / KPIValues field)
@@ -71,24 +71,15 @@ def map_layers(topology: dict[str, Any]) -> tuple[list[Row], list[Row]]:
             clients[s["ap"]] = clients.get(s["ap"], 0) + 1
     aps = []
     for a in topology["aps"]:
-        n = clients.get(a["name"], 0)
-        channel = f"ch {a['channel']}"
-        if a["up"]:
-            load = band(a["util"])
-            label = f"{a['name']} · {a['util']:.0%} · {n}"  # the channel is drawn below it
-        else:
-            load, label = "down", f"{a['name']} · down"
         aps.append(
             {
                 "name": a["name"],
                 "x": a["position"][0],
                 "y": a["position"][1],
-                "channel": channel,
+                "channel": f"ch {a['channel']}",
                 "load": round(a["util"], 3),
-                "band": load,
-                "clients": n,
-                "label": label,
-                "coverage_m": COVERAGE_M,
+                "band": band(a["util"]) if a["up"] else "down",
+                "clients": clients.get(a["name"], 0),
                 "shares_channel_with": _cochannel(a, topology["aps"]),
             }
         )
@@ -113,7 +104,7 @@ def _cochannel(ap: dict[str, Any], aps: list[dict[str, Any]]) -> list[str]:
     )
 
 
-def waiting_steps(actions: list[Row]) -> dict[str, str]:
+def waiting_steps(actions: Sequence[Row]) -> dict[str, str]:
     """The actions an operator has to act on, by id, with the next step: approve (verified,
     needs approval) or apply (approved, not yet applied)."""
     steps = {}
@@ -150,8 +141,13 @@ def _plural(n: int, word: str) -> str:
     return word if n == 1 else f"{word}s"
 
 
+def counted(n: int, word: str) -> str:
+    """`n` and `word`, plural when it is not one: "1 client", "3 alerts"."""
+    return f"{n} {_plural(n, word)}"
+
+
 def _clients(n: int) -> str:
-    return f"{n} {_plural(n, 'client')}"
+    return counted(n, "client")
 
 
 QUEUE_WORDS = {  # common/schemas.py QOS_QUEUE_IDS: 0 best effort, 1 priority, 2 background
@@ -205,6 +201,11 @@ def why_not(verdict: Row) -> str:
     first = _KPI_FIELD.sub(lambda m: KPI_WORDS[m.group(0)], first)
     more = len(violations) - 1
     return f"twin: {first}" + (f" (+{more} more {_plural(more, 'reason')})" if more else "")
+
+
+def reason(verdict: Row) -> str:
+    """why_not without its "twin: " prefix, for a line that already says it is the twin's."""
+    return why_not(verdict).removeprefix("twin: ")
 
 
 def _predicted(verdict: Row) -> str:
@@ -280,7 +281,7 @@ class AlertGroup:
     latest: Row  # the newest alert: what "Explain" sends to the root-cause explainer
 
 
-def alert_groups(alerts: list[Row]) -> list[AlertGroup]:
+def alert_groups(alerts: Sequence[Row]) -> list[AlertGroup]:
     """Alerts (oldest first, as GET /alerts returns them) grouped into episodes per entity,
     newest episode first. A new episode starts after a minute without an alert on the entity."""
     episodes: list[list[Row]] = []

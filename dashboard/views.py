@@ -99,48 +99,6 @@ def map_layers(topology: dict[str, Any]) -> tuple[list[Row], list[Row]]:
     return aps, stations
 
 
-def latest_steer(actions: list[Row], aps: list[Row]) -> Row | None:
-    """The arrow for the newest client steer still being watched: from its AP to the target
-    (map_layers' AP rows), labelled with how many clients; None when there is none."""
-    steers = [
-        r for r in actions if r["status"] == "applied" and r["action"]["type"] == "steer_clients"
-    ]
-    if not steers:
-        return None
-    p = _newest(steers)["action"]["params"]
-    where = {a["name"]: a for a in aps}
-    if p["from_ap"] not in where or p["to_ap"] not in where:
-        return None
-    src, dst = where[p["from_ap"]], where[p["to_ap"]]
-    return {
-        "x": src["x"],
-        "y": src["y"],
-        "x2": dst["x"],
-        "y2": dst["y"],
-        "label": _clients(len(p["stations"])),
-    }
-
-
-LABEL_CLEAR_M = 7.0  # an AP's disc and its two label lines reach ~6.6 m (46 px at 7 px/m)
-
-
-def arrow_line(arrow: Row, clear_m: float = LABEL_CLEAR_M) -> Row | None:
-    """latest_steer's arrow cut back by `clear_m` at both ends, so it never crosses either AP's
-    disc or labels; None when the APs are too close for any line to remain."""
-    dx, dy = arrow["x2"] - arrow["x"], arrow["y2"] - arrow["y"]
-    length = math.hypot(dx, dy)
-    if length <= 2 * clear_m:
-        return None
-    ux, uy = dx / length * clear_m, dy / length * clear_m
-    return {
-        "x": arrow["x"] + ux,
-        "y": arrow["y"] + uy,
-        "x2": arrow["x2"] - ux,
-        "y2": arrow["y2"] - uy,
-        "label": arrow["label"],
-    }
-
-
 def _cochannel(ap: dict[str, Any], aps: list[dict[str, Any]]) -> list[str]:
     """The other APs that are up on the same channel close enough to share its airtime."""
     if not ap["up"]:
@@ -165,11 +123,6 @@ def waiting_steps(actions: list[Row]) -> dict[str, str]:
         elif r["status"] == "approved":
             steps[r["action_id"]] = "apply"
     return steps
-
-
-def _newest(records: list[Row]) -> Row:
-    """The record applied last (one never applied counts as oldest)."""
-    return max(records, key=lambda r: r["applied_at"] or "")
 
 
 def describe(action: Row) -> str:
@@ -232,201 +185,7 @@ def _traffic(match: Row) -> str:
     return f"{app} traffic"
 
 
-@dataclass(frozen=True)
-class Status:
-    """The banner: how bad things are, what is wrong, and what the system is doing about it."""
-
-    level: str  # waiting, calm, attention or critical
-    headline: str
-    doing: str  # empty when the system is doing nothing visible
-
-
-def status(topology: Row | None, zones: list[Row], actions: list[Row]) -> Status:
-    """The banner for the twin's state: the worst problem first (an AP down; congestion, with
-    any clients without an AP added; clients without an AP; a busy AP), else all calm."""
-    if topology is None:
-        return Status("waiting", "Waiting for data from the network…", "")
-    aps, stations = topology["aps"], topology["stations"]
-    clients = {a["name"]: sum(s["ap"] == a["name"] for s in stations) for a in aps}
-    down = [a for a in aps if not a["up"]]
-    lost = sum(s["ap"] is None for s in stations)
-    up = sorted((a for a in aps if a["up"]), key=lambda a: a["util"], reverse=True)
-    congested = [a for a in up if band(a["util"]) == "congested"]
-    doing = _doing(actions)
-    if down:
-        return Status("critical", f"{down[0]['name']} is down{_in(down[0], zones, '({})')}.", doing)
-    no_ap = f"{_clients(lost)} {'has' if lost == 1 else 'have'} no access point"
-    if congested:  # before clients without an AP: a steered client is unassociated briefly
-        more = len(congested) - 1
-        extra = f" and {more} more {_plural(more, 'AP')}" if more else ""
-        line = _ap_line(congested[0], "congested", zones, clients) + extra
-        return Status("critical", f"{line}{f' · {no_ap}' if lost else ''}.", doing)
-    if lost:
-        return Status("critical", f"{no_ap}.", doing)
-    if up and band(up[0]["util"]) == "busy":
-        return Status("attention", f"{_ap_line(up[0], 'busy', zones, clients)}.", doing)
-    connected = len(stations) - lost
-    return Status("calm", f"All access points are calm · {_clients(connected)} connected.", doing)
-
-
-def _ap_line(ap: Row, state: str, zones: list[Row], clients: dict[str, int]) -> str:
-    where = _in(ap, zones, "in the {}")
-    return f"{ap['name']} is {state}{where} ({ap['util']:.0%}, {_clients(clients[ap['name']])})"
-
-
-def _in(ap: Row, zones: list[Row], form: str) -> str:
-    """` in the lecture hall` (the zone the AP stands in, in `form`), or nothing. Edges count
-    as inside, as in twin/state/builder.py zone_of (which the dashboard may not import)."""
-    x, y = ap["position"]
-    for z in zones:
-        if z["x"] <= x <= z["x2"] and z["y"] <= y <= z["y2"]:
-            return " " + form.format(z["zone"])
-    return ""
-
-
-def _doing(actions: list[Row]) -> str:
-    """What the system is visibly doing: a change being watched, else one waiting for the
-    operator."""
-    watched = [r for r in actions if r["status"] == "applied"]
-    if watched:
-        latest = _newest(watched)
-        p = latest["action"]["params"]
-        if latest["action"]["type"] == "steer_clients":
-            return f"The system is moving {_clients(len(p['stations']))} to {p['to_ap']}."
-        return f"The system is checking: {plain_action(latest['action'])}."
-    return "A change is waiting for you." if waiting_steps(actions) else ""
-
-
-@dataclass(frozen=True)
-class Tile:
-    """One big number under the banner."""
-
-    value: str
-    label: str
-    tone: str  # calm, critical, action, good or warn: the colour
-
-
-FINISHED = {  # final status → (tile value, label, tone)
-    "kept": ("✓", "last change kept", "good"),
-    "rolled_back": ("↺", "last change rolled back", "warn"),
-    "rollback_failed": ("✕", "last rollback failed", "critical"),
-}
-
-
-def tiles(topology: Row | None, actions: list[Row]) -> list[Tile]:
-    """APs congested, clients without an AP, changes waiting for the operator, and how the
-    last finished change ended."""
-    waiting = len(waiting_steps(actions))
-    finished = [r for r in actions if r["status"] in FINISHED]
-    last = (
-        Tile(*FINISHED[_newest(finished)["status"]])
-        if finished
-        else Tile("—", "no change yet", "calm")
-    )
-    queue = Tile(str(waiting), "waiting for you", "action" if waiting else "calm")
-    if topology is None:
-        return [
-            Tile("—", "APs congested", "calm"),
-            Tile("—", "clients without an AP", "calm"),
-            queue,
-            last,
-        ]
-    congested = sum(a["up"] and band(a["util"]) == "congested" for a in topology["aps"])
-    lost = sum(s["ap"] is None for s in topology["stations"])
-    return [
-        Tile(str(congested), f"{_plural(congested, 'AP')} congested", _alarm(congested)),
-        Tile(str(lost), f"{_plural(lost, 'client')} without an AP", _alarm(lost)),
-        queue,
-        last,
-    ]
-
-
-def _alarm(n: int) -> str:
-    return "critical" if n else "calm"
-
-
-@dataclass(frozen=True)
-class Item:
-    """One step of the "What is happening" timeline."""
-
-    kind: str  # waiting, applied, checked, outcome or detected
-    at: str  # ISO time, for ordering and display
-    title: str
-    detail: str
-    badge: str
-    tone: str  # as Tile.tone
-    action_id: str | None = None
-    next_step: str | None = None  # approve or apply, for a waiting change
-    group: AlertGroup | None = None  # for a detected episode: what "Explain" explains
-
-
-OUTCOMES = {  # final status → (badge, tone)
-    "kept": ("✓ kept", "good"),
-    "rolled_back": ("↺ rolled back", "warn"),
-    "rollback_failed": ("✕ rollback failed", "critical"),
-    "failed": ("✕ could not apply", "critical"),
-}
-
-
-def timeline(actions: list[Row], alerts: list[Row], watch: timedelta, limit: int = 8) -> list[Item]:
-    """The story newest first: every change waiting for the operator on top, then the twin's
-    checks, applied changes and their outcomes, and the alert episodes: `limit` items in all,
-    but never fewer than the waiting changes (each needs its buttons)."""
-    waiting = waiting_steps(actions)
-    pinned, items = [], []
-    for r in actions:
-        title = plain_action(r["action"])
-        if r["action_id"] in waiting:
-            pinned.append(_waiting(r, title, waiting[r["action_id"]]))
-            continue
-        items.append(_checked(r, title))
-        if r["applied_at"] and r["status"] == "applied":
-            items.append(
-                Item("applied", r["applied_at"], title, "", f"watching {watch.seconds} s", "action")
-            )
-        elif r["status"] in OUTCOMES:
-            at = r["applied_at"] or r["action"]["created_at"]
-            done = (datetime.fromisoformat(at) + watch).isoformat()
-            items.append(Item("outcome", done, title, _measured(r), *OUTCOMES[r["status"]]))
-    items += _episodes(alert_groups(alerts))
-    items.sort(key=lambda i: i.at, reverse=True)
-    pinned.sort(key=lambda i: i.at, reverse=True)
-    return pinned + items[: max(limit - len(pinned), 0)]
-
-
-def _waiting(r: Row, title: str, step: str) -> Item:
-    v = r["verdict"]
-    parts = (r["action"].get("source", ""), f"{v['impact']} impact", _predicted(v))
-    detail = " · ".join(p for p in parts if p)
-    return Item(
-        "waiting",
-        r["action"]["created_at"],
-        title,
-        detail,
-        "waiting for you",
-        "action",
-        action_id=r["action_id"],
-        next_step=step,
-    )
-
-
-def _checked(r: Row, title: str) -> Item:
-    v = r["verdict"]
-    if r["status"] == "denied":
-        badge, tone = "denied by the operator", "calm"
-    elif v.get("accepted"):
-        badge, tone = "accepted", "calm"
-    else:
-        badge, tone = "✕ rejected", "warn"
-    return Item(
-        "checked",
-        r["action"]["created_at"],
-        title,
-        _predicted(v) if v.get("accepted") or r["status"] == "denied" else why_not(v),
-        badge,
-        tone,
-        action_id=r["action_id"],
-    )
+FINISHED = frozenset({"kept", "rolled_back", "rollback_failed"})  # a watch that decided
 
 
 _ADR = re.compile(r"\s*\(ADR-\d+\)$")  # a verifier reason's decision record: not for the audience
@@ -448,33 +207,6 @@ def why_not(verdict: Row) -> str:
     return f"twin: {first}" + (f" (+{more} more {_plural(more, 'reason')})" if more else "")
 
 
-SHOWN_EPISODES = 2  # alert episodes with their own item; older ones share one summary
-
-
-def _episodes(groups: list[AlertGroup]) -> list[Item]:
-    """The newest alert episodes as items with Explain; the older ones as one summary (at a
-    crowd, every AP alerts and would push the twin's story off the card). `groups` newest
-    first, as alert_groups returns them."""
-    items = [
-        Item(
-            "detected",
-            g.last,
-            f"{g.entity} looks unusual",
-            "",
-            _alerts(g.count),
-            "critical",
-            group=g,
-        )
-        for g in groups[:SHOWN_EPISODES]
-    ]
-    older = groups[SHOWN_EPISODES:]
-    if older:
-        entities = ", ".join(dict.fromkeys(g.entity for g in older))
-        title = f"{len(older)} earlier alert {_plural(len(older), 'episode')}"
-        items.append(Item("detected", older[0].last, title, "", entities, "calm"))
-    return items
-
-
 def _predicted(verdict: Row) -> str:
     before, after = verdict.get("baseline") or {}, verdict.get("predicted") or {}
     if not before or not after or not any(d[f] for d in (before, after) for _, f in KPIS):
@@ -483,19 +215,6 @@ def _predicted(verdict: Row) -> str:
         f"twin: latency {before['latency_ms']:.0f} → {after['latency_ms']:.0f} ms"
         f" · loss {before['loss_pct']:.1f}% → {after['loss_pct']:.1f}%"
     )
-
-
-def _measured(r: Row) -> str:
-    measured, predicted = r.get("measured"), r["verdict"].get("predicted")
-    if not measured or not predicted:
-        return ""
-    return (
-        f"latency: twin {predicted['latency_ms']:.0f} ms · measured {measured['latency_ms']:.0f} ms"
-    )
-
-
-def _alerts(n: int) -> str:
-    return f"{n} {_plural(n, 'alert')}"
 
 
 CAUSE_WORDS = {  # genai/rca/explainer.py Category
@@ -613,32 +332,4 @@ def kpi_series(points: Mapping[tuple[str, str], list[Row]], step_s: int = 10) ->
             {"class": app_class, "kpi": labels[field], "t": t.isoformat(), "value": fmean(v)}
             for t, v in sorted(steps.items())
         ]
-    return rows
-
-
-def twin_vs_live(actions: list[Row]) -> list[Row]:
-    """Long rows (action, kpi, source, value): before, twin predicted and measured, for every
-    action whose watch has measured the network (the ledger's `measured`)."""
-    rows = []
-    for r in actions:
-        measured = r.get("measured")
-        if not measured:
-            continue
-        verdict = r["verdict"]
-        for label, field in KPIS:
-            for source, values in (
-                ("before", verdict["baseline"]),
-                ("twin predicted", verdict["predicted"]),
-                ("measured", measured),
-            ):
-                rows.append(
-                    {
-                        "action": r["action_id"],
-                        "what": plain_action(r["action"]),
-                        "outcome": r["status"],
-                        "kpi": label,
-                        "source": source,
-                        "value": values[field],
-                    }
-                )
     return rows

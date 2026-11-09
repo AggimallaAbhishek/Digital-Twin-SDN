@@ -88,9 +88,10 @@ WIFI_ICON = (
 # ---------------------------------------------------------------- reads
 
 
-@st.cache_resource
 def client() -> ApiClient:
-    """The API client; the operator token stays in this server process."""
+    """The API client; the operator token stays in this server process. Built per use, never
+    cached: Streamlit reloads a changed dashboard module, and a cached client from the old
+    module raises the old ApiError class, which no `except ApiError` here would catch."""
     return ApiClient(API_URL, os.getenv("OPERATOR_TOKEN") or None)
 
 
@@ -423,19 +424,20 @@ def copilot_card(shown: int | None = SHOWN_CHATS, key: str = "ov") -> None:
     """The copilot: the latest exchanges, then one box for a question or an intent."""
     status = st.session_state.get("llm")
     dot = {"ok": ("ok", "Online"), "off": ("off", "Offline")}.get(str(status), ("idle", "Ready"))
-    html(
-        '<div class="copilot-head"><h3>AI copilot</h3>'
-        f'<span class="online {dot[0]}"><i></i>{dot[1]}</span></div>'
-    )
-    history: list[dict[str, Any]] = st.session_state.setdefault("chat", [])
-    first = 0 if shown is None else max(0, len(history) - shown)
-    if not history:
+    with st.container(key=f"chatlog-{key}"):  # the card spaces this and the box apart (CSS)
         html(
-            '<p class="empty">Ask why something is happening, or say what you want: "Give video '
-            'calls in the lecture hall priority." The twin checks every change first.</p>'
+            '<div class="copilot-head"><h3>AI copilot</h3>'
+            f'<span class="online {dot[0]}"><i></i>{dot[1]}</span></div>'
         )
-    for n in range(first, len(history)):
-        exchange(n, history[n], key)
+        history: list[dict[str, Any]] = st.session_state.setdefault("chat", [])
+        first = 0 if shown is None else max(0, len(history) - shown)
+        if not history:
+            html(
+                '<p class="empty">Ask why something is happening, or say what you want: "Give '
+                'video calls in the lecture hall priority." The twin checks every change first.</p>'
+            )
+        for n in range(first, len(history)):
+            exchange(n, history[n], key)
     with (
         st.container(key=f"ask-{key}"),
         st.form(f"ask-form-{key}", clear_on_submit=True, border=False),
@@ -576,11 +578,14 @@ def measured(actions: list[dict[str, Any]] | Any) -> list[dict[str, Any]]:  # An
 
 
 def twin_card(snap: Live, record: dict[str, Any] | None = None) -> str:
-    """Before / twin predicted / measured for the newest measured change (or `record`)."""
+    """Before / twin predicted / measured for the newest measured change, or for `record`
+    (then titled by the change itself: the Digital twin page shows several side by side)."""
+    title = "Twin prediction against measured"
     if record is None:
         newest = measured(snap.actions)
         record = newest[0] if newest else None
-    title = "Twin prediction against measured"
+    else:
+        title = plain_action(record["action"])
     if record is None:
         body = (
             '<p class="empty">No change has finished its 30 s watch yet. Each one will show the '

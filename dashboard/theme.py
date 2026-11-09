@@ -221,9 +221,7 @@ svg .disp {{ font-family: {DISPLAY}; font-weight: 700; }}
 /* the copilot card stretches to the floor plan's height, its input at the bottom (design) */
 /* (the column already stretches; the card's own layout wrapper is what must grow) */
 [data-testid="stLayoutWrapper"]:has(> .st-key-card-lavender-copilot) {{ flex: 1 1 auto; }}
-.st-key-card-lavender-copilot {{ height: 100%; }}
-.st-key-card-lavender-copilot > [data-testid="stLayoutWrapper"]:has([class*="st-key-ask-"]) {{
-  margin-top: auto; }}
+.st-key-card-lavender-copilot {{ height: 100%; justify-content: space-between; }}
 [class*="st-key-ask-"] input {{ border: 2px solid {NAVY} !important; border-radius: 14px !important;
   background: {WHITE} !important; color: {NAVY} !important; min-height: 52px; font-size: 1rem; }}
 [class*="st-key-ask-"] [data-testid="stTextInputRootElement"] {{ border: 0 !important;
@@ -262,6 +260,7 @@ table.grid {{ width: 100%; border-collapse: collapse; color: {NAVY}; font-size: 
 table.grid th {{ text-align: left; font-weight: 700; border-bottom: 2px solid {NAVY};
   padding: 6px 8px; }}
 table.grid td {{ border-bottom: 1px solid #D5DBE6; padding: 6px 8px; vertical-align: top; }}
+table.grid code {{ color: {NAVY}; background: {TRACK}; }}
 @media (prefers-reduced-motion: reduce) {{ * {{ transition: none !important;
   animation: none !important; }} }}
 </style>

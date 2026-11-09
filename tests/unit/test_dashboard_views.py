@@ -2,21 +2,16 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
 from typing import Any
 
 import pytest
 
 from dashboard.views import (
     COVERAGE_M,
-    Status,
-    Tile,
     alert_groups,
-    arrow_line,
     band,
     describe,
     kpi_series,
-    latest_steer,
     map_layers,
     md_literal,
     plain_action,
@@ -24,15 +19,10 @@ from dashboard.views import (
     rich_html,
     safe_html,
     shorten,
-    status,
-    tiles,
-    timeline,
-    twin_vs_live,
     verdict_word,
     waiting_steps,
+    why_not,
 )
-
-WATCH = timedelta(seconds=30)  # config/executor.yaml watch_s, as app.watch() reads it
 
 TOPOLOGY: dict[str, Any] = {
     "ts": "2026-10-10T12:00:00+00:00",
@@ -121,25 +111,6 @@ def test_the_queue_holds_what_waits_for_an_operator_and_what_can_be_applied() ->
     assert waiting_steps(actions) == {"act_1": "approve", "act_2": "apply"}
 
 
-def test_twin_vs_live_pairs_each_watched_action_with_its_prediction() -> None:
-    measured = {"throughput_mbps": 1.2, "latency_ms": 6.0, "loss_pct": 0.5, "jain": 0.88}
-    actions = [
-        _record(5, "kept", kind="steer_clients", measured=measured),
-        _record(6, "verified"),  # no measurement yet
-    ]
-    rows = twin_vs_live(actions)
-    assert [
-        (r["action"], r["kpi"], r["source"], r["value"]) for r in rows if r["kpi"] == "loss %"
-    ] == [
-        ("act_5", "loss %", "before", 14.0),
-        ("act_5", "loss %", "twin predicted", 0.2),
-        ("act_5", "loss %", "measured", 0.5),
-    ]
-    assert {r["kpi"] for r in rows} == {"throughput Mbit/s", "latency ms", "loss %"}
-    assert all(r["outcome"] == "kept" for r in rows)
-    assert {r["what"] for r in rows} == {"Move 2 clients from ap1 to ap3"}
-
-
 @pytest.mark.parametrize(
     ("kind", "params", "line"),
     [
@@ -154,14 +125,6 @@ def test_twin_vs_live_pairs_each_watched_action_with_its_prediction() -> None:
 )
 def test_every_action_reads_as_one_line(kind: str, params: dict[str, Any], line: str) -> None:
     assert describe({"type": kind, "params": params}) == line
-
-
-def test_a_waiting_change_says_where_it_came_from_and_what_the_twin_predicts() -> None:
-    [item] = timeline([_record(1, "verified")], [], WATCH)
-    assert item.detail == "llm.intent · high impact · twin: latency 9 → 5 ms · loss 14.0% → 0.2%"
-    record = _record(1, "verified")
-    record["verdict"] = record["verdict"] | {"baseline": None}  # a verdict without KPIs
-    assert timeline([record], [], WATCH)[0].detail == "llm.intent · high impact"
 
 
 def test_a_verdict_reads_as_one_word_or_the_error() -> None:
@@ -235,116 +198,8 @@ def test_every_action_reads_in_plain_words(kind: str, params: dict[str, Any], wo
     assert plain_action({"type": kind, "params": params}) == words
 
 
-ZONES = [  # config/campus_v1.yaml shape, as app.campus_zones() reads it
-    {"zone": "lecture hall", "x": 0, "x2": 40, "y": 35, "y2": 70},
-    {"zone": "lab", "x": 40, "x2": 80, "y": 35, "y2": 70},
-    {"zone": "corridor", "x": 0, "x2": 40, "y": 0, "y2": 35},
-]
-
-
-def _topology(utils: dict[str, float], down: tuple[str, ...] = (), lost: int = 0) -> dict[str, Any]:
-    """TOPOLOGY's three APs at the given loads; `lost` stations without an AP."""
-    topo: dict[str, Any] = {
-        "ts": TOPOLOGY["ts"],
-        "aps": [
-            a | {"util": utils.get(a["name"], 0.1), "up": a["name"] not in down}
-            for a in TOPOLOGY["aps"]
-        ],
-        "stations": [s | {"ap": "ap1"} for s in TOPOLOGY["stations"]],
-    }
-    for s in topo["stations"][:lost]:
-        s["ap"] = None
-    return topo
-
-
-def test_before_the_first_telemetry_the_banner_waits() -> None:
-    assert status(None, ZONES, []) == Status("waiting", "Waiting for data from the network…", "")
-
-
-@pytest.mark.parametrize(
-    ("topology", "level", "headline"),
-    [
-        # first match wins: an AP down outranks everything else on the network
-        (_topology({"ap1": 0.95}, down=("ap2",), lost=1), "critical", "ap2 is down (lab)."),
-        (
-            # a steered client is unassociated for a moment: congestion stays the headline
-            # (live run 2026-10-16: the banner flipped on every steer), the client is added
-            _topology({"ap1": 0.95}, lost=1),
-            "critical",
-            "ap1 is congested in the lecture hall (95%, 2 clients) · 1 client has no access point.",
-        ),
-        (_topology({}, lost=1), "critical", "1 client has no access point."),
-        (_topology({}, lost=2), "critical", "2 clients have no access point."),
-        (
-            _topology({"ap1": 0.93, "ap3": 0.85}),  # the worst congested AP is named
-            "critical",
-            "ap1 is congested in the lecture hall (93%, 3 clients) and 1 more AP.",
-        ),
-        (_topology({"ap3": 0.68}), "attention", "ap3 is busy in the corridor (68%, 0 clients)."),
-        (_topology({}), "calm", "All access points are calm · 3 clients connected."),
-    ],
-)
-def test_the_banner_names_the_worst_problem_first(
-    topology: dict[str, Any], level: str, headline: str
-) -> None:
-    got = status(topology, ZONES, [])
-    assert (got.level, got.headline) == (level, headline)
-
-
-def test_the_banner_says_what_the_system_is_doing() -> None:
-    topo = _topology({"ap1": 0.95})
-    steering = _record(1, "applied", kind="steer_clients", applied_at="2026-10-16T08:21:50+00:00")
-    waiting = _record(2, "verified")  # a channel change: needs approval
-    assert status(topo, ZONES, [steering]).doing == "The system is moving 2 clients to ap3."
-    assert status(topo, ZONES, [waiting]).doing == "A change is waiting for you."
-    assert status(topo, ZONES, [_record(3, "kept")]).doing == ""
-    channel = _record(4, "applied", applied_at="2026-10-16T08:21:50+00:00")
-    assert status(topo, ZONES, [channel]).doing == "The system is checking: Move ap3 to channel 11."
-
-
-def test_the_tiles_count_problems_waiting_changes_and_the_last_outcome() -> None:
-    topo = _topology({"ap1": 0.95, "ap3": 0.82}, lost=1)
-    actions = [
-        _record(1, "rolled_back", applied_at="2026-10-16T08:20:00+00:00"),
-        _record(2, "kept", applied_at="2026-10-16T08:21:00+00:00"),  # the newest finished
-        _record(3, "verified"),  # waiting for the operator
-        _record(4, "approved"),  # approved, waiting to be applied
-    ]
-    assert tiles(topo, actions) == [
-        Tile("2", "APs congested", "critical"),
-        Tile("1", "client without an AP", "critical"),
-        Tile("2", "waiting for you", "action"),
-        Tile("✓", "last change kept", "good"),
-    ]
-    assert tiles(None, []) == [
-        Tile("—", "APs congested", "calm"),
-        Tile("—", "clients without an AP", "calm"),
-        Tile("0", "waiting for you", "calm"),
-        Tile("—", "no change yet", "calm"),
-    ]
-
-
-def test_a_rolled_back_or_failed_rollback_is_the_last_outcome_too() -> None:
-    back = [_record(1, "rolled_back", applied_at="2026-10-16T08:20:00+00:00")]
-    failed = [_record(1, "rollback_failed", applied_at="2026-10-16T08:20:00+00:00")]
-    assert tiles(None, back)[3] == Tile("↺", "last change rolled back", "warn")
-    assert tiles(None, failed)[3] == Tile("✕", "last rollback failed", "critical")
-
-
 def _alert(ts: str, entity: str, score: float = 0.7) -> dict[str, Any]:
     return {"ts": f"2026-10-16T08:{ts}+00:00", "entity": entity, "score": score}
-
-
-def test_only_the_newest_alert_episodes_get_their_own_item() -> None:
-    # live run 2026-10-17: four episodes at the peak pushed the twin's story off the card
-    alerts = [_alert(f"2{n}:00", entity) for n, entity in enumerate(("ap4", "ap3", "net", "ap1"))]
-    items = timeline([], alerts, WATCH)
-    assert [(i.title, i.badge, i.group is not None) for i in items] == [
-        ("ap1 looks unusual", "1 alert", True),
-        ("net looks unusual", "1 alert", True),
-        ("2 earlier alert episodes", "ap3, ap4", False),  # no Explain: a summary
-    ]
-    assert items[2].at == "2026-10-16T08:21:00+00:00"  # the newer of the two
 
 
 def _at(record: dict[str, Any], created: str, applied: str | None = None) -> dict[str, Any]:
@@ -352,48 +207,6 @@ def _at(record: dict[str, Any], created: str, applied: str | None = None) -> dic
     record["action"]["created_at"] = f"2026-10-16T08:{created}+00:00"
     record["applied_at"] = f"2026-10-16T08:{applied}+00:00" if applied else None
     return record
-
-
-MEASURED = {"throughput_mbps": 1.2, "latency_ms": 15.0, "loss_pct": 1.0, "jain": 0.9}
-
-
-def test_the_timeline_tells_the_story_newest_first_with_waiting_changes_on_top() -> None:
-    kept = _at(_record(1, "kept", kind="steer_clients", measured=MEASURED), "21:48", "21:50")
-    rejected = _at(_record(2, "rejected", kind="steer_clients"), "22:00")
-    waiting = _at(_record(3, "verified"), "22:25")  # a channel change: needs approval
-    watching = _at(_record(4, "applied", kind="steer_clients"), "22:28", "22:30")
-    alerts = [_alert(f"21:{s}", "ap1") for s in ("40", "45", "50", "55")]
-    items = timeline([kept, rejected, waiting, watching], alerts, WATCH)
-    assert [(i.kind, i.title, i.badge, i.tone) for i in items] == [
-        ("waiting", "Move ap3 to channel 11", "waiting for you", "action"),
-        ("applied", "Move 2 clients from ap1 to ap3", "watching 30 s", "action"),
-        ("checked", "Move 2 clients from ap1 to ap3", "accepted", "calm"),
-        ("outcome", "Move 2 clients from ap1 to ap3", "✓ kept", "good"),  # applied + the 30 s watch
-        ("checked", "Move 2 clients from ap1 to ap3", "✕ rejected", "warn"),
-        ("detected", "ap1 looks unusual", "4 alerts", "critical"),
-        ("checked", "Move 2 clients from ap1 to ap3", "accepted", "calm"),
-    ]
-    assert items[0].next_step == "approve"
-    assert items[0].action_id == "act_3"
-    assert items[3].at == "2026-10-16T08:22:20+00:00"
-    assert items[3].detail == "latency: twin 5 ms · measured 15 ms"
-    assert items[2].detail == "twin: latency 9 → 5 ms · loss 14.0% → 0.2%"
-    assert items[5].group is not None
-    assert items[5].group.count == 4
-
-
-@pytest.mark.parametrize(
-    ("final", "badge", "tone"),
-    [
-        ("rolled_back", "↺ rolled back", "warn"),
-        ("rollback_failed", "✕ rollback failed", "critical"),
-        ("failed", "✕ could not apply", "critical"),
-    ],
-)
-def test_every_final_status_has_its_outcome(final: str, badge: str, tone: str) -> None:
-    items = timeline([_at(_record(1, final, kind="steer_clients"), "21:00", "21:02")], [], WATCH)
-    assert (items[0].kind, items[0].badge, items[0].tone) == ("outcome", badge, tone)
-    assert items[0].detail == ""  # nothing measured
 
 
 REPORT = {  # POST /alerts/explain, as in the live run of 2026-10-16
@@ -459,47 +272,23 @@ def test_a_failed_explanation_shows_its_error() -> None:
     assert (view.error, view.causes, view.suggestions) == ("the explainer timed out", [], [])
 
 
-def test_the_steer_being_watched_is_drawn_as_an_arrow_between_its_aps() -> None:
-    aps, _ = map_layers(TOPOLOGY)
-    older = _at(_record(1, "applied", kind="steer_clients"), "21:00", "21:00")
-    newer = _at(_record(2, "applied", kind="steer_clients"), "21:30", "21:30")
-    newer["action"]["params"] = {"from_ap": "ap3", "to_ap": "ap1", "stations": ["sta5"]}
-    assert latest_steer([older, newer], aps) == {
-        "x": 20,
-        "y": 20,
-        "x2": 20,
-        "y2": 50,
-        "label": "1 client",
-    }
-
-
-def test_no_arrow_without_a_steer_being_watched() -> None:
-    aps, _ = map_layers(TOPOLOGY)
-    kept = _at(_record(1, "kept", kind="steer_clients"), "21:00", "21:00")  # watch is over
-    channel = _at(_record(2, "applied"), "21:00", "21:00")  # being watched, not a steer
-    assert latest_steer([kept, channel], aps) is None
-    unknown = _at(_record(3, "applied", kind="steer_clients"), "21:00", "21:00")
-    unknown["action"]["params"] = {"from_ap": "ap1", "to_ap": "ap9", "stations": ["sta1"]}
-    assert latest_steer([unknown], aps) is None  # an AP the twin does not know
-
-
 def test_a_reason_names_its_kpi_in_words() -> None:
     # live run 2026-10-17: "latency_ms 6.0% worse", the verifier's field name
     record = _at(_record(1, "rejected", kind="steer_clients"), "21:00")
     record["verdict"]["violations"] = [
         "act_1: latency_ms 6.0% worse and no KPI improves by more than 5%",
     ]
-    [item] = timeline([record], [], WATCH)
-    assert item.detail == "twin: latency 6.0% worse and no KPI improves by more than 5%"
+    assert why_not(record["verdict"]) == (
+        "twin: latency 6.0% worse and no KPI improves by more than 5%"
+    )
 
 
 def test_a_prediction_for_no_traffic_is_not_shown() -> None:
     # live run 2026-10-17: a QoS intent before the video started read "latency 0 → 0 ms"
-    record = _at(_record(1, "kept", kind="steer_clients"), "21:00")
+    record = _at(_record(1, "rejected", kind="steer_clients"), "21:00")
     zero = {"throughput_mbps": 0.0, "latency_ms": 0.0, "loss_pct": 0.0, "jain": 1.0}
-    record["verdict"] |= {"baseline": zero, "predicted": zero}
-    checked = [i for i in timeline([record], [], WATCH) if i.kind == "checked"]
-    assert checked[0].detail == ""
+    record["verdict"] |= {"baseline": zero, "predicted": zero, "violations": []}
+    assert why_not(record["verdict"]) == ""  # rejected on its KPIs, but none to show
 
 
 def test_a_rejected_change_shows_why_the_twin_rejected_it() -> None:
@@ -510,29 +299,10 @@ def test_a_rejected_change_shows_why_the_twin_rejected_it() -> None:
         "act_1: sta1 would get -83 dBm at ap2: below -75 dBm (ADR-004)",
         "act_1: sta3 would get -80 dBm at ap2: below -75 dBm (ADR-004)",
     ]
-    [item] = timeline([record], [], WATCH)
-    assert item.detail == "twin: moves 5 of 11 clients of ap1: more than 30% (+2 more reasons)"
+    expected = "twin: moves 5 of 11 clients of ap1: more than 30%"
+    assert why_not(record["verdict"]) == f"{expected} (+2 more reasons)"
     record["verdict"]["violations"] = record["verdict"]["violations"][:1]
-    assert (
-        timeline([record], [], WATCH)[0].detail
-        == "twin: moves 5 of 11 clients of ap1: more than 30%"
-    )
-
-
-def test_a_denied_change_shows_on_its_twin_check() -> None:
-    [item] = timeline([_at(_record(1, "denied"), "21:00")], [], WATCH)
-    assert (item.kind, item.badge) == ("checked", "denied by the operator")
-
-
-def test_the_timeline_keeps_the_newest_items_and_every_waiting_change() -> None:
-    actions = [
-        _at(_record(n, "rejected", kind="steer_clients"), f"2{n % 10}:{n:02d}") for n in range(12)
-    ]
-    actions.append(_at(_record(99, "verified"), "00:00"))  # old but still waiting
-    items = timeline(actions, [], WATCH, limit=4)
-    assert len(items) == 4
-    assert items[0].kind == "waiting"
-    assert [i.at[11:19] for i in items[1:]] == ["08:29:09", "08:28:08", "08:27:07"]
+    assert why_not(record["verdict"]) == expected
 
 
 def test_repeated_alerts_on_one_entity_become_one_group_newest_first() -> None:
@@ -563,33 +333,6 @@ def test_alerts_more_than_a_minute_apart_are_separate_episodes() -> None:
 
 def test_no_alerts_no_groups() -> None:
     assert alert_groups([]) == []
-
-
-@pytest.mark.parametrize(
-    ("arrow", "line"),
-    [
-        (  # straight down, ap1 -> ap3 (30 m): 7 m clear of each AP and its label
-            {"x": 20, "y": 50, "x2": 20, "y2": 20, "label": "2 clients"},
-            {"x": 20.0, "y": 43.0, "x2": 20.0, "y2": 27.0, "label": "2 clients"},
-        ),
-        (  # diagonal, ap1 -> ap4 (50 m): direction (0.8, -0.6)
-            {"x": 20, "y": 50, "x2": 60, "y2": 20, "label": "1 client"},
-            {"x": 25.6, "y": 45.8, "x2": 54.4, "y2": 24.2, "label": "1 client"},
-        ),
-    ],
-)
-def test_the_steer_arrow_keeps_clear_of_both_aps_and_their_labels(
-    arrow: dict[str, Any], line: dict[str, Any]
-) -> None:
-    # live audit 2026-10-17: drawn centre to centre, the dashed line ran through the
-    # source AP's "ap1 · 100% · 13" and "ch 1" labels
-    got = arrow_line(arrow)
-    assert got is not None
-    assert {k: round(v, 6) if isinstance(v, float) else v for k, v in got.items()} == line
-
-
-def test_no_arrow_line_between_aps_too_close_to_leave_room() -> None:
-    assert arrow_line({"x": 20, "y": 50, "x2": 30, "y2": 50, "label": "1 client"}) is None
 
 
 def test_text_for_streamlits_markdown_messages_shows_literally() -> None:

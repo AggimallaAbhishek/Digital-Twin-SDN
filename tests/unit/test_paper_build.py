@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import re
 import shutil
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from common.schemas import ACTION_ADAPTER, Verdict
-from controller.executor.ledger import Ledger
+from common.schemas import ACTION_ADAPTER, KPIValues, Verdict
+from controller.executor.ledger import ActionRecord, Ledger, read_records
 from experiments import paper_build
 from experiments.batch import LOOP_MODES
 
@@ -75,6 +77,7 @@ def _results() -> dict[str, Any]:
     runs = {
         f"{mode}/{scenario}": [
             {"ttr_s": None if mode == "V1" or k == 0 else 100.0 * k, "censor_s": 390.0}
+            | {"loss_pct": 1.0 + k, "latency_p95_ms": 10.0 * (k + 1)}
             for k in range(3)
         ]
         for mode in MODES
@@ -126,6 +129,9 @@ def tree(tmp_path: Path) -> Path:
     _json(results / "results.json", _results())
     _json(results / "intents.json", {"cases": 30, "correct": 30, "seconds": [1.0, 2.0, 3.0]})
     _json(results / "intents_local.json", {"cases": 30, "correct": 21, "seconds": [2.0, 4.0]})
+    calls = [{"attempt": 1, "valid": True}, {"attempt": 1, "valid": False}, {"attempt": 2}]
+    (results / "intent_calls.jsonl").write_text("".join(json.dumps(c) + "\n" for c in calls))
+    (results / "intent_calls_local.jsonl").write_text(json.dumps({"attempt": 1}) + "\n")
     twin = {"after_calibration": {"test": {
         "all": {"mape": 0.0449, "n": 586},
         "steady/video": {"mape": 0.0397, "n": 495},
@@ -292,6 +298,7 @@ def test_building_writes_the_files_and_pdf_figures(
         "numbers.tex",
         "table_kpis.tex",
         "table_actions.tex",
+        "table_rules.tex",
         "fig_kpis.pdf",
         "fig_recovery.pdf",
     }
@@ -309,6 +316,7 @@ def test_files_that_differ_from_the_evaluation_are_reported(
         "numbers.tex",
         "table_kpis.tex",
         "table_actions.tex",
+        "table_rules.tex",
     ]
     paper_build.build_generated(evidence, out)
     assert paper_build.out_of_date(evidence, out) == []
@@ -352,3 +360,171 @@ def test_a_missing_evaluation_file_stops_the_build_with_its_name(
     monkeypatch.setattr(paper_build, "load_evidence", missing)
     assert paper_build.main(["--check"]) == 1
     assert "validation.json" in caplog.text
+
+
+def _kpis(
+    thr: float = 0.5, lat: float = 12.0, loss: float = 20.0, jain: float = 0.5
+) -> dict[str, float]:
+    return {"throughput_mbps": thr, "latency_ms": lat, "loss_pct": loss, "jain": jain}
+
+
+# CASES[0..5]: (status, twin accepted, predicted KPIs, KPIs the watch measured), baseline _kpis()
+CASES = [
+    ("kept", True, _kpis(thr=0.55), _kpis(thr=0.6)),  # throughput +10%
+    (
+        "rolled_back",
+        True,
+        _kpis(thr=0.55, loss=26.0),
+        _kpis(thr=0.55),
+    ),  # +10% throughput, loss 30% worse
+    ("rolled_back", True, _kpis(), None),  # no change predicted
+    ("rollback_failed", False, _kpis(0.45, 13.2, 22.0), None),  # everything 10% worse
+    ("kept", False, _kpis(loss=22.0), None),  # loss 10% worse
+    ("applied", True, _kpis(), None),  # still watched when the run ended: not resolved
+]
+
+
+def _verdict_ledger(path: Path, cases: Sequence[tuple[Any, ...]] = CASES) -> list[ActionRecord]:
+    db = Ledger(path)
+    for i, (status, accepted, predicted, measured) in enumerate(cases):
+        action = ACTION_ADAPTER.validate_python(STEER | {"action_id": f"act_case_{i}"})
+        verdict = Verdict.model_validate(
+            {
+                "action_id": action.action_id,
+                "accepted": accepted,
+                "predicted": predicted,
+                "baseline": _kpis(),
+                "violations": [] if accepted else ["worse"],
+                "impact": "medium",
+                "needs_approval": False,
+                "sim_mode": "analytical",
+                "sim_time_ms": 0.5,
+            }
+        )
+        db.add([action], [verdict], T0)
+        db.update(action.action_id, status, T0, applied_at=T0)
+        if measured is not None:
+            db.set_measured(action.action_id, KPIValues.model_validate(measured))
+    return read_records(path)
+
+
+@pytest.fixture
+def judged(evidence: paper_build.Evidence, tmp_path: Path) -> paper_build.Evidence:
+    """The fixture evaluation with V2's ledger replaced by the five judged actions above, and V3's
+    by one action the twin accepted that turned out harmful (V3 only applies accepted actions)."""
+    v2 = _verdict_ledger(tmp_path / "judged" / "actions.db")
+    v3_cases = [("rolled_back", True, _kpis(thr=0.55), None)]  # +10% throughput: the rule accepts
+    v3 = _verdict_ledger(tmp_path / "judged-v3" / "actions.db", v3_cases)
+    ledgers = {"V1": {}, "V2": {"ap_failure-v2-s42": v2}, "V3": {"ap_failure-v3-s42": v3}}
+    return dataclasses.replace(evidence, ledgers=ledgers)
+
+
+def test_harmful_actions_are_counted_by_what_the_twin_said_of_them(
+    judged: paper_build.Evidence,
+) -> None:
+    n = paper_build.numbers(judged)
+    # harmful = rolled back or rollback failed: CASES[1], [2] (twin accepted) and [3] (rejected);
+    # the still-watched action is not resolved, so it is neither harmful nor kept
+    # V2 only: V3 applies accepted actions alone, so counting its harmful ones among those the
+    # twin "missed" would bias the rejection rate against the twin; they are given apart
+    assert (n["HarmAll"], n["HarmRejected"], n["HarmAccepted"]) == ("3", "1", "2")
+    assert n["KeptAll"] == "2"
+    assert n["HarmVthree"] == "1"  # the one V3 action in the fixture, accepted and harmful
+
+
+def test_the_counts_of_the_calls_that_were_valid_the_first_time_come_from_the_logs(
+    evidence: paper_build.Evidence,
+) -> None:
+    n = paper_build.numbers(evidence)
+    # calls: attempt 1 valid, attempt 1 invalid, attempt 2 (no 'valid' field), local attempt 1
+    assert (n["IntCalls"], n["IntRepairs"], n["IntFirstValid"]) == ("4", "1", "1")
+
+
+def test_a_measurement_of_zero_has_no_relative_error_and_is_left_out_and_counted(
+    tmp_path: Path,
+) -> None:
+    cases = [
+        ("kept", True, _kpis(loss=5.0), _kpis(loss=0.0)),  # loss measured at 0%: no relative error
+        ("kept", True, _kpis(loss=5.0), _kpis(loss=10.0)),  # |5 - 10| / 10 = 50%
+    ]
+    records = _verdict_ledger(tmp_path / "zero" / "actions.db", cases)
+    live = paper_build._live_error_numbers(records)
+    assert (live["LiveN"], live["LiveLossN"], live["LiveThrN"]) == ("2", "1", "2")
+    assert live["LiveLossErr"] == "50.0"
+
+
+def test_v2s_harm_rate_is_given_for_actions_the_twin_rejected_and_accepted(
+    judged: paper_build.Evidence,
+) -> None:
+    n = paper_build.numbers(judged)
+    # V2 applies whatever the verdict. Resolved: the twin rejected CASES[3] (harmful) and
+    # CASES[4] (kept); it accepted CASES[0] (kept), [1] and [2] (harmful)
+    assert (n["VtwoRejHarm"], n["VtwoRejTotal"]) == ("1", "2")
+    assert (n["VtwoAccHarm"], n["VtwoAccTotal"]) == ("2", "3")
+
+
+def test_stricter_verifier_rules_are_tried_on_the_recorded_actions(
+    judged: paper_build.Evidence,
+) -> None:
+    n = paper_build.numbers(judged)
+    # as written (no KPI >5% worse, or one >5% better): rejects only CASES[3] of the harmful
+    # and CASES[4] of the kept; the recorded verdicts agree with it on all six resolved actions
+    # (V2's five and the one V3 action)
+    assert (n["RuleWrittenHarm"], n["RuleWrittenKept"]) == ("1", "1")
+    assert (n["RuleAgree"], n["RuleTotal"]) == ("6", "6")
+    # no KPI more than 5% worse: also rejects CASES[1] (loss 30% worse)
+    assert (n["RuleNoRegHarm"], n["RuleNoRegKept"]) == ("2", "1")
+    # and one KPI more than 5% better: also rejects CASES[2] (no improvement predicted)
+    assert (n["RuleConjHarm"], n["RuleConjKept"]) == ("3", "1")
+
+
+def test_the_twins_prediction_is_compared_with_what_the_watch_measured(
+    judged: paper_build.Evidence,
+) -> None:
+    n = paper_build.numbers(judged)
+    assert n["LiveN"] == "2"  # two resolved actions have a measurement
+    # throughput: predicted 0.55 against measured 0.6 and 0.55: errors 8.33% and 0%, median 4.2;
+    # the baseline 0.5 against the same: 16.67% and 9.09%, median 12.9
+    assert (n["LiveThrErr"], n["LiveThrBase"]) == ("4.2", "12.9")
+    # latency: predicted and baseline 12 against measured 12 and 12: both errors 0
+    assert n["LiveLatErr"] == n["LiveLatBase"] == "0.0"
+    # loss: predicted 20 and 26 against measured 20 and 20 -> 0% and 30%, median 15.0; baseline 0.0
+    assert (n["LiveLossErr"], n["LiveLossBase"]) == ("15.0", "0.0")
+    assert (n["LiveJainErr"], n["LiveJainBase"]) == ("0.0", "0.0")
+
+
+def test_fisher_exact_test_matches_the_textbook_tea_tasting_example() -> None:
+    assert paper_build.fisher_one_sided(3, 1, 1, 3) == pytest.approx(17 / 70)  # Fisher 1935
+    assert paper_build.fisher_one_sided(4, 0, 0, 4) == pytest.approx(1 / 70)
+    assert paper_build.fisher_one_sided(0, 4, 4, 0) == pytest.approx(1.0)
+
+
+def test_runs_are_summarised_per_seed_and_by_how_many_recovered(
+    evidence: paper_build.Evidence,
+) -> None:
+    n = paper_build.numbers(evidence)
+    assert n["PerSeedLossApFailVtwo"] == "1.0, 2.0, 3.0"
+    assert n["PerSeedLatApFailVthree"] == "10, 20, 30"
+    assert (n["RecovVone"], n["RecovVtwo"], n["RecovVthree"]) == ("0", "6", "6")  # of nine
+
+
+def test_intent_retries_and_the_latency_cap_come_from_the_logs_and_the_config(
+    evidence: paper_build.Evidence,
+) -> None:
+    n = paper_build.numbers(evidence)
+    assert (n["IntCalls"], n["IntRepairs"]) == ("4", "1")  # one call needed a second attempt
+    assert (n["CfgBaseLoss"], n["CfgFetch"], n["CfgBulk"]) == ("0.2", "0.8", "0.394")
+    assert n["CfgLatCap"] == "15.8"  # 0.8 + 2.5 x 6: the most the model can predict
+
+
+def test_the_rules_table_shows_what_each_rule_would_have_blocked(
+    judged: paper_build.Evidence,
+) -> None:
+    rows = [line for line in paper_build.table_rules(judged).splitlines() if line.endswith("\\\\")]
+    assert rows == [
+        "Acceptance rule & Harmful rejected & Kept rejected \\\\",
+        "As written (no KPI $>$5\\% worse, or one $>$5\\% better) & 1 of 3 & 1 of 2 \\\\",
+        "No KPI more than 5\\% worse & 2 of 3 & 1 of 2 \\\\",
+        "No KPI more than 5\\% worse and one more than 5\\% better & 3 of 3 & 1 of 2 \\\\",
+    ]
+    assert "table_rules.tex" in paper_build.texts(judged)

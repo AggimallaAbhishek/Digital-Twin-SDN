@@ -20,6 +20,7 @@ import argparse
 import contextlib
 import json
 import logging
+import math
 import statistics
 import subprocess
 from collections import Counter
@@ -38,7 +39,7 @@ from controller.executor.ledger import ActionRecord, read_records
 from experiments.analysis.figures import GRID, MODE_COLOURS, SURFACE, error_bar
 from experiments.batch import LOOP_MODES, run_ok
 from experiments.shell import run
-from twin.verify.verifier import CHANGE_PCT, TX_POWER_MAX_STEP_DB
+from twin.verify.verifier import CHANGE_PCT, TX_POWER_MAX_STEP_DB, _better_pct, _kpi_rule
 
 log = logging.getLogger("experiments.paper_build")
 ROOT = Path(__file__).resolve().parents[1]
@@ -92,6 +93,9 @@ class Evidence:
     genai: Json
     intents: Json
     intents_local: Json
+    intent_calls: Sequence[
+        Json
+    ]  # every LLM call of the two intent evaluations (one JSON line each)
     ledgers: Mapping[str, Mapping[str, Sequence[ActionRecord]]]  # mode -> passed run -> actions
     config: Mapping[str, Json]  # config/<name>.yaml
 
@@ -132,6 +136,12 @@ def load_evidence(root: Path = ROOT) -> Evidence:
         genai=_load(models / "genai" / "v1" / "live.json"),
         intents=_load(results / "intents.json"),
         intents_local=_load(results / "intents_local.json"),
+        intent_calls=[
+            json.loads(line)
+            for name in ("intent_calls.jsonl", "intent_calls_local.jsonl")
+            for line in (results / name).read_text().splitlines()
+            if line.strip()
+        ],
         ledgers=ledgers,
         config={
             name: yaml.safe_load((root / "config" / f"{name}.yaml").read_text())
@@ -186,7 +196,123 @@ def numbers(ev: Evidence) -> dict[str, str]:
     sim_ms = [r.verdict.sim_time_ms for mode in LOOP_MODES for r in ev.actions(mode)]
     out["SimMedianMs"] = _f(statistics.median(sim_ms), 2) if sim_ms else "0"
     out |= _failed_rollbacks(ev)
-    return out | _model_numbers(ev) | _config_numbers(ev)
+    return out | _model_numbers(ev) | _config_numbers(ev) | _verifier_numbers(ev) | _run_numbers(ev)
+
+
+# ---- the verifier against what the watch found (reviewer round 1: Eq. (6), unvalidated KPIs)
+
+KPI_FIELDS = ("throughput_mbps", "latency_ms", "loss_pct", "jain")  # common/schemas.py KPIValues
+LIVE_WORDS = {"throughput_mbps": "Thr", "latency_ms": "Lat", "loss_pct": "Loss", "jain": "Jain"}
+RESOLVED = ("kept", "rolled_back", "rollback_failed")  # applied, and the watch has decided
+HARMFUL = ("rolled_back", "rollback_failed")  # the watch measured a regression
+
+
+def _improvements(record: ActionRecord) -> list[float]:
+    """The signed improvement of each KPI the twin predicted for the action, in percent."""
+    before, after = record.verdict.baseline, record.verdict.predicted
+    return [_better_pct(k, getattr(before, k), getattr(after, k)) for k in KPI_FIELDS]
+
+
+def _no_regression(record: ActionRecord) -> bool:
+    return all(x >= -CHANGE_PCT for x in _improvements(record))
+
+
+RULES: dict[str, Callable[[ActionRecord], bool]] = {  # macro word -> does the rule accept it?
+    # the verifier's own rule, called as the code has it, so "as written" cannot drift from it
+    "Written": lambda r: not _kpi_rule(r.verdict.baseline, r.verdict.predicted),
+    "NoReg": _no_regression,
+    "Conj": lambda r: _no_regression(r) and any(x > CHANGE_PCT for x in _improvements(r)),
+}
+
+
+def fisher_one_sided(a: int, b: int, c: int, d: int) -> float:
+    """Fisher's exact test, one-sided: P(at least `a`) in the 2x2 table [[a, b], [c, d]] under
+    independence (the hypergeometric tail). Row 1 is the group that should have more of the
+    first column."""
+    row1, first, total = a + b, a + c, a + b + c + d
+    ways = math.comb(total, row1)
+    tail = sum(
+        math.comb(first, x) * math.comb(total - first, row1 - x)
+        for x in range(a, min(row1, first) + 1)
+    )
+    return tail / ways
+
+
+def _verifier_numbers(ev: Evidence) -> dict[str, str]:
+    """What became of the actions the twin judged. The harm counts, the stricter rules and the
+    Fisher test use V2 only: V2 applies every action whatever the verdict, so it is the one
+    sample in which the twin's rejections can be compared with its acceptances (V3 applies only
+    accepted actions, so its harmful ones can never have been rejected and would bias the rate
+    against the twin). Its harmful actions are counted apart. The prediction error uses both."""
+    out: dict[str, str] = {}
+    resolved = {m: [r for r in ev.actions(m) if r.status in RESOLVED] for m in ("V2", "V3")}
+    v2 = resolved["V2"]
+    harmful = [r for r in v2 if r.status in HARMFUL]
+    kept = [r for r in v2 if r.status == "kept"]
+    out["HarmAll"], out["KeptAll"] = str(len(harmful)), str(len(kept))
+    out["HarmRejected"] = str(sum(not r.verdict.accepted for r in harmful))
+    out["HarmAccepted"] = str(sum(r.verdict.accepted for r in harmful))
+    out["HarmVthree"] = str(sum(r.status in HARMFUL for r in resolved["V3"]))
+    for word, rule in RULES.items():
+        out[f"Rule{word}Harm"] = str(sum(not rule(r) for r in harmful))
+        out[f"Rule{word}Kept"] = str(sum(not rule(r) for r in kept))
+    both = [*v2, *resolved["V3"]]
+    out["RuleAgree"] = str(sum(RULES["Written"](r) == r.verdict.accepted for r in both))
+    out["RuleTotal"] = str(len(both))
+    cells = [
+        [_count(v2, accepted, bad) for bad in (True, False)] for accepted in (False, True)
+    ]  # rows: twin rejected, accepted; columns: harmful, kept
+    out["HarmFisherP"] = _f(fisher_one_sided(cells[0][0], cells[0][1], cells[1][0], cells[1][1]), 2)
+    out["VtwoRejHarm"], out["VtwoRejTotal"] = str(cells[0][0]), str(sum(cells[0]))
+    out["VtwoAccHarm"], out["VtwoAccTotal"] = str(cells[1][0]), str(sum(cells[1]))
+    return out | _live_error_numbers(both)
+
+
+def _count(records: Sequence[ActionRecord], accepted: bool, harmful: bool) -> int:
+    """How many of the resolved `records` the twin accepted (or rejected) and the watch found
+    harmful (or kept)."""
+    return sum(r.verdict.accepted == accepted and (r.status in HARMFUL) == harmful for r in records)
+
+
+def _live_error_numbers(resolved: Sequence[ActionRecord]) -> dict[str, str]:
+    """Median relative error, per KPI, of the twin's prediction against the KPIs the watch
+    measured for the same flows; and of "nothing changes" (the twin's own baseline)."""
+    measured = [r for r in resolved if r.measured is not None]
+    out = {"LiveN": str(len(measured))}
+    for kpi, word in LIVE_WORDS.items():
+        pairs = []  # (predicted, baseline, measured) of this KPI
+        for r in measured:
+            live = getattr(r.measured, kpi)
+            if live:  # a measurement of 0 has no relative error
+                pairs.append(
+                    (getattr(r.verdict.predicted, kpi), getattr(r.verdict.baseline, kpi), live)
+                )
+        out[f"Live{word}N"] = str(len(pairs))  # how many of the measurements this KPI covers
+        for suffix, index in (("Err", 0), ("Base", 1)):
+            errors = [abs(p[index] - p[2]) / abs(p[2]) * 100 for p in pairs]
+            out[f"Live{word}{suffix}"] = _f(statistics.median(errors), 1) if errors else "n/a"
+    return out
+
+
+def _run_numbers(ev: Evidence) -> dict[str, str]:
+    """Per-seed values of the runs the intervals are widest for, how many runs recovered, and
+    the retries of the intent evaluation."""
+    runs = ev.results["runs"]
+    out = {}
+    for mode in ("V2", "V3"):
+        seeds = runs[f"{mode}/ap_failure"]
+        word = MODE_WORDS[mode]
+        out[f"PerSeedLossApFail{word}"] = ", ".join(_f(r["loss_pct"], 1) for r in seeds)
+        out[f"PerSeedLatApFail{word}"] = ", ".join(_f(r["latency_p95_ms"], 0) for r in seeds)
+    for mode in LOOP_MODES:
+        recovered = sum(r["ttr_s"] is not None for s in SCENARIOS for r in runs[f"{mode}/{s}"])
+        out[f"Recov{MODE_WORDS[mode]}"] = str(recovered)
+    out["IntCalls"] = str(len(ev.intent_calls))
+    out["IntRepairs"] = str(sum(call.get("attempt", 1) > 1 for call in ev.intent_calls))
+    out["IntFirstValid"] = str(
+        sum(call.get("attempt", 1) == 1 and call.get("valid", False) for call in ev.intent_calls)
+    )
+    return out
 
 
 def _failed_rollbacks(ev: Evidence) -> dict[str, str]:
@@ -245,6 +371,13 @@ def _config_numbers(ev: Evidence) -> dict[str, str]:
     radio = cfg["campus_v1"]["radio_model"]
     return {
         "CfgCapacity": _f(radio["ap_capacity_mbps"], 1),
+        "CfgBaseLoss": _f(cfg["sim"]["base_loss_pct"], 1),
+        "CfgFetch": _f(cfg["sim"]["fetch_efficiency"], 1),
+        "CfgBulk": _f(cfg["sim"]["apps"]["bulk"]["offered_mbps"], 3),
+        # the most the queue model can predict: base delay + service time x the K packets it holds
+        "CfgLatCap": _f(
+            cfg["sim"]["base_latency_ms"] + cfg["sim"]["service_ms"] * cfg["sim"]["queue_slots"], 1
+        ),
         "CfgStationSeed": str(cfg["campus_v1"]["stations"]["seed"]),
         "CfgForestSeed": str(cfg["anomaly"]["seed"]),
         "CfgCochanFull": _f(radio["cochannel_full_m"], 0),
@@ -305,6 +438,30 @@ def table_kpis(ev: Evidence) -> str:
             lines.append(" & ".join(row) + " \\\\")
         if si < len(SCENARIOS) - 1:
             lines.append("\\addlinespace")
+    return "\n".join([*lines, "\\bottomrule", "\\end{tabular}"]) + "\n"
+
+
+RULE_LABELS = {
+    "Written": "As written (no KPI $>$5\\% worse, or one $>$5\\% better)",
+    "NoReg": "No KPI more than 5\\% worse",
+    "Conj": "No KPI more than 5\\% worse and one more than 5\\% better",
+}
+
+
+def table_rules(ev: Evidence) -> str:
+    """What each acceptance rule would have rejected among the resolved actions of V2 and V3
+    that the watch found harmful, and among those it kept (tabular only)."""
+    n = numbers(ev)
+    lines = [
+        "\\begin{tabular}{@{}p{4.2cm}cc@{}}",
+        "\\toprule",
+        "Acceptance rule & Harmful rejected & Kept rejected \\\\",
+        "\\midrule",
+    ]
+    for word, label in RULE_LABELS.items():
+        harm = f"{n[f'Rule{word}Harm']} of {n['HarmAll']}"
+        kept = f"{n[f'Rule{word}Kept']} of {n['KeptAll']}"
+        lines.append(f"{label} & {harm} & {kept} \\\\")
     return "\n".join([*lines, "\\bottomrule", "\\end{tabular}"]) + "\n"
 
 
@@ -400,7 +557,7 @@ def figure_recovery(ev: Evidence, path: Path) -> None:
             for mi, mode in enumerate(LOOP_MODES):
                 x = si * 4 + mi
                 for k, run in enumerate(runs[f"{mode}/{scenario}"]):
-                    xs = x + (k - 1) * 0.16
+                    xs = x + (k - 1) * 0.2  # apart, so runs with near-equal times stay visible
                     if run["ttr_s"] is None:
                         ax.plot(
                             xs,
@@ -412,7 +569,7 @@ def figure_recovery(ev: Evidence, path: Path) -> None:
                             mew=0.9,
                         )
                     else:
-                        ax.plot(xs, run["ttr_s"], "o", color=MODE_COLOURS[mode], ms=4)
+                        ax.plot(xs, run["ttr_s"], "o", color=MODE_COLOURS[mode], ms=4, alpha=0.8)
             ax.text(
                 si * 4 + 1,
                 -0.24,
@@ -454,6 +611,7 @@ def texts(ev: Evidence) -> dict[str, str]:
         "numbers.tex": render_numbers(numbers(ev)),
         "table_kpis.tex": table_kpis(ev),
         "table_actions.tex": table_actions(ev),
+        "table_rules.tex": table_rules(ev),
     }
 
 

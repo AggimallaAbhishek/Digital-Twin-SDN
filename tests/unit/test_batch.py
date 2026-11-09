@@ -182,10 +182,7 @@ def test_a_vm_run_first_stops_an_earlier_run_still_playing() -> None:
     # live 2026-11-09: a demo stopped from the Mac left its scenario playing on the VM; it held
     # the AP agent's port and the next run failed ("Address already in use"). The script runs
     # on the VM, so this pins its order and pattern; the behaviour was checked on the VM.
+    # (testbed/stop_on_vm.sh itself is tested by running it: tests/unit/test_stop_on_vm.py)
     script = RUN_ON_VM.read_text()
-    stop = script.index("sudo pkill -INT")
+    stop = script.index('"$REPO/testbed/stop_on_vm.sh"')
     assert stop < script.index("sudo mn -c")  # before the new run builds its network
-    assert stop < script.index("sudo pkill -KILL")  # SIGINT first, SIGKILL only after a wait
-    # anchored on the interpreter (never this script's own bash line, which names the module)
-    # and bracketed (never the pkill/pgrep command lines themselves)
-    assert "EARLIER='^python3 -B -m [t]estbed[.]'" in script

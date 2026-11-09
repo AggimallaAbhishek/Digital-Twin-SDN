@@ -15,6 +15,8 @@ from pathlib import Path
 import pytest
 
 from experiments import demo, shell
+from experiments.batch import STOP_ON_VM
+from experiments.run_batch import VM
 
 
 def _sleeper(port: int = 8000) -> demo.Service:
@@ -190,13 +192,10 @@ def test_a_scenario_left_playing_on_the_vm_is_stopped(monkeypatch: pytest.Monkey
     monkeypatch.setattr(demo, "run", ssh)
     demo.stop_vm_scenario()
     [argv] = sent
-    assert (argv[0], argv[-2]) == ("ssh", "sdnvm")
+    assert (argv[0], argv[-2]) == ("ssh", VM)
     assert "BatchMode=yes" in argv  # never a password prompt: fail fast
-    script = argv[-1]
-    assert "pkill -INT" in script  # first a SIGINT: the scenario's own cleanup runs
-    assert "pkill -KILL" in script  # then, if it is still there, it is killed
-    # the pattern must not match the ssh command that carries it (it would kill itself)
-    assert "testbed.run_scenario" not in script
+    # the shared VM script (tests/unit/test_stop_on_vm.py), with the demo's grace period
+    assert argv[-1] == f"STOP_WAIT_S={demo.SCENARIO_STOP_S} {STOP_ON_VM}"
 
 
 def test_an_unreachable_vm_does_not_stop_the_demo_from_stopping(

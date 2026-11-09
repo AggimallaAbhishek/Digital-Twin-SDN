@@ -36,7 +36,7 @@ from api.app import WORKER_STOP_S
 from api.main import REQUEST_DRAIN_S, ApiConfig, load_api_config
 from api.wiring import ROOT, load_yaml
 from experiments import shell
-from experiments.batch import RunPlan, load_scenario
+from experiments.batch import STOP_ON_VM, RunPlan, load_scenario
 from experiments.run_batch import VM, RunExtras, play
 from experiments.shell import git_commit, run
 
@@ -158,25 +158,19 @@ def stop(demo: Mapping[str, Service]) -> None:
 
 # the scenario's own Python process on the VM (not its sudo/timeout wrappers, which end with it);
 # the brackets keep the pattern from matching the ssh command that carries it
-VM_SCENARIO = "^python3 .*[t]estbed[.]run_scenario"
 SCENARIO_STOP_S = 30  # how long a SIGINT'd scenario gets to clean up before SIGKILL
-SSH_SLACK_S = 15  # on top of SCENARIO_STOP_S: connecting and the pkill calls themselves
+SSH_SLACK_S = 15  # on top of SCENARIO_STOP_S: connecting and the script's own pkill calls
 SSH_CONNECT_S = 5  # an unreachable VM fails fast instead of holding up the stop
 
 
 def stop_vm_scenario() -> None:
-    """`make demo-stop`: stop the demo's scenario if it is still playing on the VM. SIGINT
-    first, so its cleanup stops the probes and the agent; SIGKILL if it is still there after
-    SCENARIO_STOP_S. An unreachable VM is logged, never raised. (A new run clears an earlier
-    one itself, in testbed/run_on_vm.sh: a scenario left playing held the AP agent's port and
-    the next one failed with "Address already in use", live 2026-11-09.)"""
-    match = f"-f '{VM_SCENARIO}'"
-    script = (
-        f"sudo pkill -INT {match} || exit 0; "
-        f"for _ in $(seq {SCENARIO_STOP_S}); do pgrep {match} > /dev/null || exit 0; sleep 1; "
-        f"done; sudo pkill -KILL {match}; exit 0"
-    )
-    ssh = ["ssh", "-o", f"ConnectTimeout={SSH_CONNECT_S}", "-o", "BatchMode=yes", VM, script]
+    """`make demo-stop`: stop the demo's scenario if it is still playing on the VM, with
+    testbed/stop_on_vm.sh (SIGINT so it cleans up, SIGKILL after SCENARIO_STOP_S). The same
+    script runs before every new run on the VM (run_on_vm.sh): a scenario left playing held
+    the AP agent's port and the next one failed (live 2026-11-09). An unreachable VM or a
+    failed stop is logged, never raised: the Mac side still stops."""
+    remote = f"STOP_WAIT_S={SCENARIO_STOP_S} {STOP_ON_VM}"
+    ssh = ["ssh", "-o", f"ConnectTimeout={SSH_CONNECT_S}", "-o", "BatchMode=yes", VM, remote]
     try:
         run(ssh, check=True, timeout=SCENARIO_STOP_S + SSH_SLACK_S, capture_output=True)
     except (subprocess.SubprocessError, OSError) as exc:

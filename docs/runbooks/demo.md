@@ -21,8 +21,9 @@ make demo                      # flash crowd, seed 44; prints the dashboard URL
 make demo-stop                 # afterwards: stop the API and the dashboard
 ```
 
-Each `make demo` starts clean: it stops a demo left running (on the Mac, and its scenario if it
-is still playing on the VM; `make demo-stop` does both too) and moves the previous action log
+Each `make demo` starts clean: it stops a demo left running on the Mac, every new run on the VM
+first stops any earlier testbed run still playing there (`testbed/stop_on_vm.sh`, a batch's
+included), `make demo-stop` stops both the Mac side and the VM run, and it moves the previous action log
 to `logs/demo/actions-<time>.db`, so rehearsal actions do not show in the real demo. It then
 starts InfluxDB/Grafana, copies the testbed to the VM, starts the API (with the V3 control loop
 and the alert monitor) and the dashboard, then plays the scenario on the VM. The dashboard

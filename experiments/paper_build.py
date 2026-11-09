@@ -36,7 +36,8 @@ from matplotlib.figure import Figure
 
 from common.schemas import MAX_STEER_FRACTION, MIN_TARGET_RSSI_DBM
 from controller.executor.ledger import ActionRecord, read_records
-from experiments.analysis.figures import GRID, MODE_COLOURS, SURFACE, error_bar
+from experiments.analysis.figures import GRID, MODE_COLOURS, SURFACE
+from experiments.analysis.results import H1_TARGET_PCT
 from experiments.batch import LOOP_MODES, run_ok
 from experiments.shell import run
 from twin.verify.verifier import CHANGE_PCT, TX_POWER_MAX_STEP_DB, _better_pct, _kpi_rule
@@ -182,6 +183,10 @@ def numbers(ev: Evidence) -> dict[str, str]:
         word = SCENARIOS[scenario][0]
         out[f"HoneFaster{word}"] = _f(h1["faster_pct"], 0)
         out[f"HoneVerdict{word}"] = h1["verdict"]
+    # H1 on the capped recovery times (a run that never recovers counts at its end): met only if
+    # V3 is at least H1_TARGET_PCT faster in every scenario
+    capped = all(h1["faster_pct"] >= H1_TARGET_PCT for h1 in res["h1"].values())
+    out["HoneCapped"] = "met" if capped else "not met"
     for mode, fair in res["fairness"].items():
         out[f"FairJain{MODE_WORDS[mode]}"] = _f(fair["jain"], 2)
     for mode, safety in res["safety"].items():
@@ -211,6 +216,15 @@ def _improvements(record: ActionRecord) -> list[float]:
     """The signed improvement of each KPI the twin predicted for the action, in percent."""
     before, after = record.verdict.baseline, record.verdict.predicted
     return [_better_pct(k, getattr(before, k), getattr(after, k)) for k in KPI_FIELDS]
+
+
+def _only_fairness_gain(record: ActionRecord) -> bool:
+    """Whether the only KPI predicted to improve by more than the tolerance is Jain's index,
+    which depends on the APs' client counts alone."""
+    gain = dict(zip(KPI_FIELDS, _improvements(record), strict=True))
+    return gain["jain"] > CHANGE_PCT and all(
+        v <= CHANGE_PCT for k, v in gain.items() if k != "jain"
+    )
 
 
 def _no_regression(record: ActionRecord) -> bool:
@@ -253,6 +267,15 @@ def _verifier_numbers(ev: Evidence) -> dict[str, str]:
     out["HarmRejected"] = str(sum(not r.verdict.accepted for r in harmful))
     out["HarmAccepted"] = str(sum(r.verdict.accepted for r in harmful))
     out["HarmVthree"] = str(sum(r.status in HARMFUL for r in resolved["V3"]))
+    out["HarmAnyRegress"] = str(sum(min(_improvements(r)) < 0 for r in harmful))
+    out["HarmJainOnly"] = str(
+        sum(
+            r.verdict.accepted and _only_fairness_gain(r)
+            for m in resolved.values()
+            for r in m
+            if r.status in HARMFUL
+        )
+    )
     for word, rule in RULES.items():
         out[f"Rule{word}Harm"] = str(sum(not rule(r) for r in harmful))
         out[f"Rule{word}Kept"] = str(sum(not rule(r) for r in kept))
@@ -417,12 +440,27 @@ def render_numbers(values: Mapping[str, str]) -> str:
 # ---------------------------------------------------------------- tables
 
 
-def _pm(row: Mapping[str, Any], decimals: int) -> str:
-    return f"{_f(row['mean'], decimals)} $\\pm$ {_f(row['ci95'], decimals)}"
+def kpi_range(ev: Evidence, mode: str, scenario: str, kpi: str) -> tuple[float, float]:
+    """The smallest and the largest value of a KPI over the runs of one cell; a run that never
+    recovered counts at its run end."""
+    values = [
+        run["censor_s"] if kpi == "ttr_s" and run["ttr_s"] is None else run[kpi]
+        for run in ev.results["runs"][f"{mode}/{scenario}"]
+    ]
+    known = [v for v in values if v is not None]
+    if not known:
+        raise ValueError(f"no run of {mode}/{scenario} has a {kpi} value")
+    return min(known), max(known)
+
+
+def _span(ev: Evidence, cell: Mapping[str, Any], decimals: int) -> str:
+    low, high = kpi_range(ev, cell["mode"], cell["scenario"], cell["kpi"])
+    return f"{_f(cell['mean'], decimals)} [{_f(low, decimals)}--{_f(high, decimals)}]"
 
 
 def table_kpis(ev: Evidence) -> str:
-    """The KPI table: mean ± 95% interval per scenario and variant (tabular only)."""
+    """The KPI table: mean and [smallest--largest] over the seeds, per scenario and variant
+    (tabular only)."""
     cells = kpi_cells(ev)
     head = " & ".join(["Scenario", "Variant", *(k[2] for k in KPIS.values())])
     lines = ["\\begin{tabular}{@{}llccccc@{}}", "\\toprule", f"{head} \\\\", "\\midrule"]
@@ -431,9 +469,9 @@ def table_kpis(ev: Evidence) -> str:
             row = [title if mi == 0 else "", MODE_LABELS[mode]]
             for kpi, (_, decimals, _) in KPIS.items():
                 cell = cells[(mode, scenario, kpi)]
-                text = _pm(cell, decimals)
-                if kpi == "ttr_s" and cell["never"]:  # a mean that includes runs never recovered
-                    text = f"$\\geq$ {text} ({cell['never']})"
+                text = _span(ev, cell, decimals)
+                if kpi == "ttr_s":  # how many of the runs never recovered, counted at the run end
+                    text = f"$\\geq$ {text} ({cell['never']})" if cell["never"] else f"{text} (0)"
                 row.append(text)
             lines.append(" & ".join(row) + " \\\\")
         if si < len(SCENARIOS) - 1:
@@ -518,7 +556,8 @@ def figure_kpis(ev: Evidence, path: Path) -> None:
                 _style(ax)
                 for i, mode in enumerate(LOOP_MODES):
                     cell = cells[(mode, scenario, kpi)]
-                    low, up = error_bar(kpi, cell)  # clipped to what the KPI can be
+                    lo, hi = kpi_range(ev, mode, scenario, kpi)  # the runs' own range
+                    low, up = max(0.0, cell["mean"] - lo), max(0.0, hi - cell["mean"])
                     ax.bar(
                         i,
                         cell["mean"],
@@ -557,7 +596,7 @@ def figure_recovery(ev: Evidence, path: Path) -> None:
             for mi, mode in enumerate(LOOP_MODES):
                 x = si * 4 + mi
                 for k, run in enumerate(runs[f"{mode}/{scenario}"]):
-                    xs = x + (k - 1) * 0.2  # apart, so runs with near-equal times stay visible
+                    xs = x + (k - 1) * 0.26  # apart, so runs with near-equal times stay visible
                     if run["ttr_s"] is None:
                         ax.plot(
                             xs,

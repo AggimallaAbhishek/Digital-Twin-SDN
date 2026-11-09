@@ -1,0 +1,264 @@
+% IEEE conference paper. Build: `make paper` (numbers, tables and figures are generated from the
+% recorded evaluation by experiments/paper_build.py: no result below is typed by hand), or compile
+% this folder on Overleaf (generated/ and figures/ are included).
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{url}
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,calc}
+% pdfLaTeX (Overleaf) sets Times through IEEEtran; XeTeX (Tectonic, `make paper`) needs it named.
+\ifx\XeTeXversion\undefined\else
+  \usepackage[T1]{fontenc}
+\fi
+\input{generated/numbers}
+
+\newcommand{\KPI}{\mathbf{k}}
+\newcommand{\pct}[1]{#1\%}
+
+\begin{document}
+
+\title{A Twin-Gated Control Loop for Campus Wi-Fi:\\ Verifying SDN and LLM-Proposed Actions in a Digital Twin Before They Reach the Network}
+
+\author{
+\IEEEauthorblockN{Aggimalla Abhishek, N. Likhith Naik, Sundaram, Sambhav Mishra, Bikram Hawaldar}
+\IEEEauthorblockA{Indian Institute of Information Technology Dharwad, India}
+\and
+\IEEEauthorblockN{Jagadeesha R B}
+\IEEEauthorblockA{Dept.\ of Electronics and Communication Engineering\\
+Indian Institute of Information Technology Dharwad, India}
+}
+
+\maketitle
+
+\begin{abstract}
+A software-defined network (SDN) controller can react to congestion, access-point (AP) failures and interference in campus Wi-Fi, but a change applied directly to the live network shows its effect only afterwards. We present a control loop in which no action, whether proposed by a heuristic optimizer or by a large language model (LLM) that translates an operator's intent, reaches the network without an accepted verdict from a digital twin. The twin is an analytical model of per-AP airtime sharing, co-channel interference and M/M/1/K queueing. An executor applies accepted actions, watches the live KPIs and rolls back regressions. On an emulated campus (Mininet-WiFi and Ryu; 4 APs, 20 stations) we compare plain SDN (V1), heuristics without the twin (V2) and the full system (V3) in three scenarios and three seeds each (\NumRuns{} runs). The twin predicts steady-state per-flow throughput within \TwinMape\% and answers in a median \SimMedianMs\,ms, but in the closed loop its predictions are no closer to the live measurements than ``nothing changes'' (median throughput error \LiveThrErr\% against \LiveThrBase\%). In a lecture flash crowd both acting variants cut the loss of the affected flows from \KpiFlashLossVone\% to under 10\% and more than double their throughput. The hypothesis that V3 recovers 30\% faster than V1 stays inconclusive, because plain SDN never recovered. In V2, which applies every action whatever the verdict, the twin rejected only \HarmRejected{} of the \HarmAll{} actions the watch found harmful, and no stricter acceptance rule fixes that; the watch-and-rollback step gave the main protection and itself failed \RbFailAll{} times. An LLM behind schema validation translated \IntCloudOk{} of \IntCases{} test intents correctly. We report these negative results together with the code, data and scripts that reproduce them.
+\end{abstract}
+
+\begin{IEEEkeywords}
+digital twin, software-defined networking, Wi-Fi, large language models, intent-based networking, safe automation
+\end{IEEEkeywords}
+
+\section{Introduction}
+Campus Wi-Fi is never still: students move between rooms, a lecture fills a hall within minutes, an AP fails, and neighbouring APs on one channel slow each other down. An SDN controller can react by steering clients to a less loaded AP, changing an AP's channel or prioritizing a traffic class. Reacting is risky, because a controller that applies a change directly learns its effect only afterwards, and the risk grows as more decisions are automated, whether by an optimizer or by an LLM that turns a goal such as ``video calls in the lab must stay smooth'' into policy. LLM output can be wrong, incomplete or unsafe, and nothing checks it before it takes effect.
+
+We make a \emph{digital twin} of the network the gate that every change must pass. The twin mirrors the live state from telemetry and predicts the effect of a candidate action on throughput, latency, loss and fairness before it is applied. We ask whether this makes an AI-driven controller both more effective and safer than acting directly, and whether an LLM can drive it from natural language. We test three hypotheses:
+\textbf{H1}~in each of three disruption scenarios (congestion, AP failure, interference) the full system (V3) recovers at least 30\% faster than plain SDN (V1), a run that never recovers being counted at its end;
+\textbf{H2}~the twin blocks actions that would hurt the KPIs and that an optimizer acting directly (V2) would apply (tested in this weak, existential form; we also report how many harmful actions it misses);
+\textbf{H3}~an LLM with schema-constrained output translates at least 20 of 30 intents correctly, and no invalid configuration reaches the network.
+
+\emph{Contributions.}
+(i)~A reproducible, fully virtual wireless SDN testbed with seeded campus scenarios and an explicit model of co-channel interference, which the emulator does not produce itself.
+(ii)~An analytical twin of airtime sharing and queueing, validated against the testbed for steady-state per-flow throughput, compared with the live KPIs in the closed loop, and fast enough for a 5\,s control loop.
+(iii)~A closed loop (propose, verify, apply, watch, roll back) in which the twin's accepted verdict is enforced in the code that applies changes.
+(iv)~An LLM intent pipeline in which the model only translates text into a validated policy; deterministic code compiles it into bounded actions.
+(v)~An evaluation of three controllers over \NumRuns{} runs that reports what did not work.
+
+\section{Related Work}
+\emph{Network digital twins.} Almasan et al.\ \cite{almasan2022} describe the network digital twin as an accurate, data-driven model of a real network, used chiefly to answer ``what if'' questions before a change. We share the split between a mirror of the live state and a performance model, but our model is analytical: it needs no neural training and can be explained, yet a few parameters (capacity, delay constants, queue size) are calibrated on the target testbed. We use the twin as a \emph{safety gate}: no action is applied without its accepted verdict. The loop itself follows the monitor--analyse--plan--execute pattern of autonomic computing \cite{kephart2003}.
+\emph{Learned performance models.} RouteNet \cite{rusek2020} uses a graph neural network to predict per-path delay, jitter and loss and to score routing candidates. We follow its use of a fast model inside the loop and its relative-error reporting, but our bottleneck is the shared Wi-Fi medium, which we model explicitly with a fluid airtime model rather than a learned one (RouteNet-Fermi \cite{ferriol2023} extends the approach to queueing networks; a learned surrogate is future work). Classical 802.11 analyses model the contention itself: Bianchi's Markov chain \cite{bianchi2000} for saturated CSMA/CA and the performance anomaly of mixed bit rates \cite{heusse2003}. Our model needs only per-AP capacity and distance, but it ignores CSMA/CA backoff and the anomaly, a simplification we state in Section~VIII.
+\emph{LLM-based intent networking.} Mekrache et al.\ \cite{mekrache2024} manage the intent life cycle in natural language on a 5G testbed. We adopt natural language as the operator interface, but trust the model less: its output must pass a JSON schema, is compiled by deterministic code and is simulated in the twin, and the model has no tool that changes the network. Intent-based networking is defined in IETF RFC 9315 \cite{clemm2022}, and NetConfEval \cite{wang2024} benchmarks LLM configuration synthesis. Verifying configurations before deployment is established in wired networks (Batfish \cite{fogel2015}, VeriFlow \cite{khurshid2013}); those verifiers check logical invariants, whereas ours predicts wireless performance KPIs.
+\emph{Programmable WLANs.} Odin \cite{suresh2012} makes enterprise WLANs programmable through a per-client virtual AP, because clients, not the infrastructure, choose their AP. We steer clients by explicit re-association, a transient that the twin does not model (the watch ignores its first \CfgSettle\,s). IEEE 802.11k/v/r \cite{ieee80211} can steer clients natively (BSS transition management); in our emulation stations never roam on their own, so V1 leaves them on the overloaded AP, and a V1 with native steering is a further baseline we do not evaluate.
+\emph{Emulation.} We build on Mininet \cite{lantz2010}, Mininet-WiFi \cite{fontes2015} and OpenFlow \cite{mckeown2008} with the Ryu controller.
+None of these works combines a wireless twin, natural-language control and a verification step before every action.
+
+\section{Problem Scenario and System Model}
+\subsection{Scenario}
+The campus has four zones, each served by one AP: a lecture hall (ap1, channel 1), a lab (ap2, channel 6), a corridor (ap3, channel 11) and a library (ap4, channel 1), two OpenFlow switches and 20 stations carrying video, web and bulk traffic. ap1 and ap4 share channel 1 but are 50\,m apart. An AP carries about \CfgCapacity\,Mbit/s downlink on our testbed. Each 600\,s scenario has one disruption: a \emph{lecture flash crowd} (ten students walk into the hall from 120\,s, video starts at 210\,s), an \emph{AP failure} (ap2 goes down at 240\,s) and \emph{co-channel interference} (ap3 is forced onto channel 1 at 180\,s). The problem is to restore service quickly using only allow-listed actions, without making things worse for users.
+
+\subsection{System model}
+Fig.~\ref{fig:arch} shows the architecture. The testbed streams AP, station and flow telemetry to a time-series store. The twin rebuilds its state $s$ from the last 10\,s of telemetry at each refresh (no accumulated state, so it cannot drift from the network); an AP silent for 5\,s counts as down. The state holds every AP (position, channel, up/down, utilization), station (AP, zone) and flow (measured throughput, latency, loss, queue, rate limit).
+
+\begin{figure}[t]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tikzpicture}[font=\sffamily\footnotesize, >=Stealth, line width=0.5pt,
+  box/.style={draw, rounded corners=2pt, align=center, inner sep=3pt, minimum height=8mm},
+  prop/.style={box, fill=yellow!25}, gate/.style={box, fill=green!18},
+  net/.style={box, fill=blue!10}, act/.style={box, fill=red!10}]
+\node[prop, minimum width=33mm] (llm) at (0,3.1) {Operator intent (text)\\$\rightarrow$ LLM $\rightarrow$ policy\\$\rightarrow$ compiler};
+\node[prop, minimum width=33mm] (opt) at (4.6,3.1) {Heuristic optimizer\\(measured load)};
+\node[gate, minimum width=33mm] (ver) at (2.3,1.35) {Verifier: bounds + KPI rule\\accept / reject};
+\node[gate, minimum width=33mm] (twin) at (4.6,-0.3) {Digital twin\\state + simulator};
+\node[act, minimum width=33mm] (exe) at (0,-0.3) {Executor\\apply $\cdot$ watch $\cdot$ roll back};
+\node[net, minimum width=33mm] (net) at (0,-1.95) {Ryu + AP agent\\Mininet-WiFi campus};
+\node[net, minimum width=33mm] (db) at (4.6,-1.95) {Telemetry (InfluxDB)};
+\draw[->] (llm) -- node[left, font=\scriptsize]{actions} (ver);
+\draw[->] (opt) -- node[right, font=\scriptsize]{actions} (ver);
+\draw[<->] (ver.east) -| node[right, pos=0.8, font=\scriptsize]{simulate} (twin.north);
+\draw[->] (ver.south west) -- node[left, font=\scriptsize]{accepted} (exe.north);
+\draw[->] (exe) -- node[left, font=\scriptsize]{apply} (net);
+\draw[->] (net) -- node[below, font=\scriptsize]{KPIs} (db);
+\draw[->] (db) -- node[right, font=\scriptsize]{state} (twin);
+\draw[->, dashed] (db.north west) -- node[above left=-1pt, font=\scriptsize, pos=0.35]{watch} (exe.south east);
+\end{tikzpicture}}
+\caption{Architecture. Proposals come from a heuristic optimizer or from an LLM-compiled policy. Only actions that the verifier accepts reach the executor, the only component that changes the network.}
+\label{fig:arch}
+\end{figure}
+
+An \emph{action} $a$ is one of seven allow-listed types (reroute, QoS queue, rate limit, client steering, transmit power, channel change, AP admin state), each with an impact class. QoS and rerouting (low impact) and client steering (medium impact, validated against the testbed) are applied when the twin accepts them; the other medium-impact types (rate limit, transmit power) wait for an operator until their predictions are validated; a channel change or taking an AP down is \emph{high impact} and always waits for an operator. The measured KPI vector of a set of flows is $\KPI=(T,L_{95},\bar\ell,J)$: mean throughput, 95th-percentile video latency, mean loss and Jain's fairness index \cite{jain1984} of the APs' client counts.
+
+\section{Mathematical Formulation}
+\subsection{Analytical twin}
+\emph{Capacity.} An AP $i$ that is up offers $C=\CfgCapacity$\,Mbit/s, reduced by every up AP $j\neq i$ on its channel:
+\begin{equation}
+C_i=\frac{C}{1+\sum_{j\neq i,\ \mathrm{ch}(j)=\mathrm{ch}(i)} w(d_{ij})},
+\label{eq:cap}
+\end{equation}
+where $d_{ij}$ is the distance between the APs, $w(d_{ij})=\min\{1,\max\{0,(d_2-d_{ij})/(d_2-d_1)\}\}$, $d_1=\CfgCochanFull$\,m (a same-channel AP this close takes a full share) and $d_2=\CfgCochanZero$\,m (from here it no longer interferes). The emulator does not produce co-channel contention, so the testbed enforces the same $C_i$ as a downlink rate cap on each AP's traffic-control queue while a co-channel AP is up (the cap is removed otherwise; $\CfgCapacity$\,Mbit/s is the emulator's own limit). Two consequences: agreement between twin and testbed on capacity sharing validates our implementation and the sharing and queueing logic, not the physical realism of Eq.~(\ref{eq:cap}); and Eq.~(\ref{eq:cap}) does not depend on the interferer's load, so an idle co-channel AP counts like a busy one.
+
+\emph{Sharing.} Each AP serves three queues $q$ in strict priority (priority, best effort, background). Within a queue, flow $f$ with demand $\lambda_f$ (its source rate, cut to its rate limit) receives the max-min fair share of the capacity left to the queue,
+\begin{equation}
+x_f=\min(\lambda_f,\theta_q),\qquad \sum_{f\in q}\min(\lambda_f,\theta_q)=R_q,
+\label{eq:share}
+\end{equation}
+where $R_q=\max(0,\,C_i-\text{the rates served to the higher queues})$. An inelastic flow (video) loses $\ell_f=1-x_f/\lambda_f$ plus a base loss of \CfgBaseLoss\%; an elastic one (bulk TCP, offered \CfgBulk\,Mbit/s, the median measured on the training runs) slows down and sees only the base loss. A web fetch reports the rate of one page fetch, \CfgFetch{} of the capacity that the other traffic in its own or a higher queue leaves free. The signal a station would get at another AP, used by (S1), follows a log-distance path-loss model.
+
+\emph{Latency.} Each queue is modelled by the mean number in an M/M/1/K queue \cite{kleinrock1975} at load $\rho_q=\sum_{q'\preceq q}\sum_{f\in q'}\lambda_f/C_i$, where $q'\preceq q$ are the queues served before $q$ or $q$ itself (its own demand plus that of the queues served before it):
+\begin{equation}
+d_q=d_0+s\,L(\rho_q,K),\quad L(\rho,K)=\frac{\rho}{1-\rho}-\frac{(K+1)\rho^{K+1}}{1-\rho^{K+1}},
+\label{eq:lat}
+\end{equation}
+with $L(1,K)=K/2$, $d_0=\CfgBaseLatency$\,ms, $s=\CfgServiceMs$\,ms and $K=\CfgQueueSlots$. Eq.~(\ref{eq:lat}) is a calibrated surrogate, not an exact priority-queue derivation: $s$ was fitted to the delay plateau measured at saturation and $K$ bounds the queue, so the predicted delay stays below $d_0+sK=\CfgLatCap$\,ms. The recovery criterion (\ref{eq:ttr}) is applied to \emph{measured} latency, not to this prediction. The twin's $L_{95}$ is the nearest-rank 95th percentile of the predicted latencies of the video flows the verdict compares (of all flows if none is video). A flow without a working AP is dead (no throughput, 100\% loss). Network fairness is
+\begin{equation}
+J=\frac{\left(\sum_i n_i\right)^2}{N\sum_i n_i^2},
+\label{eq:jain}
+\end{equation}
+over the client counts $n_i$ of the $N$ APs that are up ($J=1$ when no client is associated). $J$ is network-wide and changes only when clients move (steering) or an AP goes up or down. The simulator maps a state and an action set to predicted KPIs, $\hat\KPI=f(s,a)$.
+
+\subsection{Safe control problem}
+Let $t_d$ be the time the disruption starts to load the network (the AP failure and the interference event as scheduled; in the flash crowd the onset of video at 210\,s, when ap1 becomes overloaded) and $\mathcal U(t)$ the utilization of the affected AP (the traffic it serves divided by $C_i$; for the AP failure, the busiest surviving AP). The \emph{time to recover} is
+\begin{multline}
+T_{\mathrm{rec}}=\min\big(\{t\ge t_d:\ \mathcal U(\tau)<0.8\ \text{and}\ L_{95}(\tau)\le 50\,\mathrm{ms}\\
+\text{for all }\tau\in[t,t+15\,\mathrm{s}]\}\cup\{T_{\mathrm{end}}\}\big)-t_d,
+\label{eq:ttr}
+\end{multline}
+so a run that never recovers is assigned the end of the run $T_{\mathrm{end}}$.
+The controller chooses at each 5\,s tick a set of actions $a_t$ to minimize $T_{\mathrm{rec}}$ subject to:
+(S1)~$a_t\in\mathcal A(s_t)$, the hard bounds (a steer moves at most \CfgMaxSteerPct\% of an AP's clients, only stations on that AP, only to an AP where the predicted signal is at least $\CfgMinRssi$\,dBm; a transmit-power step is at most \CfgTxStep\,dB; the last AP of a zone is never taken down);
+(S2)~the twin's KPI verdict accepts $a_t$ (the verifier also checks any operator policy's constraints and objectives, omitted here), with $\delta_k$ the signed improvement of KPI $k$ over the flows the action affects, in percent (positive is better, for latency and loss lower is better) between $\KPI(s_t)$ and $\hat\KPI=f(s_t,a_t)$:
+\begin{equation}
+\mathrm{accept}\iff\Big(\forall k:\ \delta_k\ge-\CfgChangePct\Big)\ \lor\ \Big(\exists k:\ \delta_k>\CfgChangePct\Big);
+\label{eq:accept}
+\end{equation}
+Eq.~(\ref{eq:accept}) is the rule as implemented; it agrees with the recorded verdict of all \RuleAgree{} of \RuleTotal{} resolved actions. It is deliberately permissive, and Section~VII-B tries stricter rules on the recorded predictions.
+(S3)~a high-impact action is applied only after an operator approves it;
+(S4)~for \CfgWatch\,s after an action the live KPIs of the flows the verdict compared are measured, ignoring the first \CfgSettle\,s; if any KPI is worse than before by more than \CfgRegressPct\% \emph{and} by more than its noise floor (the 95th percentile of natural worsening in windows without an action, measured on the training runs), the action is rolled back.
+
+\section{Proposed Methodology}
+Algorithm~\ref{alg:loop} is one tick of the loop. The heuristics propose two kinds of changes: \emph{client steering} (an AP at or above utilization \CfgUtilHigh{} sheds up to \CfgMaxSteerPct\% of its clients to APs below \CfgUtilTarget{}, strongest predicted signal first) and \emph{channel change} (a congested AP that shares its channel moves to the least loaded one). While a change is being watched nothing new is proposed, so effects are not mixed up, and a proposal identical to a just-rolled-back one is not repeated for 120\,s.
+
+\begin{algorithm}[t]
+\caption{One tick of the twin-gated control loop (every \CfgPeriod\,s). Actions compiled from an LLM policy are verified jointly through the API and applied only by an operator's call, not by the loop.}
+\label{alg:loop}
+\begin{algorithmic}[1]
+\STATE finish due watches: if a KPI regressed (S4) \textbf{roll back}, else \textbf{keep}
+\IF{an earlier change is still being watched} \RETURN \ENDIF
+\STATE $s\leftarrow$ twin state from the last 10\,s of telemetry
+\STATE $P\leftarrow$ \textsc{Propose}$(s)$ \hfill (heuristics)
+\FOR{each proposal $p\in P$}
+  \STATE $v\leftarrow$ \textsc{Verify}$(s,p)$: bounds (S1), simulate $\hat\KPI=f(s,p)$, rule \eqref{eq:accept}; record $v$
+  \IF{$v$ accepted \AND $p$ needs no approval \AND at most \CfgMaxActions{} applied this tick}
+     \STATE \textsc{Apply}$(p)$ through the executor; start its watch
+  \ELSIF{$v$ accepted}
+     \STATE queue $p$ for operator approval (S3)
+  \ENDIF
+\ENDFOR
+\end{algorithmic}
+\end{algorithm}
+
+\emph{Safety enforcement.} The executor is the only component that changes the network. It applies an action only if it is in its append-only ledger with an accepted verdict, has the required approval, has not been applied and is within rate limits (at most \CfgMaxActions{} actions per tick, one high-impact action per AP per \CfgHighImpactGap\,s). The heuristics' proposals are verified and applied one at a time, each against the state of the tick and each with its own watch (they usually propose one, so interactions between proposals of one tick are not simulated); the actions an LLM policy compiles to are verified \emph{jointly} and applied as a whole or not at all, and only when an operator calls the API's apply, never by the loop.
+
+\emph{LLM roles.} The LLM (a cloud model with an offline local fallback, temperature 0) has three roles and none can change the network. (a)~It parses an operator's text into a \texttt{Policy} under a JSON schema (scope, objectives, hard constraints), with at most two repair attempts; a deterministic compiler turns the policy into bounded actions, which are verified like any other proposal. (b)~A copilot answers questions by calling read-only tools and asking the twin. (c)~A root-cause explainer turns an alert and a deterministic evidence summary into a structured diagnosis. Forecasting (Holt's linear smoothing \cite{holt2004} against a moving average) and anomaly detection (an Isolation Forest \cite{liu2008} on 30\,s whole-network windows) produce forecasts and alerts for the operator and the explainer; the heuristics' proposals use measured load only, because the forecast did not help (Section~VII-C).
+
+\section{Baselines and Experimental Setup}
+\emph{Variants.} The same testbed runs under three controllers (Table~\ref{tab:variants}). \emph{Scenarios and seeds.} The three scenarios of Section~III run with seeds 42, 43 and 44 under each variant: \NumRuns{} runs of 600\,s at one frozen code version. All data are \emph{synthetic}, produced by the emulation; no real-network traces are used. The twin, forecaster and detector are calibrated on a separate dataset of 12 recorded runs without control (seeds 42--44 split by seed into training, validation and test); the twin is validated on its held-out test split, which adds a batch of runs with scripted actions. Other seeds: station positions \CfgStationSeed, Isolation Forest \CfgForestSeed. The LLM is served by Ollama: the main model is \texttt{gpt-oss:120b-cloud} and the offline fallback \texttt{qwen2.5:3b}; the intent test set is a fixed list of 30 intents (\texttt{genai/eval/intents.jsonl}).
+
+\begin{table}[t]
+\caption{Compared controllers. V2 exists only to measure what the twin prevents.}
+\label{tab:variants}
+\centering\small
+\begin{tabular}{@{}lp{6.2cm}@{}}
+\toprule
+V1 plain SDN & Controller's L2 learning only; stations re-associate by themselves.\\
+V2 no twin & Heuristic proposals applied directly; the twin's verdict is computed and recorded but ignored; every change is watched and rolled back on regression, as in V3.\\
+V3 full & Proposals verified in the twin; high-impact ones wait for an operator; every change is watched and rolled back on regression.\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\emph{Testbed and parameters.} Mininet-WiFi with the Ryu controller (OpenFlow 1.3), 4 APs, 2 switches, 20 stations; per-AP downlink $\CfgCapacity$\,Mbit/s. The loop runs every \CfgPeriod\,s; the verifier tolerance is \CfgChangePct\%, the executor's watch \CfgWatch\,s with a regression threshold of \CfgRegressPct\%. The campaign ran unattended: no operator approved high-impact actions. \emph{Reproducibility.} The submission package contains the code, the recorded datasets, the seeds and the configuration; \texttt{make results} regenerates every table and figure of this section offline from the recorded runs, \texttt{make paper} rebuilds this paper's numbers from them, and \texttt{make campaign MODE=V1|V2|V3} re-runs one variant's nine runs on the testbed (about two hours each).
+
+\emph{Metrics.} For each run: time to recover \eqref{eq:ttr} (a run that never recovers is counted at its end, so its mean is a lower bound); mean throughput and mean loss of the \emph{affected flows} (those of the event AP's stations in the 30\,s before the disruption, in the flash crowd the busiest AP's; the cohort is fixed by station identity, so a flow stays in it when it is steered away); p95 video latency of those flows (this evaluation cohort is not the set of flows a verdict compares, which is the action's own scope); and Jain's index \eqref{eq:jain}, averaged per 5\,s over the stress window. We report the mean over seeds with a 95\% interval $\bar x\pm t_{0.975,n-1}\,s/\sqrt n$ ($t=4.30$ for $n=3$). With three seeds and a few failed runs these symmetric intervals can pass the physical bounds (Fig.~\ref{fig:kpis} truncates them there), so Fig.~\ref{fig:recovery} and the text give the per-seed values where the intervals are widest. H1 is called \emph{met}, \emph{not met} or \emph{inconclusive}, the last where never-recovered runs could change the answer. An action is \emph{resolved} when it was kept, rolled back, or its rollback failed, and \emph{harmful} if the watch measured a regression above \CfgRegressPct\% (rolled back, or the rollback failed).
+
+\section{Results and Performance Analysis}
+\begin{table*}[t]
+\caption{KPIs of the affected flows (mean $\pm$ 95\% Student-$t$ interval over three seeds; the intervals are wide and symmetric, so they can pass the physical bounds, which Fig.~\ref{fig:kpis} truncates). $\geq$ marks a recovery time that includes runs that never recovered (their number in brackets), counted at the run end.}
+\label{tab:kpi}
+\centering\small
+\input{generated/table_kpis}
+\end{table*}
+
+\subsection{Recovery and network KPIs (H1)}
+Table~\ref{tab:kpi} and Fig.~\ref{fig:kpis} give the results. In the \emph{flash crowd}, plain SDN leaves the arriving students on ap1: the affected flows lose \KpiFlashLossVone\% of their packets and carry \KpiFlashThrVone\,Mbit/s. Both acting variants steer clients away, raising throughput to \KpiFlashThrVtwo--\KpiFlashThrVthree\,Mbit/s and cutting loss to \KpiFlashLossVtwo\% (V2) and \KpiFlashLossVthree\% (V3), with intervals far from V1's. Jain's index rises from \FairJainVone{} to \FairJainVtwo{} (V2) and \FairJainVthree{} (V3), just under the 0.8 fairness target of the problem statement. V2 and V3 are not distinguishable here: steering is applied without an operator in both. In the \emph{AP failure}, the stations of ap2 re-associate by themselves, so V1 already works (\KpiApFailLossVone\% loss) and acting adds little. The wide intervals and the p95 latency of V2 and V3 (\KpiApFailLatVtwo{} and \KpiApFailLatVthree\,ms against \KpiApFailLatVone\,ms) come from failed rollbacks: \RbFailApFail{} of the \RbFailAll{} rollbacks that failed in the campaign were in AP-failure runs, where a steer issued shortly before the failure was judged by its 30\,s watch against the failure itself, was rolled back onto the failed AP, and left a station without an AP for the rest of the run. Per seed (42, 43, 44), V2's loss was \PerSeedLossApFailVtwo\% and its p95 latency \PerSeedLatApFailVtwo\,ms, V3's \PerSeedLossApFailVthree\% and \PerSeedLatApFailVthree\,ms: one V2 run and two V3 runs hit the failure, so a mean and a symmetric interval misdescribe a bimodal outcome. In the \emph{interference} scenario the fix is a high-impact channel change. V3's heuristics proposed it and the twin accepted it, but with no operator it was never applied; V3 could only steer clients, which still cut loss from \KpiCochanLossVone\% to \KpiCochanLossVthree\%. V2 applied the change directly and recovered in every run (mean \KpiCochanTtrVtwo\,s). V2 against V3 here therefore compares a loop with an absent operator against one without, not the effect of the twin alone; an auto-approving V3 would isolate it (future work).
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/fig_kpis.pdf}
+\caption{Loss (top) and throughput (bottom) of the affected flows per scenario and variant; bars are means, whiskers the 95\% Student-$t$ interval over three seeds, truncated at what the KPI can be (loss between 0 and 100\%, throughput at least 0), so they can be shorter than the $\pm$ of Table~\ref{tab:kpi}.}
+\label{fig:kpis}
+\end{figure*}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{figures/fig_recovery.pdf}
+\caption{Time to recover of every run. A hollow triangle is a run that never recovered, plotted at its run end.}
+\label{fig:recovery}
+\end{figure}
+
+\textbf{H1 is inconclusive in all three scenarios.} V3 is faster than V1 by \HoneFasterFlash\%, \HoneFasterApFail\% and \HoneFasterCochan\% (flash crowd, AP failure, interference; target 30\%), but plain SDN never recovered in any of its nine runs (Fig.~\ref{fig:recovery}), so each V1 time is only a lower bound and the percentages depend on the 600\,s cut-off. Counting runs instead: \RecovVone{} (V1), \RecovVtwo{} (V2) and \RecovVthree{} (V3) of nine recovered.
+
+\subsection{Safety and the twin's role (H2)}
+Table~\ref{tab:actions} gives what became of every action, from the executor ledgers of the passed runs. In V2 the twin rejected \SafeVtwoAppliedTwinRejected{} actions that were applied anyway (\SafeVtwoHarmfulTwinRejected{} were then rolled back), and in V3 it rejected \LedVthreeRejected{}, none of which reached the network. Only V2 allows that comparison, since it applies every action whatever the verdict (V3 applies accepted actions alone). Of V2's \HarmAll{} harmful actions (rolled back, or the rollback failed) the twin had rejected \HarmRejected{} and accepted \HarmAccepted{}; V3 applied only accepted actions, and \HarmVthree{} of them were harmful, so \the\numexpr\HarmAccepted+\HarmVthree\relax{} harmful actions were applied after an accepted verdict in all. The harm rate among V2's resolved actions was \VtwoRejHarm{} of \VtwoRejTotal{} for twin-rejected and \VtwoAccHarm{} of \VtwoAccTotal{} for twin-accepted actions: higher, but not significantly so (one-sided Fisher exact test, $p=\HarmFisherP$; the cells are tiny and the actions of one run are not independent, so even this p-value is optimistic). \textbf{H2 therefore holds only in its weak, existential form}: the twin does block some harmful actions, but as a predictive filter it missed \HarmAccepted{} of \HarmAll{} in V2.
+
+\emph{Would a stricter rule help?} Eq.~(\ref{eq:accept}) accepts an action if any KPI is predicted more than \CfgChangePct\% better. Table~\ref{tab:rules} applies stricter rules to the recorded predictions of the same actions. Even rejecting every predicted regression above \CfgChangePct\% would stop only \RuleNoRegHarm{} of V2's \HarmAll{} harmful actions, and also \RuleNoRegKept{} of its \KeptAll{} kept ones: most harmful actions had no predicted regression at all, so the weakness is the prediction, not the rule. Against the live KPIs measured in the watch, the twin's median relative error (over the resolved actions with a nonzero measurement: \LiveThrN{} for throughput, \LiveLatN{} for latency, \LiveLossN{} for loss and \LiveJainN{} for Jain's index, V2 and V3 together) is \LiveThrErr\% for throughput, \LiveLatErr\% for latency and \LiveLossErr\% for loss, not better than the twin's own simulated ``nothing changes'' baseline (\LiveThrBase\%, \LiveLatBase\% and \LiveLossBase\%); only Jain's index, a count, is predicted exactly (\LiveJainErr\% against \LiveJainBase\%). The watch window includes the transient the twin does not model. The steady-state accuracy of Section~VII-C therefore does not carry over to the closed loop, and the latency and loss predictions were never validated separately.
+
+The main protection was the watch-and-rollback step, and it is not guaranteed: \RbFailAll{} of the \the\numexpr\LedVtwoRolledBack+\LedVthreeRolledBack+\RbFailAll\relax{} rollbacks that were attempted failed. In V3 every applied action had an accepted verdict and no high-impact change was applied without an operator (V2: \SafeVtwoHighImpactUnapproved{} such changes), which is why V3 could not repair the interference unattended; \LedVthreeWaiting{} accepted changes were still waiting for approval when their runs ended.
+
+\begin{table}[t]
+\caption{Fate of every action in the passed runs (nine runs per variant), from the executor ledgers. V2 applies actions whatever the twin said (the twin had rejected \SafeVtwoAppliedTwinRejected{} of them), so none shows as rejected there.}
+\label{tab:actions}
+\centering
+\input{generated/table_actions}
+\end{table}
+
+\begin{table}[t]
+\caption{Stricter acceptance rules applied to the recorded predictions of V2's resolved actions: how many harmful actions each would have rejected, and how many kept ones.}
+\label{tab:rules}
+\centering\small
+\input{generated/table_rules}
+\end{table}
+
+\subsection{Twin accuracy, LLM and detection}
+\emph{Twin.} On \TwinN{} held-out situations (\TwinSteadyN{} of them steady-state video) the twin's mean absolute percentage error for per-flow throughput is \TwinMape\%: \TwinSteadyVideo\% in steady state, \TwinSteer\% after client steering and \TwinChannel\% after a channel change (only \TwinChannelN{} cases), while bulk TCP flows are weakest (\TwinBulkLow--\TwinBulkHigh\%). A prediction takes a median \SimMedianMs\,ms. \emph{LLM (H3).} On a 30-intent test set the cloud model translated \IntCloudOk{} of \IntCases{} correctly (median \IntCloudSeconds\,s) and the local fallback \IntLocalOk{} of \IntCases{} (median \IntLocalSeconds\,s), so \textbf{H3 holds}; \IntFirstValid{} of the \IntCalls{} calls of the two evaluations were schema-valid at the first attempt (\IntRepairs{} repairs were needed), every output passes the schema before the compiler sees it, and no invalid output reached the network. On live faults the copilot answered \GenCopilotOk{} of \GenCopilotN{} diagnostic questions correctly, the explainer diagnosed \GenRcaOk{} of \GenRcaN{} faults from the first alert, and all \GenActionsVerdict{} of \GenActions{} LLM-proposed actions have their twin verdict in the audit log. \emph{Detection.} The Isolation Forest reaches precision \AnoPrecision, recall \AnoRecall{} and F1 \AnoF{} on the test split and flags the AP failure \AnoDelayFail\,s after it occurs. Holt's trend method does not beat the moving average (RMSE \FcHoltOne{} against \FcMaOne{} at one minute, \FcHoltThree{} against \FcMaThree{} at three), because load changes in steps; the loop therefore reacts to measured load rather than to the forecast.
+
+\section{Limitations}
+The network is emulated on one machine with a fixed propagation model, and the numbers describe this emulation, not a real campus. The co-channel interference the twin models is the model the testbed enforces (Section~IV-A), so the twin is not validated against independent contention physics, and Eq.~(\ref{eq:cap}) ignores CSMA/CA backoff, the 802.11 performance anomaly and the interferer's load. The twin is calibrated on this testbed, predicts steady state rather than the transient, and its closed-loop predictions are no better than ``nothing changes'' (Section~VII-B); its latency and loss predictions were not validated separately and Eq.~(\ref{eq:lat}) cannot predict more than \CfgLatCap\,ms. The acceptance rule (\ref{eq:accept}) is permissive, though stricter rules would not have helped; proposals of one tick are verified one by one. With three seeds the intervals are wide, and the evaluation seeds reuse the seed numbers of the calibration dataset, though the runs are separate, the controller acts in them and V1 acts not at all; a fresh set of seeds is the obvious next campaign. The campaign was unattended, so V3 never applied a high-impact action; an auto-approving V3 with a human-scale delay would isolate the twin's effect from the operator's absence. Two fixes follow from the failed rollbacks: a rollback should never target an AP that is down, and a watch should not judge an action while an AP goes silent or down. Suspending the watch on any anomaly would be unsafe, because an outside surge and an action's own congestion look alike; only verifiable infrastructure events should cancel it.
+
+\section{Conclusion}
+Used as a gate, the twin kept every applied action behind an accepted verdict and every high-impact change behind an operator, and an LLM behind that gate stated goals in natural language without ever acting on its own: no invalid output reached the network. That the twin makes control \emph{safer in outcome} is only partly shown: in V2 it rejected \HarmRejected{} of \HarmAll{} harmful actions (and \HarmVthree{} of V3's applied actions, all accepted, were harmful), its closed-loop predictions were no better than ``nothing changes'', a stricter acceptance rule would not have helped, the watch-and-rollback step did most of the protecting, and in the AP-failure scenario V3's flows fared worse than plain SDN's. Whether the loop recovers the network faster depends on the fault and on having an operator for the changes that matter most; H1 could not be shown, and the evidence is mixed. We measured each failure instead of assuming it: the steers that hurt, the rollbacks that failed and the changes left waiting. Next steps are a rollback that avoids failed APs, a twin whose latency, loss and transient predictions are validated (learned or analytical), a campaign on fresh seeds with an auto-approving operator, and an evaluation on real access points.
+
+\section*{Acknowledgment}
+Parts of the code and of the text were drafted with the help of an AI coding assistant (Claude Code). The authors reviewed all content and take responsibility for it.
+
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\end{document}

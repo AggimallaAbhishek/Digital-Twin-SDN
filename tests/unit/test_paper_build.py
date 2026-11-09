@@ -78,6 +78,7 @@ def _results() -> dict[str, Any]:
         f"{mode}/{scenario}": [
             {"ttr_s": None if mode == "V1" or k == 0 else 100.0 * k, "censor_s": 390.0}
             | {"loss_pct": 1.0 + k, "latency_p95_ms": 10.0 * (k + 1)}
+            | {"throughput_mbps": 0.5 + 0.1 * k, "jain": 0.7 + 0.05 * k}
             for k in range(3)
         ]
         for mode in MODES
@@ -268,8 +269,9 @@ def test_the_kpi_table_marks_means_that_include_runs_that_never_recovered(
     rows = [line for line in table.splitlines() if line.endswith("\\\\") and "&" in line]
     body = [r for r in rows if any(label in r for label in paper_build.MODE_LABELS.values())]
     assert len(body) == 9  # three variants in each of three scenarios
-    assert "$\\geq$ 390 $\\pm$ 2 (3)" in body[0]  # V1: all three runs never recovered
-    assert "$\\geq$" not in body[1]  # V2: every run recovered
+    assert "$\\geq$ 390 [390--390] (3)" in body[0]  # V1: all three runs never recovered
+    assert "$\\geq$" not in body[1]  # V2: every run recovered ...
+    assert body[1].count("(0)") == 1  # ... and the table says none never did
     assert body[2].startswith(" & V3 full & ")  # the scenario's name only on its first row
 
 
@@ -413,7 +415,9 @@ def judged(evidence: paper_build.Evidence, tmp_path: Path) -> paper_build.Eviden
     """The fixture evaluation with V2's ledger replaced by the five judged actions above, and V3's
     by one action the twin accepted that turned out harmful (V3 only applies accepted actions)."""
     v2 = _verdict_ledger(tmp_path / "judged" / "actions.db")
-    v3_cases = [("rolled_back", True, _kpis(thr=0.55), None)]  # +10% throughput: the rule accepts
+    v3_cases = [
+        ("rolled_back", True, _kpis(jain=0.6), None)
+    ]  # only fairness +20%: the rule accepts
     v3 = _verdict_ledger(tmp_path / "judged-v3" / "actions.db", v3_cases)
     ledgers = {"V1": {}, "V2": {"ap_failure-v2-s42": v2}, "V3": {"ap_failure-v3-s42": v3}}
     return dataclasses.replace(evidence, ledgers=ledgers)
@@ -476,6 +480,64 @@ def test_stricter_verifier_rules_are_tried_on_the_recorded_actions(
     assert (n["RuleNoRegHarm"], n["RuleNoRegKept"]) == ("2", "1")
     # and one KPI more than 5% better: also rejects CASES[2] (no improvement predicted)
     assert (n["RuleConjHarm"], n["RuleConjKept"]) == ("3", "1")
+
+
+def test_the_predicted_regressions_of_the_harmful_actions_are_counted(
+    judged: paper_build.Evidence,
+) -> None:
+    n = paper_build.numbers(judged)
+    # V2's harmful actions are CASES[1] (loss 30% worse), [2] (no change) and [3] (all 10% worse):
+    # two had a predicted regression of some size, one had none at all
+    assert n["HarmAnyRegress"] == "2"
+    # accepted only because Jain's index (client counts) was predicted to improve: V3's action
+    assert n["HarmJainOnly"] == "1"
+
+
+def test_h1_is_decided_on_the_capped_recovery_times(judged: paper_build.Evidence) -> None:
+    assert paper_build.numbers(judged)["HoneCapped"] == "not met"  # 7.86% in every scenario
+
+
+def test_h1_is_met_only_if_every_scenario_reaches_the_target(
+    evidence: paper_build.Evidence,
+) -> None:
+    def with_speedups(*speedups: float) -> paper_build.Evidence:
+        h1 = {
+            s: {"faster_pct": pct, "verdict": "x", "v1_s": 1.0, "v3_s": 1.0}
+            for s, pct in zip(SCENARIOS, speedups, strict=True)
+        }
+        return dataclasses.replace(evidence, results=evidence.results | {"h1": h1})
+
+    assert paper_build.numbers(with_speedups(30.0, 45.0, 90.0))["HoneCapped"] == "met"
+    assert paper_build.numbers(with_speedups(30.0, 45.0, 29.9))["HoneCapped"] == "not met"
+
+
+def test_a_cell_without_any_value_has_no_range(evidence: paper_build.Evidence) -> None:
+    runs = {k: [{**r, "loss_pct": None} for r in v] for k, v in evidence.results["runs"].items()}
+    empty = dataclasses.replace(evidence, results=evidence.results | {"runs": runs})
+    with pytest.raises(ValueError, match="no run of V1/"):
+        paper_build.kpi_range(empty, "V1", SCENARIOS[0], "loss_pct")
+
+
+def test_every_mean_of_the_recorded_evaluation_lies_in_its_range_over_the_seeds() -> None:
+    ev = paper_build.load_evidence()
+    for (mode, scenario, kpi), cell in paper_build.kpi_cells(ev).items():
+        low, high = paper_build.kpi_range(ev, mode, scenario, kpi)
+        assert low - 1e-9 <= cell["mean"] <= high + 1e-9, (mode, scenario, kpi)
+
+
+def test_the_kpi_table_gives_the_range_over_the_seeds_not_an_interval(
+    evidence: paper_build.Evidence,
+) -> None:
+    body = paper_build.table_kpis(evidence)
+    assert "9.2 [1.0--3.0]" in body  # loss of the three runs of a cell: 1, 2 and 3
+    assert "\\pm" not in body
+
+
+def test_the_range_of_a_cell_counts_a_run_that_never_recovered_at_its_run_end(
+    evidence: paper_build.Evidence,
+) -> None:
+    assert paper_build.kpi_range(evidence, "V2", SCENARIOS[0], "ttr_s") == (100.0, 390.0)
+    assert paper_build.kpi_range(evidence, "V1", SCENARIOS[0], "ttr_s") == (390.0, 390.0)
 
 
 def test_the_twins_prediction_is_compared_with_what_the_watch_measured(

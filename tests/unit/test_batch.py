@@ -173,3 +173,19 @@ def test_the_campaign_runs_every_mode_on_the_same_scenarios_and_seeds() -> None:
         runs += [r.run_id for r in plan_runs(config)]
     assert len(set(runs)) == 27
     assert "ap_failure-v2-s43" in runs
+
+
+RUN_ON_VM = Path(__file__).resolve().parents[2] / "testbed" / "run_on_vm.sh"
+
+
+def test_a_vm_run_first_stops_an_earlier_run_still_playing() -> None:
+    # live 2026-11-09: a demo stopped from the Mac left its scenario playing on the VM; it held
+    # the AP agent's port and the next run failed ("Address already in use"). The script runs
+    # on the VM, so this pins its order and pattern; the behaviour was checked on the VM.
+    script = RUN_ON_VM.read_text()
+    stop = script.index("sudo pkill -INT")
+    assert stop < script.index("sudo mn -c")  # before the new run builds its network
+    assert stop < script.index("sudo pkill -KILL")  # SIGINT first, SIGKILL only after a wait
+    # anchored on the interpreter (never this script's own bash line, which names the module)
+    # and bracketed (never the pkill/pgrep command lines themselves)
+    assert "EARLIER='^python3 -B -m [t]estbed[.]'" in script

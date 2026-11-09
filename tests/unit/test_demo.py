@@ -6,6 +6,7 @@ import contextlib
 import json
 import os
 import signal
+import subprocess
 import time
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
@@ -174,3 +175,46 @@ def test_stopping_the_demo_removes_its_run_file(tmp_path: Path) -> None:
     demo.write_run("lecture_flash_crowd", STARTED)
     demo.stop({})
     assert not (tmp_path / "demo" / "run.json").exists()  # the dashboard shows no demo clock
+
+
+def test_a_scenario_left_playing_on_the_vm_is_stopped(monkeypatch: pytest.MonkeyPatch) -> None:
+    # live 2026-11-09: `make demo-stop` + `make demo` left the first scenario playing on the VM;
+    # it held the AP agent's port, so the next one failed ("Address already in use") and the
+    # dashboard waited for telemetry forever
+    sent: list[list[str]] = []
+
+    def ssh(argv: list[str], **kw: object) -> subprocess.CompletedProcess[str]:
+        sent.append(argv)
+        return subprocess.CompletedProcess(argv, 0)
+
+    monkeypatch.setattr(demo, "run", ssh)
+    demo.stop_vm_scenario()
+    [argv] = sent
+    assert (argv[0], argv[-2]) == ("ssh", "sdnvm")
+    assert "BatchMode=yes" in argv  # never a password prompt: fail fast
+    script = argv[-1]
+    assert "pkill -INT" in script  # first a SIGINT: the scenario's own cleanup runs
+    assert "pkill -KILL" in script  # then, if it is still there, it is killed
+    # the pattern must not match the ssh command that carries it (it would kill itself)
+    assert "testbed.run_scenario" not in script
+
+
+def test_an_unreachable_vm_does_not_stop_the_demo_from_stopping(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    def down(argv: list[str], **kw: object) -> subprocess.CompletedProcess[str]:
+        raise subprocess.TimeoutExpired(argv, 45)
+
+    monkeypatch.setattr(demo, "run", down)
+    demo.stop_vm_scenario()  # logs, never raises: the Mac side still stops
+    assert "could not check the VM" in caplog.text
+
+
+def test_stopping_a_demo_also_stops_its_scenario_on_the_vm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr(demo, "stop", lambda services: calls.append("services"))
+    monkeypatch.setattr(demo, "stop_vm_scenario", lambda: calls.append("vm"))
+    assert demo.main(["--stop"]) == 0
+    assert calls == ["services", "vm"]

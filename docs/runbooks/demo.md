@@ -21,7 +21,8 @@ make demo                      # flash crowd, seed 44; prints the dashboard URL
 make demo-stop                 # afterwards: stop the API and the dashboard
 ```
 
-Each `make demo` starts clean: it stops a demo left running and moves the previous action log
+Each `make demo` starts clean: it stops a demo left running (on the Mac, and its scenario if it
+is still playing on the VM; `make demo-stop` does both too) and moves the previous action log
 to `logs/demo/actions-<time>.db`, so rehearsal actions do not show in the real demo. It then
 starts InfluxDB/Grafana, copies the testbed to the VM, starts the API (with the V3 control loop
 and the alert monitor) and the dashboard, then plays the scenario on the VM. The dashboard
@@ -64,6 +65,7 @@ Short, honest answers from the evaluation (27 runs, report Chapter 6). Say the w
 
 | Problem | Do this |
 |---|---|
+| The dashboard says "API up, waiting for telemetry" for more than ~2 minutes after `make demo` | The scenario did not start on the VM. See the demo's output ("AP agent never answered") and the VM log `~/p02/batch-live.out`. "Address already in use" there means an older scenario was still playing: `make demo-stop` stops it now, then `make demo` again |
 | `make demo` says port 8000 or 8501 is in use | Another terminal runs `make api` or `make dashboard`: stop it (Ctrl-C there), then `make demo` again. A demo left running is stopped by `make demo` itself |
 | `make demo` says the API or dashboard did not start | Read `logs/demo/api.log` / `dashboard.log`, then `make demo` again |
 | Banner and map say "Waiting for data from the network…" | The scenario has not started yet (agent wait ~1 min), or the collector failed: check the `make demo` output |

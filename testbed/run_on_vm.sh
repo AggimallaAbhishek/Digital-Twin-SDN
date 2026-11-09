@@ -18,6 +18,15 @@ RYU_APP="${RYU_APP:-ryu.app.simple_switch_13}"
 TIMEOUT_S="${TIMEOUT_S:-600}"
 mkdir -p "$LOG_DIR"
 
+# An earlier run stopped from the Mac mid-way (a demo stopped early) keeps playing here and holds
+# the AP agent's port, so this one would fail ("Address already in use"): stop it first, SIGINT
+# so it cleans up, SIGKILL after 30 s. Anchored on "python3 -B -m", so it never matches this
+# script's own command line; the brackets keep it from matching the pkill/pgrep lines.
+EARLIER='^python3 -B -m [t]estbed[.]'
+if sudo pkill -INT -f "$EARLIER"; then
+  for _ in $(seq 30); do pgrep -f "$EARLIER" > /dev/null || break; sleep 1; done
+  sudo pkill -KILL -f "$EARLIER"
+fi
 sudo mn -c > "$LOG_DIR/mnc-$NAME.out" 2>&1
 # Ryu runs from the repo root so repo apps (e.g. RYU_APP=controller.apps.twin_controller) import.
 (cd "$REPO" && PYTHONPATH="$REPO" exec nohup "$RYU_MANAGER" $RYU_APP \

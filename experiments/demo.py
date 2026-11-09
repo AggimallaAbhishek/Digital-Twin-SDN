@@ -37,8 +37,8 @@ from api.main import REQUEST_DRAIN_S, ApiConfig, load_api_config
 from api.wiring import ROOT, load_yaml
 from experiments import shell
 from experiments.batch import RunPlan, load_scenario
-from experiments.run_batch import RunExtras, play
-from experiments.shell import git_commit
+from experiments.run_batch import VM, RunExtras, play
+from experiments.shell import git_commit, run
 
 log = logging.getLogger("experiments.demo")
 LOGS = ROOT / "logs" / "demo"
@@ -156,6 +156,33 @@ def stop(demo: Mapping[str, Service]) -> None:
     (LOGS / RUN_FILE).unlink(missing_ok=True)  # no demo playing: the dashboard shows no clock
 
 
+# the scenario's own Python process on the VM (not its sudo/timeout wrappers, which end with it);
+# the brackets keep the pattern from matching the ssh command that carries it
+VM_SCENARIO = "^python3 .*[t]estbed[.]run_scenario"
+SCENARIO_STOP_S = 30  # how long a SIGINT'd scenario gets to clean up before SIGKILL
+SSH_SLACK_S = 15  # on top of SCENARIO_STOP_S: connecting and the pkill calls themselves
+SSH_CONNECT_S = 5  # an unreachable VM fails fast instead of holding up the stop
+
+
+def stop_vm_scenario() -> None:
+    """`make demo-stop`: stop the demo's scenario if it is still playing on the VM. SIGINT
+    first, so its cleanup stops the probes and the agent; SIGKILL if it is still there after
+    SCENARIO_STOP_S. An unreachable VM is logged, never raised. (A new run clears an earlier
+    one itself, in testbed/run_on_vm.sh: a scenario left playing held the AP agent's port and
+    the next one failed with "Address already in use", live 2026-11-09.)"""
+    match = f"-f '{VM_SCENARIO}'"
+    script = (
+        f"sudo pkill -INT {match} || exit 0; "
+        f"for _ in $(seq {SCENARIO_STOP_S}); do pgrep {match} > /dev/null || exit 0; sleep 1; "
+        f"done; sudo pkill -KILL {match}; exit 0"
+    )
+    ssh = ["ssh", "-o", f"ConnectTimeout={SSH_CONNECT_S}", "-o", "BatchMode=yes", VM, script]
+    try:
+        run(ssh, check=True, timeout=SCENARIO_STOP_S + SSH_SLACK_S, capture_output=True)
+    except (subprocess.SubprocessError, OSError) as exc:
+        log.warning("could not check the VM for a scenario still playing: %s", exc)
+
+
 def write_run(scenario: str, started: datetime) -> None:
     """logs/demo/run.json: what the dashboard's header and story strip follow (the scenario,
     when it started on the VM and how long it lasts; dashboard/panels.py demo_clock)."""
@@ -239,6 +266,7 @@ def main(argv: list[str] | None = None) -> int:
     demo = services(api)
     stop(demo)  # anything left from an earlier demo: every demo starts clean
     if args.stop:
+        stop_vm_scenario()  # its scenario too (a new run clears the VM itself: run_on_vm.sh)
         return 0
     try:
         check_ports(demo)

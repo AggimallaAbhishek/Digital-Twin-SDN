@@ -40,7 +40,18 @@ def repo(tmp_path: Path) -> Path:
         _write(root, item if item.endswith(".md") else f"{item}/part.dat")
     _write(root, "frontend design images/design.png", "png")
     _write(root, "final_submission/dist/old.zip", "an earlier build")
+    _write(root, "final_submission/paper/figures/fig_kpis.pdf", "pdf")
+    _write(root, "experiments/results/figures/kpis_ap_failure.png", "png")
+    _write(root, "docs/report/figures/fig-3-1.png", "png")
     return root
+
+
+def _top_level(tmp_path: Path) -> list[tuple[Path, str]]:
+    """The files that sit at the top of the package (built or copied by `build`)."""
+    names = ("README.md", "install_dataset.sh", "Overleaf.zip", "paper.pdf", "Revision_Report.docx")
+    for name in names:
+        _write(tmp_path / "top", name)
+    return [(tmp_path / "top" / name, name) for name in names]
 
 
 def _names(zip_path: Path) -> set[str]:
@@ -64,24 +75,77 @@ def test_the_recorded_evaluation_is_added_even_though_git_ignores_it(repo: Path)
     assert "data/evalv1-v1/part.dat" in files
     assert "models/part.dat" in files
     assert "data/README.md" in files
-    assert len(files) == len(submission.EVIDENCE)  # one file in each; data/scratch is not there
+    assert "experiments/results/figures/kpis_ap_failure.png" in files
+    assert "data/scratch/notes.txt" not in files  # not part of the evaluation
+    assert len(files) == len(submission.EVIDENCE) + 1  # a file in each path, and that plot
 
 
 def test_a_missing_part_of_the_evaluation_stops_the_build(repo: Path, tmp_path: Path) -> None:
     shutil.rmtree(repo / "data" / "evalv2-v1")
     with pytest.raises(submission.SubmissionError, match="evalv2-v1"):
-        submission.build_code_zip(repo, tmp_path / "Code_and_Data.zip")
+        submission.build_package(repo, tmp_path / "out.zip", _top_level(tmp_path))
 
 
-def test_the_code_zip_holds_code_and_evidence_but_no_secret(repo: Path, tmp_path: Path) -> None:
-    out = tmp_path / "Code_and_Data.zip"
-    size = submission.build_code_zip(repo, out)
+def test_the_package_has_the_parts_the_instructor_listed(repo: Path, tmp_path: Path) -> None:
+    out = tmp_path / "Final_Submission.zip"
+    size = submission.build_package(repo, out, _top_level(tmp_path))
     names = _names(out)
+    top = "Final_Submission/"
     assert size == out.stat().st_size > 0
-    assert "Digital-Twin-SDN/src/a.py" in names
-    assert "Digital-Twin-SDN/data/evalv1-v1/part.dat" in names
-    assert "Digital-Twin-SDN/.env.example" in names
-    assert not any(n.endswith("/.env") or "/logs/" in n for n in names)
+    assert {
+        top + n for n in ("README.md", "Overleaf.zip", "paper.pdf", "Revision_Report.docx")
+    } <= names
+    assert top + "Source_Code/src/a.py" in names  # the code
+    assert top + "Source_Code/.env.example" in names
+    assert top + "Dataset/data/evalv1-v1/part.dat" in names  # the dataset, in the repository layout
+    assert top + "Dataset/data/README.md" in names
+    assert top + "Dataset/models/part.dat" in names
+    assert top + "Figures/paper/fig_kpis.pdf" in names  # the figures
+    assert top + "Figures/results/kpis_ap_failure.png" in names
+    assert top + "Figures/report/fig-3-1.png" in names
+
+
+def test_the_dataset_is_not_repeated_in_the_source_code(repo: Path, tmp_path: Path) -> None:
+    out = tmp_path / "Final_Submission.zip"
+    submission.build_package(repo, out, _top_level(tmp_path))
+    in_code = {n for n in _names(out) if "/Source_Code/" in n}
+    assert not any(n.endswith(("data/README.md", "part.dat")) for n in in_code)
+
+
+def test_the_package_holds_no_secret_log_or_frontend_scratch(repo: Path, tmp_path: Path) -> None:
+    out = tmp_path / "Final_Submission.zip"
+    submission.build_package(repo, out, _top_level(tmp_path))
+    names = _names(out)
+    assert not any(n.endswith(("/.env", ".log")) or "/logs/" in n for n in names)
+    assert not any("frontend design images" in n or "/dist/" in n for n in names)
+
+
+def test_a_missing_top_level_file_stops_the_build(repo: Path, tmp_path: Path) -> None:
+    top = _top_level(tmp_path)
+    top[2][0].unlink()  # the Overleaf zip was not built
+    with pytest.raises(submission.SubmissionError, match=r"Overleaf\.zip"):
+        submission.build_package(repo, tmp_path / "out.zip", top)
+
+
+def test_the_setup_guide_states_what_the_evaluator_needs() -> None:
+    guide = (submission.SUBMISSION / "SETUP.md").read_text()
+    for needed in (
+        "System requirements",
+        "Python",
+        "Disk",
+        "Memory",
+        "Internet",
+        "install_dataset.sh",
+    ):
+        assert needed in guide, needed
+    assert "SETUP.md" in (submission.PACKAGE_DOCS / "README.md").read_text()  # and it is linked
+
+
+def test_the_installer_and_readme_of_the_package_exist_in_the_repository() -> None:
+    docs = submission.PACKAGE_DOCS
+    assert (docs / "README.md").is_file()
+    script = docs / "install_dataset.sh"
+    assert script.stat().st_mode & 0o100  # executable: `./install_dataset.sh` works after unzip
 
 
 def test_images_and_pdfs_are_stored_but_parquet_and_text_are_deflated(tmp_path: Path) -> None:
@@ -116,14 +180,14 @@ def test_the_env_template_is_allowed() -> None:
 def test_a_secret_that_was_tracked_anyway_is_still_refused(repo: Path, tmp_path: Path) -> None:
     _git(repo, "add", "-f", ".env")  # someone forced it in: git's ignore rules no longer help
     with pytest.raises(submission.SubmissionError, match=r"\.env"):
-        submission.build_code_zip(repo, tmp_path / "Code_and_Data.zip")
-    assert not (tmp_path / "Code_and_Data.zip").exists()
+        submission.build_package(repo, tmp_path / "Final_Submission.zip", _top_level(tmp_path))
+    assert not (tmp_path / "Final_Submission.zip").exists()
 
 
 def test_a_zip_over_the_limit_is_deleted_and_refused(repo: Path, tmp_path: Path) -> None:
-    out = tmp_path / "Code_and_Data.zip"
+    out = tmp_path / "Final_Submission.zip"
     with pytest.raises(submission.SubmissionError, match="over the"):
-        submission.build_code_zip(repo, out, limit=10)
+        submission.build_package(repo, out, _top_level(tmp_path), limit=10)
     assert not out.exists()
 
 
@@ -137,7 +201,7 @@ def _paper(root: Path) -> Path:
 
 
 def test_the_overleaf_zip_has_the_source_at_its_top_level(tmp_path: Path) -> None:
-    out = tmp_path / "Overleaf_Source.zip"
+    out = tmp_path / "Overleaf.zip"
     submission.build_overleaf_zip(_paper(tmp_path), out)
     assert _names(out) == {
         "main.tex",
@@ -176,7 +240,7 @@ def test_a_build_that_cannot_be_made_says_why(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     def refused() -> dict[str, int]:
-        raise submission.SubmissionError("Code_and_Data.zip is 120.0 MB: over the 100 MB limit")
+        raise submission.SubmissionError("Final_Submission.zip is 120.0 MB: over the 100 MB limit")
 
     monkeypatch.setattr(submission, "build", refused)
     assert submission.main([]) == 1
@@ -219,3 +283,22 @@ def test_a_paper_that_is_out_of_date_is_not_packaged(
     with pytest.raises(submission.SubmissionError, match=r"out of date.*numbers\.tex"):
         submission.build(tmp_path / "dist")
     assert not (tmp_path / "dist").exists()
+
+
+def test_two_files_under_one_name_in_the_zip_are_refused(tmp_path: Path) -> None:
+    (tmp_path / "a.txt").write_text("one")
+    (tmp_path / "b.txt").write_text("two")
+    out = tmp_path / "out.zip"
+    with pytest.raises(submission.SubmissionError, match="twice"):
+        submission.write_zip(
+            out, [(tmp_path / "a.txt", "x/f.txt"), (tmp_path / "b.txt", "x/f.txt")]
+        )
+    assert not out.exists()
+
+
+def test_the_authors_overleaf_pdf_replaces_the_preview_when_it_exists(tmp_path: Path) -> None:
+    built, final = tmp_path / "main.pdf", tmp_path / "paper_final.pdf"
+    built.write_text("tectonic preview")
+    assert submission.chosen_pdf(built, final) == built  # not provided yet
+    final.write_text("compiled on Overleaf")
+    assert submission.chosen_pdf(built, final) == final

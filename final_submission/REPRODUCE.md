@@ -1,7 +1,7 @@
 # Reproducing the paper
 
-This guide takes you from the unpacked `Code_and_Data.zip` to every table, figure and number in the
-paper. Two levels:
+This guide takes you from the unpacked `Final_Submission.zip` to every table, figure and number in
+the paper. Two levels:
 
 | Level | What it reproduces | Needs | Time |
 |---|---|---|---|
@@ -10,7 +10,16 @@ paper. Two levels:
 
 ## 0. What is in the ZIP, and what is synthetic
 
-- `Digital-Twin-SDN/`: the whole repository (code, configuration, tests, documentation).
+- `README.md` (what each part is), `Overleaf.zip` (the paper's source), `paper.pdf`,
+  `Revision_Report.docx`, `REPRODUCE.md` (this file) and `requirements.txt`.
+- `Figures/`: the paper's figures (`paper/`), the evaluation's KPI plots (`results/`) and the
+  report's diagrams (`report/`); `make paper` and `make results` regenerate the first two.
+- `Source_Code/`: the whole repository without the dataset (code, configuration, tests,
+  documentation; `Source_Code/final_submission/` holds the paper source, `paper/`, and the
+  revision reports). The commands below run inside it.
+- `Dataset/`: the recorded evaluation, in the project's folder layout: `data/`, `models/` and
+  `experiments/results/`. `bash install_dataset.sh` (next to it) copies it into `Source_Code/`; do
+  that once before anything else. What it holds:
 - `data/`: **synthetic** datasets, all produced by the Mininet-WiFi emulation. No real-network traces
   are used anywhere.
   - `data/v1`: 12 runs (4 scenarios x seeds 42, 43, 44), split by seed into train, validation and
@@ -20,8 +29,6 @@ paper. Two levels:
 - `models/`: the metrics files of the twin, forecaster, detector and LLM evaluations.
 - `experiments/results/`: the outputs the paper reads (`results.json`, `results.md`, the intent
   evaluation's `intents*.json`).
-- `final_submission/`: the paper source (`paper/`), this guide, `requirements.txt` and the revision
-  reports.
 
 No secret is included: `.env` is never packaged (`.env.example` lists the variables, all blank).
 
@@ -30,11 +37,13 @@ No secret is included: `.env` is never packaged (`.env.example` lists the variab
 Requirements: Python 3.11 (the project pins `>=3.11,<3.12`), [`uv`](https://docs.astral.sh/uv/).
 
 ```bash
-unzip Code_and_Data.zip && cd Digital-Twin-SDN
+unzip Final_Submission.zip && cd Final_Submission
+bash install_dataset.sh    # copies Dataset/ into Source_Code/ (once)
+cd Source_Code
 uv sync                    # creates .venv from pyproject.toml + uv.lock (pinned versions)
 # or, without uv:
 python3.11 -m venv .venv && . .venv/bin/activate
-pip install -r final_submission/requirements.txt
+pip install -r ../requirements.txt
 ```
 
 `final_submission/requirements.txt` is `uv export --no-dev --no-hashes` of the lock file. The
@@ -66,7 +75,7 @@ the absolute dataset paths inside `results.json` differ, the numbers do not).
 the text), `table_kpis.tex`, `table_actions.tex` and `figures/fig_kpis.pdf`, `fig_recovery.pdf`,
 from `results.json` and the ledgers; `main.tex` contains no hand-typed result. Without Tectonic,
 use `make paper` only for the generated files, then upload `final_submission/paper/` to Overleaf
-(or use `dist/Overleaf_Source.zip`) and compile there.
+(or use `Overleaf.zip`) and compile there.
 
 | In the paper | Produced by |
 |---|---|

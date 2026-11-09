@@ -162,7 +162,7 @@ paper: ## IEEE paper: numbers, tables, figures from the recorded evaluation -> f
 paper-check: ## fail if the paper's generated numbers and tables are out of date with the evaluation
 	$(RUN) python -m experiments.paper_build --check
 
-submission: paper ## final submission: Overleaf_Source.zip, Code_and_Data.zip (<100 MB), paper.pdf, revision report -> final_submission/dist/
+submission: paper ## final submission: Final_Submission.zip (Overleaf.zip, source code, figures, dataset, README; <100 MB) -> final_submission/dist/
 	$(RUN) python -m experiments.submission
 
 dashboard: ## P6.1 operator dashboard on http://127.0.0.1:8501 (needs `make api`)

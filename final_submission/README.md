@@ -14,10 +14,10 @@ PDF into `dist/`, so nothing is copied by hand and nothing can drift from the co
 | **Step 1.** Paper in the IEEE Overleaf template: abstract, introduction, related work; problem scenario, system model, mathematical formulation; proposed algorithm; baselines and experimental setup; results, graphs, performance analysis; conclusion; references in IEEE format | `paper/main.tex` (IEEEtran `conference` class), `paper/references.bib` (IEEE style) |
 | The paper reflects the implementation: equations, algorithm, figures and results | Every number, table and plot is generated from the recorded evaluation (`paper/generated/`, `paper/figures/`); `make paper-check` fails if the paper and the evaluation disagree; the equation-to-code map is in `REPRODUCE.md` |
 | **Step 2.** Google Deep Review, at least two rounds (a third recommended), with a revision report | `revisions/revision_report.md` (becomes `Revision_Report.docx`); the draft PDF is `revisions/paper_draft_v0.pdf`; save each uploaded revision as `revisions/paper_revN.pdf` |
-| **Step 3.** `Overleaf_Source.zip` | `dist/Overleaf_Source.zip` |
-| All implementation files (Python, Mininet and others) | `dist/Code_and_Data.zip` (`Digital-Twin-SDN/`: `common/ twin/ ml/ genai/ api/ controller/ telemetry/ testbed/ dashboard/ experiments/ config/ tests/`) |
-| Step-by-step installation and execution instructions; `requirements.txt` / environment configuration | `REPRODUCE.md`, `requirements.txt`, `pyproject.toml` + `uv.lock` (pinned), `.env.example` (variables, all blank), `docker-compose.yml` |
-| Required data files, or how to generate them; synthetic datasets identified | In the ZIP: `data/` and `models/` (all **synthetic**, from the Mininet-WiFi emulation); `REPRODUCE.md` section 0 and Level B |
+| **Step 3.** One ZIP, at most 100 MB: *Overleaf.zip, source code, figures, dataset (or a link), README, anything else* | `dist/Final_Submission.zip`: `Overleaf.zip`, `Source_Code/`, `Figures/`, `Dataset/`, `README.md`, plus `paper.pdf`, `Revision_Report.docx`, `REPRODUCE.md`, `requirements.txt`, `install_dataset.sh` (its own README is `package/README.md`) |
+| All implementation files (Python, Mininet and others) | `Source_Code/` in the ZIP: `common/ twin/ ml/ genai/ api/ controller/ telemetry/ testbed/ dashboard/ experiments/ config/ tests/` |
+| Step-by-step installation and execution instructions; system requirements; `requirements.txt` / environment configuration | `SETUP.md` (requirements and setup for the evaluator), `REPRODUCE.md`, `requirements.txt`, `pyproject.toml` + `uv.lock` (pinned), `.env.example` (variables, all blank), `docker-compose.yml` |
+| Required data files, or how to generate them; synthetic datasets identified | `Dataset/` in the ZIP: `data/` and `models/` (all **synthetic**, from the Mininet-WiFi emulation); `REPRODUCE.md` section 0 and Level B |
 | Parameters, random seeds, simulation settings, baseline configurations | `REPRODUCE.md` section 3; `config/*.yaml`, `experiments/scenarios/*.yaml`, `experiments/batch_eval_v*.yaml` (seeds 42, 43, 44) |
 | Exact commands to regenerate the reported results and figures | `REPRODUCE.md` section 2: `make results`, `make paper` (a figure and table map is there) |
 
@@ -30,23 +30,29 @@ final_submission/
 ├── requirements.txt      pinned dependencies (uv export of uv.lock)
 ├── paper/                main.tex, references.bib, generated/ (numbers, tables), figures/
 ├── revisions/            revision_report.md, paper_draft_v0.pdf, paper_revN.pdf (per round)
+├── package/              README.md and install_dataset.sh: the top of the submission ZIP
 └── dist/                 built by `make submission` (git-ignored)
-    ├── Overleaf_Source.zip
-    ├── Code_and_Data.zip     (under the form's 100 MB limit; the build refuses a larger one)
+    ├── Final_Submission.zip  THE FILE TO UPLOAD (under 100 MB; the build refuses a larger one)
+    ├── Overleaf.zip          loose copies of parts of it:
     ├── paper.pdf
     ├── Revision_Report.docx
     └── SHA256SUMS.txt
 ```
+
+Inside `Final_Submission.zip`: `README.md`, `Overleaf.zip`, `paper.pdf`, `Revision_Report.docx`,
+`REPRODUCE.md`, `requirements.txt`, `install_dataset.sh`, `Source_Code/`, `Dataset/` (the recorded
+evaluation, in the project's layout; the installer copies it into `Source_Code/`) and `Figures/`.
 
 ## Submitting
 
 1. Round the paper through Deep Review at least twice (steps in `revisions/revision_report.md`);
    after each round `make paper`, then upload the new PDF.
 2. Fill in `revisions/revision_report.md` and put the final `paper_revN.pdf` next to it.
-3. `make submission`. The final PDF for the form should be compiled on Overleaf from
-   `dist/Overleaf_Source.zip` (Overleaf's pdfLaTeX gives the standard IEEE Times layout; the
-   Tectonic build used by `make paper` is a close preview).
-4. Upload the four files of `dist/` to <https://forms.gle/5DbSbyJUqFwpXSYM9>.
+3. Compile the final paper on Overleaf from `dist/Overleaf.zip` (Overleaf's pdfLaTeX gives the
+   standard IEEE Times layout; the Tectonic build used by `make paper` is a close preview) and save
+   that PDF as `revisions/paper_final.pdf`. Then `make submission`: if that file exists it becomes
+   `paper.pdf` in the ZIP, otherwise the Tectonic preview does.
+4. Upload `dist/Final_Submission.zip` to <https://forms.gle/5DbSbyJUqFwpXSYM9>.
 
 ## Notes for the authors
 

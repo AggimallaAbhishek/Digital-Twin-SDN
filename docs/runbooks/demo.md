@@ -18,12 +18,12 @@ playing live. Every step has a fallback; if a fallback fails too, show the evalu
 
 ```bash
 make demo                      # flash crowd, seed 44; prints the dashboard URL
-make demo-stop                 # afterwards: stop the API and the dashboard
+make demo-stop                 # afterwards: stop the API, the dashboard and the VM run
 ```
 
-Each `make demo` starts clean: it stops a demo left running on the Mac, every new run on the VM
-first stops any earlier testbed run still playing there (`testbed/stop_on_vm.sh`, a batch's
-included), `make demo-stop` stops both the Mac side and the VM run, and it moves the previous action log
+Each `make demo` starts clean. It stops a demo left running on the Mac and any earlier testbed
+run still playing on the VM (`testbed/stop_on_vm.sh`, a batch's included; every VM run does
+this too); `make demo-stop` stops both. It also moves the previous action log
 to `logs/demo/actions-<time>.db`, so rehearsal actions do not show in the real demo. It then
 starts InfluxDB/Grafana, copies the testbed to the VM, starts the API (with the V3 control loop
 and the alert monitor) and the dashboard, then plays the scenario on the VM. The dashboard
@@ -66,7 +66,7 @@ Short, honest answers from the evaluation (27 runs, report Chapter 6). Say the w
 
 | Problem | Do this |
 |---|---|
-| The dashboard says "API up, waiting for telemetry" for more than ~2 minutes after `make demo` | The scenario did not start on the VM. See the demo's output ("AP agent never answered") and the VM log `~/p02/batch-live.out`. "Address already in use" there means an older scenario was still playing: `make demo-stop` stops it now, then `make demo` again |
+| The dashboard says "API up, waiting for telemetry" for more than ~2 minutes after `make demo` | The scenario did not start on the VM. See the demo's output ("AP agent never answered") and the VM log `~/p02/batch-live.out`. "Address already in use" there means an older scenario was still playing: `make demo` again (it stops the old one first). If the demo's output says "could not check the VM … stop_on_vm: …", the old run could not be stopped (sudo needs a password, or it outlived SIGKILL): on the VM, `pgrep -af testbed` and stop it by hand. A run that exits 70 at once did not start for the same reason (its log is not written) |
 | `make demo` says port 8000 or 8501 is in use | Another terminal runs `make api` or `make dashboard`: stop it (Ctrl-C there), then `make demo` again. A demo left running is stopped by `make demo` itself |
 | `make demo` says the API or dashboard did not start | Read `logs/demo/api.log` / `dashboard.log`, then `make demo` again |
 | Banner and map say "Waiting for data from the network…" | The scenario has not started yet (agent wait ~1 min), or the collector failed: check the `make demo` output |

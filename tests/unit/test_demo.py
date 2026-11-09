@@ -209,6 +209,17 @@ def test_an_unreachable_vm_does_not_stop_the_demo_from_stopping(
     assert "could not check the VM" in caplog.text
 
 
+def test_a_failed_stop_on_the_vm_says_why(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    def refused(argv: list[str], **kw: object) -> subprocess.CompletedProcess[str]:
+        raise subprocess.CalledProcessError(2, argv, stderr="stop_on_vm: could not signal x\n")
+
+    monkeypatch.setattr(demo, "run", refused)
+    demo.stop_vm_scenario()
+    assert "stop_on_vm: could not signal x" in caplog.text  # the script's own reason
+
+
 def test_stopping_a_demo_also_stops_its_scenario_on_the_vm(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -217,3 +228,20 @@ def test_stopping_a_demo_also_stops_its_scenario_on_the_vm(
     monkeypatch.setattr(demo, "stop_vm_scenario", lambda: calls.append("vm"))
     assert demo.main(["--stop"]) == 0
     assert calls == ["services", "vm"]
+
+
+def test_a_new_demo_stops_the_earlier_scenario_before_anything_starts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # else the old run's AP agent answers the new demo's first poll: its clock starts early
+    calls: list[str] = []
+    monkeypatch.setattr(demo, "stop", lambda services: calls.append("services"))
+    monkeypatch.setattr(demo, "stop_vm_scenario", lambda: calls.append("vm"))
+
+    def ports_taken(services: object) -> None:
+        calls.append("ports")
+        raise demo.DemoError("taken")
+
+    monkeypatch.setattr(demo, "check_ports", ports_taken)
+    assert demo.main([]) == 1
+    assert calls == ["services", "vm", "ports"]

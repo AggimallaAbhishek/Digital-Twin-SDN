@@ -34,8 +34,9 @@ _VERSION = re.compile(r"^([a-z][a-z0-9]*-)?v[0-9]+$")  # v1, or with a purpose: 
 _TAG = re.compile(r"^[a-z0-9]+$")
 # Same environment as `make scenario-vm`; 1200 s covers a 10-min scenario plus setup.
 _VM_ENV = "RYU_APP=controller.apps.twin_controller RYU_STARTUP_S=5 TIMEOUT_S=1200"
-_RUN_ON_VM = "~/Digital-Twin-SDN/testbed/run_on_vm.sh"
-STOP_ON_VM = "~/Digital-Twin-SDN/testbed/stop_on_vm.sh"  # stops a run still playing there
+_VM_TESTBED = "~/Digital-Twin-SDN/testbed"
+_RUN_ON_VM = f"{_VM_TESTBED}/run_on_vm.sh"
+STOP_ON_VM = f"{_VM_TESTBED}/stop_on_vm.sh"  # stops a run still playing there
 
 
 @dataclass(frozen=True)

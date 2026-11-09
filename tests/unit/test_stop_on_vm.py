@@ -1,9 +1,5 @@
 """testbed/stop_on_vm.sh: it stops a testbed run still playing on the VM (SIGINT first, SIGKILL
-after a wait), and only a testbed run.
-
-Why the script exists: a demo stopped from the Mac mid-way kept its scenario playing on the VM;
-it held the AP agent's port, so the next run failed with "Address already in use" and the
-dashboard waited for telemetry (live, 2026-11-09).
+after a wait), and only a testbed run (why: the script's header).
 
 The stop is run for real against a stand-in process, with a pass-through `sudo`. The stand-in
 cannot read "python3 -B -m testbed..." on macOS (its framework Python rewrites argv[0]), so it
@@ -44,11 +40,11 @@ time.sleep(60)
 
 @pytest.fixture
 def env(tmp_path: Path) -> dict[str, str]:
-    """A PATH whose `sudo` just runs the command."""
+    """A PATH whose `sudo` just runs the command (`sudo -n` too)."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     sudo = bin_dir / "sudo"
-    sudo.write_text('#!/bin/sh\nexec "$@"\n')
+    sudo.write_text('#!/bin/sh\n[ "$1" = -n ] && shift\nexec "$@"\n')
     sudo.chmod(0o755)
     return {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"}
 
@@ -57,7 +53,9 @@ def _start(tmp_path: Path, mood: str) -> tuple[subprocess.Popen[bytes], Path, st
     """A stand-in run, its marker file, and a pattern that matches it and nothing else."""
     tag = f"stand-in-{uuid.uuid4().hex}"
     marker = tmp_path / tag
-    proc = subprocess.Popen([sys.executable, "-c", STAND_IN, str(marker), mood])  # noqa: S603
+    proc = subprocess.Popen(  # noqa: S603 - this interpreter, the fixed script above
+        [sys.executable, "-c", STAND_IN, str(marker), mood]
+    )
     deadline = time.monotonic() + 10
     while not Path(f"{marker}.ready").exists():  # its SIGINT handler is in place
         assert time.monotonic() < deadline, "the stand-in did not start"
@@ -104,10 +102,20 @@ def test_a_failed_signal_is_reported_not_taken_for_nothing_running(
     env: dict[str, str], tmp_path: Path
 ) -> None:
     sudo = Path(env["PATH"].split(":", 1)[0]) / "sudo"
-    sudo.write_text("#!/bin/sh\nexit 3\n")  # e.g. sudo refused
+    sudo.write_text("#!/bin/sh\nexit 1\n")  # what sudo -n exits with when it would need a password
     result = _stop(env, "[a]nything", wait_s=1)
     assert result.returncode == 2
     assert "could not signal" in result.stderr
+
+
+def test_the_stopped_runs_wrapper_is_waited_for_too(env: dict[str, str], tmp_path: Path) -> None:
+    # the old run_on_vm.sh, once its Python is gone, still chowns the logs and pkills
+    # "ryu-manager <app>": run after the new run's Ryu started, that would kill it
+    wrapper = subprocess.Popen(["/bin/bash", "-c", "sleep 1.5; true", "testbed/run_on_vm.sh"])
+    _, _, pattern = _start(tmp_path, "polite")
+    result = _stop(env, pattern, wait_s=10)
+    assert result.returncode == 0, result.stderr
+    assert wrapper.poll() == 0  # it had ended before the stop returned
 
 
 def _default_pattern() -> str:

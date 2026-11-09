@@ -2,7 +2,7 @@
 
     make demo                                   # flash crowd, seed 44 (docs/runbooks/demo.md)
     make demo SCENARIO_DEMO=cochannel_interference   # another scenario
-    make demo-stop                              # stop the API and the dashboard
+    make demo-stop                              # stop the API, the dashboard and the VM run
 
 First stops anything left from an earlier demo, checks the ports are free and moves the old
 action ledger to logs/demo/actions-<time>.db (decision P6.2-B). Then starts the API (with the V3
@@ -156,25 +156,23 @@ def stop(demo: Mapping[str, Service]) -> None:
     (LOGS / RUN_FILE).unlink(missing_ok=True)  # no demo playing: the dashboard shows no clock
 
 
-# the scenario's own Python process on the VM (not its sudo/timeout wrappers, which end with it);
-# the brackets keep the pattern from matching the ssh command that carries it
 SCENARIO_STOP_S = 30  # how long a SIGINT'd scenario gets to clean up before SIGKILL
 SSH_SLACK_S = 15  # on top of SCENARIO_STOP_S: connecting and the script's own pkill calls
 SSH_CONNECT_S = 5  # an unreachable VM fails fast instead of holding up the stop
 
 
 def stop_vm_scenario() -> None:
-    """`make demo-stop`: stop the demo's scenario if it is still playing on the VM, with
-    testbed/stop_on_vm.sh (SIGINT so it cleans up, SIGKILL after SCENARIO_STOP_S). The same
-    script runs before every new run on the VM (run_on_vm.sh): a scenario left playing held
-    the AP agent's port and the next one failed (live 2026-11-09). An unreachable VM or a
-    failed stop is logged, never raised: the Mac side still stops."""
+    """`make demo` / `make demo-stop`: stop a scenario still playing on the VM, with
+    testbed/stop_on_vm.sh (SIGINT so it cleans up, SIGKILL after SCENARIO_STOP_S; why: its
+    header). The same script runs before every new run on the VM (run_on_vm.sh). An
+    unreachable VM or a failed stop is logged, never raised: the Mac side still stops."""
     remote = f"STOP_WAIT_S={SCENARIO_STOP_S} {STOP_ON_VM}"
     ssh = ["ssh", "-o", f"ConnectTimeout={SSH_CONNECT_S}", "-o", "BatchMode=yes", VM, remote]
     try:
         run(ssh, check=True, timeout=SCENARIO_STOP_S + SSH_SLACK_S, capture_output=True)
     except (subprocess.SubprocessError, OSError) as exc:
-        log.warning("could not check the VM for a scenario still playing: %s", exc)
+        why = getattr(exc, "stderr", None) or ""  # the script's own reason, when it ran
+        log.warning("could not check the VM for a scenario still playing: %s %s", exc, why)
 
 
 def write_run(scenario: str, started: datetime) -> None:
@@ -259,8 +257,9 @@ def main(argv: list[str] | None = None) -> int:
     api = load_api_config(load_yaml("api.yaml"))
     demo = services(api)
     stop(demo)  # anything left from an earlier demo: every demo starts clean
+    # its scenario too, before the new one's agent is polled: the old agent would answer it
+    stop_vm_scenario()
     if args.stop:
-        stop_vm_scenario()  # its scenario too (a new run clears the VM itself: run_on_vm.sh)
         return 0
     try:
         check_ports(demo)

@@ -163,7 +163,7 @@ SCENARIO_DEMO ?= lecture_flash_crowd
 demo: up sync-vm ## P6.2 live demo: API + dashboard, then SCENARIO_DEMO on the VM (~12 min, lid open)
 	@set -a; . ./.env; set +a; $(KEEP_AWAKE) $(RUN) python -m experiments.demo --scenario $(SCENARIO_DEMO)
 
-demo-stop: ## P6.2 stop the demo's API and dashboard
+demo-stop: ## P6.2 stop the demo's API, dashboard and its scenario on the VM
 	$(RUN) python -m experiments.demo --stop
 
 genai-batch: ## P5.5/P5.6 copilot questions + root-cause on live faults, seed 44 (~35 min, lid open)

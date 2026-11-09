@@ -179,10 +179,7 @@ RUN_ON_VM = Path(__file__).resolve().parents[2] / "testbed" / "run_on_vm.sh"
 
 
 def test_a_vm_run_first_stops_an_earlier_run_still_playing() -> None:
-    # live 2026-11-09: a demo stopped from the Mac left its scenario playing on the VM; it held
-    # the AP agent's port and the next run failed ("Address already in use"). The script runs
-    # on the VM, so this pins its order and pattern; the behaviour was checked on the VM.
-    # (testbed/stop_on_vm.sh itself is tested by running it: tests/unit/test_stop_on_vm.py)
+    # why: testbed/stop_on_vm.sh's header; the script itself: tests/unit/test_stop_on_vm.py
     script = RUN_ON_VM.read_text()
-    stop = script.index('"$REPO/testbed/stop_on_vm.sh"')
+    stop = script.index('"$REPO/testbed/stop_on_vm.sh" || exit 70')  # no run if it failed
     assert stop < script.index("sudo mn -c")  # before the new run builds its network

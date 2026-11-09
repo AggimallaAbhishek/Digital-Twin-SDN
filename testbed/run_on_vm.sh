@@ -18,8 +18,7 @@ RYU_APP="${RYU_APP:-ryu.app.simple_switch_13}"
 TIMEOUT_S="${TIMEOUT_S:-600}"
 mkdir -p "$LOG_DIR"
 
-# an earlier run still playing (a demo stopped from the Mac) would hold the AP agent's port
-"$REPO/testbed/stop_on_vm.sh" || { echo "run_on_vm: an earlier run is still playing" >&2; exit 70; }
+"$REPO/testbed/stop_on_vm.sh" || exit 70  # one testbed run at a time (why: its header)
 sudo mn -c > "$LOG_DIR/mnc-$NAME.out" 2>&1
 # Ryu runs from the repo root so repo apps (e.g. RYU_APP=controller.apps.twin_controller) import.
 (cd "$REPO" && PYTHONPATH="$REPO" exec nohup "$RYU_MANAGER" $RYU_APP \

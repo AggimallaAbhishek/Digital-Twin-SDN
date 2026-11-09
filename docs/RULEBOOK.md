@@ -95,7 +95,8 @@ Dependencies point **one way**. A module may import only from the modules listed
 | `ml/` | `common`, `twin` (state + sim, for the RL env) | `genai`, `api`, `controller` |
 | `genai/` | `common`; talks to the system **only through tools / API** | `controller`, `testbed`, `twin` internals |
 | `api/` | `common`, `twin`, `ml`, `genai`, `controller/executor` | `testbed` |
-| `dashboard/` | the HTTP/WS API only | any Python module |
+| `dashboard/` | the HTTP/WS API only; nothing imports it, except that the demo report reads `theme` and `views` (ADR-007) | any Python module |
+| `experiments/` | any project module except `dashboard`; `demo_report.py` also `dashboard.theme` and `dashboard.views`, which stay standard-library only (ADR-007) | the rest of `dashboard` |
 
 **Process boundaries.** Cross-process communication uses REST, WebSocket or MQTT with schema-validated messages. Never use shared files or direct database writes from another module.
 

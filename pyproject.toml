@@ -122,7 +122,8 @@ skip_empty = true
 
 # ---------------------------------------------------------------- import-linter (RULEBOOK §4)
 [tool.importlinter]
-root_packages = ["common", "testbed", "controller", "telemetry", "twin", "ml", "genai", "api", "dashboard"]
+root_packages = ["common", "testbed", "controller", "telemetry", "twin", "ml", "genai", "api", "dashboard", "experiments"]
+include_external_packages = true  # lets a contract forbid third-party packages (ADR-007)
 
 [[tool.importlinter.contracts]]
 name = "common is the base layer"
@@ -195,3 +196,20 @@ name = "nothing imports the dashboard (a leaf client of the API)"
 type = "forbidden"
 source_modules = ["common", "testbed", "controller", "telemetry", "twin", "ml", "genai", "api"]
 forbidden_modules = ["dashboard"]
+
+[[tool.importlinter.contracts]]
+name = "the demo report borrows only the dashboard's wording and colours (ADR-007)"
+type = "forbidden"
+source_modules = ["experiments"]
+forbidden_modules = ["dashboard"]
+ignore_imports = [
+    "experiments.demo_report -> dashboard.theme",
+    "experiments.demo_report -> dashboard.views",
+]
+
+[[tool.importlinter.contracts]]
+name = "the dashboard's wording and colours stay standard-library only (ADR-007)"
+type = "forbidden"
+source_modules = ["dashboard.theme", "dashboard.views"]
+# every other dashboard module and the dashboard's third-party packages; extend both lists when they grow
+forbidden_modules = ["dashboard.app", "dashboard.client", "dashboard.panels", "dashboard.svg", "streamlit", "altair", "pandas", "yaml"]

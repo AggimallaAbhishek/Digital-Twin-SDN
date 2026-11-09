@@ -37,7 +37,8 @@ Row = dict[str, Any]  # Any: JSON values (map_layers rows)
 PX_PER_M = 10.0
 PAD_LEFT, PAD_TOP, PAD_RIGHT, PAD_BOTTOM = 52.0, 14.0, 14.0, 48.0
 ZONE_INSET_M = 0.8  # the gutter between zones, as in the design
-AP_R = 27.0  # px: an AP disc
+AP_R = 17.0  # px: an AP disc, about twice a client dot (clients are drawn over it)
+PILL_W, PILL_H = 44.0, 18.0  # px: the channel pill under an AP ("ch 11" fits)
 CLIENT_R = 8.0
 RING_SHARE = 0.82  # the coverage ring: this share of the zone's half-size (true 30 m leaves it)
 DISC_FILL = {"calm": WHITE, "busy": YELLOW, "congested": RED, "down": GREY_ZONE}
@@ -135,8 +136,8 @@ def floor_plan_svg(
             )
     line, label = _move(plan, move, by_name)
     parts.append(line)
-    parts += [_client(plan, s, by_name, move) for s in stations]
     parts += [_ap(plan, a) for a in aps]
+    parts += [_client(plan, s, by_name, move) for s in stations]  # over the discs: never hidden
     parts.append(label)
     parts.append(_dimensions(plan))
     parts.append("</svg>")
@@ -221,20 +222,21 @@ def _ap(plan: _Plan, a: Row) -> str:
     band = a["band"]
     dash = ' stroke-dasharray="6 4"' if band == "down" else ""
     ink = WHITE if band == "congested" else NAVY
-    pill_w, pill_y = 54.0, cy + AP_R + 8
+    pill_w, pill_h, pill_y = PILL_W, PILL_H, cy + AP_R + 5
     channel = "off" if band == "down" else a["channel"]
     name = _e(a["name"])
     return (
-        f'<circle cx="{_f(cx + 4)}" cy="{_f(cy + 4)}" r="{_f(AP_R)}" fill="{NAVY}"/>'
+        f'<circle cx="{_f(cx + 3)}" cy="{_f(cy + 3)}" r="{_f(AP_R)}" fill="{NAVY}"/>'
         f'<circle data-ap="{name}" class="ap {_e(band)}" cx="{_f(cx)}" cy="{_f(cy)}" '
         f'r="{_f(AP_R)}" fill="{DISC_FILL.get(band, WHITE)}" stroke="{NAVY}" '
-        f'stroke-width="3"{dash}>'
+        f'stroke-width="2.5"{dash}>'
         f"<title>{name}: {_e(band)}</title></circle>"
-        f'<text class="disp" x="{_f(cx)}" y="{_f(cy + 6)}" font-size="18" fill="{ink}" '
+        f'<text class="disp" x="{_f(cx)}" y="{_f(cy + 4.5)}" font-size="13" fill="{ink}" '
         f'text-anchor="middle">{name}</text>'
-        f'<rect x="{_f(cx - pill_w / 2)}" y="{_f(pill_y)}" width="{_f(pill_w)}" height="24" '
-        f'rx="12" fill="{WHITE}" stroke="{NAVY}" stroke-width="2"/>'
-        f'<text x="{_f(cx)}" y="{_f(pill_y + 17)}" font-size="14" font-weight="700" '
+        f'<rect x="{_f(cx - pill_w / 2)}" y="{_f(pill_y)}" width="{_f(pill_w)}" '
+        f'height="{_f(pill_h)}" rx="{_f(pill_h / 2)}" fill="{WHITE}" stroke="{NAVY}" '
+        'stroke-width="1.5"/>'
+        f'<text x="{_f(cx)}" y="{_f(pill_y + pill_h / 2 + 4)}" font-size="11" font-weight="700" '
         f'fill="{NAVY}" text-anchor="middle">{_e(channel)}</text>'
     )
 

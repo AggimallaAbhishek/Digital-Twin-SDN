@@ -68,6 +68,16 @@ def test_no_unformatted_placeholder_reaches_the_markup() -> None:
         assert "}" not in svg
 
 
+def test_clients_are_drawn_over_the_ap_discs() -> None:
+    # a client right next to its AP must stay visible (user feedback on the live demo)
+    stations = [_sta("sta1", 21, 50.5), _sta("sta2", 60, 21, "ap4")]
+    root = _parse(floor_plan_svg(APS, stations, ZONES))
+    drawn = [e.get("data-ap") or e.get("data-client") for e in root.iter()]
+    order = [name for name in drawn if name]  # APs and clients, back to front
+    assert max(order.index(a) for a in ("ap1", "ap2", "ap3", "ap4")) < order.index("sta1")
+    assert order.index("ap4") < order.index("sta2")
+
+
 def test_a_congested_aps_zone_is_hatched_and_its_disc_is_red() -> None:
     root = _parse(floor_plan_svg(APS, [], ZONES))
     [hall] = [e for e in _by_data(root, "zone", "lecture hall") if e.get("data-state")]

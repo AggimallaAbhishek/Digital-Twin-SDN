@@ -148,6 +148,27 @@ def test_the_installer_and_readme_of_the_package_exist_in_the_repository() -> No
     assert script.stat().st_mode & 0o100  # executable: `./install_dataset.sh` works after unzip
 
 
+def test_each_os_has_a_one_click_runner_that_checks_the_results() -> None:
+    docs = submission.PACKAGE_DOCS
+    assert set(submission.RUNNERS) == {"run_mac_linux.sh", "run_windows.bat", "run_windows.ps1"}
+    for name in submission.RUNNERS:
+        assert (docs / name).is_file(), name
+    assert (docs / "run_mac_linux.sh").stat().st_mode & 0o100  # executable after unzip
+    for name in ("run_mac_linux.sh", "run_windows.ps1"):  # the same four steps, no `make` needed
+        text = (docs / name).read_text()
+        for step in ("uv", "sync", "experiments.analysis.results", "paper_build"):
+            assert step in text, (name, step)
+    assert "run_windows.ps1" in (docs / "run_windows.bat").read_text()
+
+
+def test_the_docs_say_ubuntu_is_only_for_rerunning_the_testbed() -> None:
+    for doc in (submission.SUBMISSION / "SETUP.md", submission.PACKAGE_DOCS / "README.md"):
+        text = doc.read_text()
+        assert "run_mac_linux.sh" in text, doc.name
+        assert "run_windows.bat" in text, doc.name
+        assert "No Ubuntu" in text, doc.name
+
+
 def test_images_and_pdfs_are_stored_but_parquet_and_text_are_deflated(tmp_path: Path) -> None:
     (tmp_path / "figure.png").write_text("x" * 1000)
     (tmp_path / "notes.txt").write_text("x" * 1000)

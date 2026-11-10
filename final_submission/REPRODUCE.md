@@ -8,6 +8,10 @@ the paper. Two levels:
 | **A. From the recorded runs** (recommended) | Every table, figure and number of the paper, from the recorded evaluation shipped in the ZIP | A laptop with Python 3.11 and `uv` | about 5 minutes |
 | **B. From scratch** | The recorded runs themselves: the 27 evaluation runs and the intent evaluation | The Ubuntu testbed VM, Docker and Ollama | about 7 hours of testbed time |
 
+**Fastest route for Level A, on any OS, no Ubuntu needed:** double-click `run_windows.bat`
+(Windows) or run `bash run_mac_linux.sh` (macOS, Linux). It does the install and runs the
+commands of section 1 for you. `SETUP.md` has the same steps typed out per OS.
+
 ## 0. What is in the ZIP, and what is synthetic
 
 - `README.md` (what each part is), `Overleaf.zip` (the paper's source), `paper.pdf`,

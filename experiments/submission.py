@@ -5,7 +5,8 @@
 `Final_Submission.zip` (the instructor's list: Overleaf zip, source code, figures, dataset,
 README, anything else; at most 100 MB) unpacks to `Final_Submission/`:
 
-- `README.md`, `install_dataset.sh`, `REPRODUCE.md`, `requirements.txt`;
+- `README.md`, `SETUP.md`, `REPRODUCE.md`, `requirements.txt`, `install_dataset.sh`, and the
+  one-click runners `run_mac_linux.sh` and `run_windows.bat` (with `run_windows.ps1`);
 - `Overleaf.zip`: the IEEE paper's source, files at the top level, for Overleaf's "Upload Project";
 - `Source_Code/`: every file git tracks or could track (the ignore rules apply, so no `.env`,
   log or key), without the dataset;
@@ -43,7 +44,8 @@ DIST = SUBMISSION / "dist"
 ZIP_LIMIT_BYTES = 100 * 1024 * 1024  # the submission form's limit per ZIP
 PACKAGE_DIR = "Final_Submission"  # the folder the submission ZIP unpacks to
 PACKAGE_ZIP = "Final_Submission.zip"
-PACKAGE_DOCS = SUBMISSION / "package"  # its README.md and install_dataset.sh
+PACKAGE_DOCS = SUBMISSION / "package"  # its README.md, install_dataset.sh and runners
+RUNNERS = ("run_mac_linux.sh", "run_windows.bat", "run_windows.ps1")  # one click per OS
 # where the figures are, by their folder in the package's Figures/
 FIGURE_SOURCES = {
     "paper": ("final_submission/paper/figures", "*.pdf"),
@@ -263,6 +265,7 @@ def build(dist: Path = DIST) -> dict[str, int]:
     top_level = [
         (PACKAGE_DOCS / "README.md", "README.md"),
         (PACKAGE_DOCS / "install_dataset.sh", "install_dataset.sh"),
+        *((PACKAGE_DOCS / name, name) for name in RUNNERS),
         (SUBMISSION / "SETUP.md", "SETUP.md"),
         (SUBMISSION / "REPRODUCE.md", "REPRODUCE.md"),
         (SUBMISSION / "requirements.txt", "requirements.txt"),

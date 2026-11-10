@@ -19,8 +19,8 @@ commands of section 1 for you. `SETUP.md` has the same steps typed out per OS.
 - `Figures/`: the paper's figures (`paper/`), the evaluation's KPI plots (`results/`) and the
   report's diagrams (`report/`); `make paper` and `make results` regenerate the first two.
 - `Source_Code/`: the whole repository without the dataset (code, configuration, tests,
-  documentation; `Source_Code/final_submission/` holds the paper source, `paper/`, and the
-  revision reports). The commands below run inside it.
+  documentation; `Source_Code/final_submission/paper/` holds the paper source that
+  `make paper` and `make paper-check` write and compare). The commands below run inside it.
 - `Dataset/`: the recorded evaluation, in the project's folder layout: `data/`, `models/` and
   `experiments/results/`. `bash install_dataset.sh` (next to it) copies it into `Source_Code/`; do
   that once before anything else. What it holds:
@@ -50,7 +50,7 @@ python3.11 -m venv .venv && . .venv/bin/activate
 pip install -r ../requirements.txt
 ```
 
-`final_submission/requirements.txt` is `uv export --no-dev --no-hashes` of the lock file. The
+`requirements.txt` (next to this file) is `uv export --no-dev --no-hashes` of the lock file. The
 development tools (pytest, ruff, mypy, pypandoc) are in the `dev` group of `pyproject.toml`
 (`uv sync` installs them).
 

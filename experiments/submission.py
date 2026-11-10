@@ -77,7 +77,13 @@ EXCLUDED = (
     "docs/report/build/",
     ".claude/",  # the assistant's project settings: not part of the work
     "docs/superpowers/",  # design notes of the dashboard
+    "tests/unit/test_submission.py",  # tests this packaging, whose inputs are not shipped
 )
+# final_submission/ is the authors' workspace (draft PDFs, review rounds, package docs): the ZIP
+# carries those at its top level or not at all. Only the paper source stays in Source_Code/,
+# because `make paper-check` and `make paper` compare and write there.
+WORKSPACE = "final_submission/"
+KEPT_FROM_WORKSPACE = "final_submission/paper/"
 # what .gitignore keeps out as a secret, a key, a token or a log: a backstop for files git's
 # rules do not see (the evidence folders are added by path) or that were forced in
 FORBIDDEN = re.compile(
@@ -120,8 +126,15 @@ def repository_files(root: Path) -> list[Path]:
     return sorted(
         Path(n)
         for n in names
-        if not n.startswith(EXCLUDED) and (root / n).is_file() and not (root / n).is_symlink()
+        if _shipped(n) and (root / n).is_file() and not (root / n).is_symlink()
     )
+
+
+def _shipped(name: str) -> bool:
+    """Whether the repository file `name` (relative, posix) belongs in Source_Code/."""
+    if name.startswith(EXCLUDED):
+        return False
+    return not name.startswith(WORKSPACE) or name.startswith(KEPT_FROM_WORKSPACE)
 
 
 def evidence_files(root: Path) -> list[Path]:

@@ -70,6 +70,24 @@ def test_repository_files_follow_the_ignore_rules(repo: Path) -> None:
     )
 
 
+def test_the_authors_workspace_is_left_out_but_the_paper_source_stays(repo: Path) -> None:
+    _write(repo, "final_submission/README.md")
+    _write(repo, "final_submission/revisions/paper_rev1.pdf", "pdf")
+    _write(repo, "final_submission/package/run_windows.bat")
+    _write(repo, "final_submission/paper/main.tex")
+    _write(repo, "tests/unit/test_submission.py")
+    files = {p.as_posix() for p in submission.repository_files(repo)}
+    assert "final_submission/paper/main.tex" in files  # `make paper-check` reads it
+    assert "final_submission/paper/figures/fig_kpis.pdf" in files
+    assert not any(
+        f.startswith(("final_submission/README", "final_submission/revisions/"))
+        or f.startswith("final_submission/package/")
+        for f in files
+    )
+    assert "tests/unit/test_submission.py" not in files  # its inputs are not shipped
+    assert "src/a.py" in files
+
+
 def test_the_recorded_evaluation_is_added_even_though_git_ignores_it(repo: Path) -> None:
     files = {p.as_posix() for p in submission.evidence_files(repo)}
     assert "data/evalv1-v1/part.dat" in files

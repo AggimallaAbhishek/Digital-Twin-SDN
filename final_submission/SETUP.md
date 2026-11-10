@@ -31,6 +31,19 @@ Add `--tests` (Mac/Linux: `bash run_mac_linux.sh --tests`) or `-Tests` (Windows:
 then `paper-check passed`, then `DONE`. The regenerated tables are in
 `Source_Code/experiments/results/results.md` and are identical to the paper's Table II.
 
+**After the four steps (and "Press any key to continue" on Windows).** Press any key or Enter:
+the window closes. That is the normal ending; nothing else has to be started or kept running.
+What you have now, and what you can do next (all optional):
+
+| What you have | Where | What to do |
+|---|---|---|
+| The regenerated tables and plots of the evaluation | `Source_Code/experiments/results/results.md` | Open it in any text editor; compare with the paper's Table II |
+| The check that the paper matches the data | `paper-check passed` in the window | Nothing: numbers, tables and figures were rebuilt and compared |
+| The paper | `paper.pdf`; source in `Overleaf.zip` | Read it, or upload `Overleaf.zip` to Overleaf to compile it |
+| The unit tests | run with `-Tests` / `--tests` | Windows: Command Prompt in this folder, `run_windows.bat -Tests`; Mac/Linux: `bash run_mac_linux.sh --tests` (about 2 minutes) |
+| A ready Python environment | `Source_Code/.venv` | Nothing; running the script again takes a few seconds |
+| The testbed experiments (optional, about 7 hours) | section 5 below | Needs the Ubuntu VM, Docker and Ollama |
+
 ## 2. What each level needs
 
 | Level | What you can do | What it needs | Time |
@@ -45,7 +58,7 @@ then `paper-check passed`, then `DONE`. The regenerated tables are in
 
 | | Requirement |
 |---|---|
-| Operating system | macOS, Windows 10/11 or Linux. The project was developed and checked on macOS (Apple Silicon); the Windows runner follows the same steps but was not run on a Windows machine, so if it fails, use WSL 2 (section 4) |
+| Operating system | macOS, Windows 10/11 or Linux. The project was developed and checked on macOS (Apple Silicon); the Windows runner (`run_windows.bat`) was also run on a Windows computer and finished with `paper-check passed`; if it fails on yours, use WSL 2 (section 4) |
 | Python | 3.11. You do not install it yourself: `uv` downloads it |
 | Memory | 4 GB or more |
 | Disk | about 1.5 GB free (the ZIP is about 65 MB, unpacked about 90 MB, the Python environment about 700 MB) |

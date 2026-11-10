@@ -22,18 +22,23 @@
 
 \newcommand{\KPI}{\mathbf{k}}
 \newcommand{\pct}[1]{#1\%}
+% one author: the name, and a smaller line under it (registration number or role)
+\newcommand{\person}[2]{\begin{tabular}[t]{@{}c@{}}#1\\ {\small #2}\end{tabular}}
 
 \begin{document}
 
 \title{A Twin-Gated Control Loop for Campus Wi-Fi:\\ Verifying SDN and LLM-Proposed Actions in a Digital Twin Before They Reach the Network}
 
-\author{
-\IEEEauthorblockN{Aggimalla Abhishek, N. Likhith Naik, Sundaram, Sambhav Mishra, Bikram Hawaldar}
-\IEEEauthorblockA{Indian Institute of Information Technology Dharwad, India}
-\and
-\IEEEauthorblockN{Jagadeesha R B}
-\IEEEauthorblockA{Dept.\ of Electronics and Communication Engineering\\
-Indian Institute of Information Technology Dharwad, India}
+% The five students in one evenly spaced row (name, registration number), the institution once,
+% then the faculty guide centred below.
+\author{%
+\person{Aggimalla Abhishek}{23BDS004}\hspace{2em}%
+\person{N. Likhith Naik}{23BDS037}\hspace{2em}%
+\person{Sundaram}{23BDS060}\hspace{2em}%
+\person{Sambhav Mishra}{23BDS050}\hspace{2em}%
+\person{Bikram Hawaldar}{23BCS033}\\[1.2ex]
+{\itshape Indian Institute of Information Technology Dharwad, India}\\[1.5ex]
+\person{Dr.\ Jagadeesha R B}{Faculty guide, Dept.\ of Electronics and Communication Engineering}%
 }
 
 \maketitle

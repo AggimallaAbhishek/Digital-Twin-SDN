@@ -23,7 +23,7 @@ controllers are compared over 27 runs.
 | `REPRODUCE.md` | Step-by-step installation and execution, seeds, parameters, baseline configurations, the exact command for every figure and table, and the map from equations to code. |
 | `requirements.txt` | Pinned Python dependencies (the project also has `pyproject.toml` and `uv.lock`). |
 | `Revision_Report.docx` | The Google Deep Review revision report: each round's review comments and the modifications made. |
-| `run_mac_linux.sh`, `run_windows.bat` | **One click to check everything** on macOS/Linux or Windows (the `.bat` starts `run_windows.ps1`): installs what is missing, regenerates every result, checks the paper's numbers. |
+| `run_mac_linux.sh`, `run_windows.bat` | **One click to check everything** on macOS/Linux or Windows (on Windows, click the batch file `run_windows.bat`; it starts `run_windows.ps1` by itself): installs and downloads everything that is missing, regenerates every result, checks the paper's numbers. |
 | `install_dataset.sh` | Puts the dataset where the code expects it (the runners do this for you). |
 
 ## Quick start (no Ubuntu, VM, Docker or LLM needed; details in `SETUP.md`)
@@ -32,7 +32,7 @@ Unpack the ZIP, then:
 
 | Computer | Command |
 |---|---|
-| **Windows** | double-click `run_windows.bat` |
+| **Windows** | double-click `run_windows.bat` (**install: click the Windows batch file `run_windows.bat`, not the `.ps1` file; it automatically installs and downloads everything needed, including Python and all packages, and sets up the data**) |
 | **macOS** | in Terminal, inside the folder: `bash run_mac_linux.sh` |
 | **Linux** | `bash run_mac_linux.sh` |
 
@@ -40,6 +40,22 @@ It installs `uv` (which fetches Python 3.11 and the packages, about 700 MB the f
 regenerates every table and figure of the evaluation, and checks that the paper's numbers match.
 Add `--tests` (Windows: `-Tests`) to run the unit tests too. Typing the steps by hand, the
 `pip` route, the paper compile and fixes for common problems are in `SETUP.md`.
+
+**When it finishes.** The window ends with `paper-check passed: the paper's numbers match the
+evaluation` and `DONE`, and the Windows window then says *Press any key to continue*. Press any
+key (or Enter): the window closes. That is the normal ending, and nothing else has to be started
+or kept running.
+
+**What you have after that, and what to do next (all optional):**
+
+| What | Where | What to do |
+|---|---|---|
+| The regenerated results: every table and plot of the evaluation | `Source_Code/experiments/results/results.md` (plots in the same folder) | Open it in any text editor. Its tables are identical to the paper's, for example Table II. |
+| The proof that the paper matches the data | the line `paper-check passed` in the window | Nothing: the paper's numbers, tables and figures were regenerated from the recorded runs and compared with the paper. |
+| The paper | `paper.pdf` (source: `Overleaf.zip`) | Read it. To compile the source yourself, upload `Overleaf.zip` to Overleaf (New Project, Upload Project). |
+| The unit tests | the window, when started with `-Tests` | Windows: open Command Prompt in this folder and run `run_windows.bat -Tests`. Mac/Linux: `bash run_mac_linux.sh --tests`. Takes about 2 minutes; all tests should pass. |
+| The Python environment (`Source_Code/.venv`) | inside `Source_Code/` | Nothing: the scripts use it. Running a script again takes a few seconds. |
+| Re-running the 27 testbed runs themselves | `REPRODUCE.md`, Level B | Optional and long (about 7 hours): needs an Ubuntu 20.04 VM, Docker and Ollama (`SETUP.md` section 5). |
 
 **No Ubuntu or Linux is needed** for any of this. Ubuntu 20.04 is needed only to re-run the
 27 testbed runs themselves (about 7 hours; `SETUP.md` section 5), which checking the results does

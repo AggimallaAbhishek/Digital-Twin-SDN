@@ -50,9 +50,9 @@ python3.11 -m venv .venv && . .venv/bin/activate
 pip install -r ../requirements.txt
 ```
 
-`requirements.txt` (next to this file) is `uv export --no-dev --no-hashes` of the lock file. The
-development tools (pytest, ruff, mypy, pypandoc) are in the `dev` group of `pyproject.toml`
-(`uv sync` installs them).
+`requirements.txt` (next to this file) is `uv export --no-hashes` of the lock file: the runtime
+packages and the development tools (pytest, ruff, mypy, pypandoc), all pinned, so that the
+`pip` route can also run the unit tests. `uv sync` installs the same set from `uv.lock`.
 
 Environment configuration (only Level B needs it): `make env` creates `.env` with locally generated
 secrets from `.env.example`; it never overwrites an existing file and the file is git-ignored.

@@ -96,6 +96,7 @@ FORBIDDEN = re.compile(
     re.IGNORECASE,
 )
 ALLOWED = {".env.example"}  # the template: every value blank
+JUNK_NAMES = {".DS_Store", "Thumbs.db"}  # the OS's folder metadata, never part of the data
 PAPER_FILES = ("main.tex", "references.bib")
 FINAL_PDF = "revisions/paper_final.pdf"  # the authors' Overleaf-compiled PDF, when they have it
 STORED_SUFFIXES = {
@@ -147,7 +148,11 @@ def evidence_files(root: Path) -> list[Path]:
     for item in EVIDENCE:
         path = root / item
         files = [path] if path.is_file() else path.rglob("*")
-        found |= {f.relative_to(root) for f in files if f.is_file() and not f.is_symlink()}
+        found |= {
+            f.relative_to(root)
+            for f in files
+            if f.is_file() and not f.is_symlink() and f.name not in JUNK_NAMES
+        }
     return sorted(found)
 
 

@@ -98,6 +98,14 @@ def test_the_recorded_evaluation_is_added_even_though_git_ignores_it(repo: Path)
     assert len(files) == len(submission.EVIDENCE) + 1  # a file in each path, and that plot
 
 
+def test_the_evidence_holds_no_os_folder_metadata(repo: Path) -> None:
+    _write(repo, "models/.DS_Store", "finder")
+    _write(repo, "data/evalv1-v1/Thumbs.db", "explorer")
+    files = {p.name for p in submission.evidence_files(repo)}
+    assert not files & {".DS_Store", "Thumbs.db"}
+    assert "part.dat" in files
+
+
 def test_a_missing_part_of_the_evaluation_stops_the_build(repo: Path, tmp_path: Path) -> None:
     shutil.rmtree(repo / "data" / "evalv2-v1")
     with pytest.raises(submission.SubmissionError, match="evalv2-v1"):

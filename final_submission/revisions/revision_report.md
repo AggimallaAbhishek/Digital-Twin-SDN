@@ -15,8 +15,8 @@ I = potential issue, M = minor correction); this report refers to those IDs.
 |---|---|---|---|---|
 | Draft (before review) | `round0_draft/paper_draft_v0.pdf` | n/a | n/a | n/a |
 | Round 1 | `round0_draft/paper_draft_v0.pdf` (revised as `paper_rev1.pdf`) | 27 | 15 | 12 |
-| Round 2 | `paper_rev1.pdf` (revised as `paper_rev2.pdf`; upload it for round 3) | 30 | 17 (+1 explained) | 12 |
-| Round 3 (recommended) | `paper_rev2.pdf` (to be uploaded) | (fill in) | (fill in) | (fill in) |
+| Round 2 | `paper_rev1.pdf` (revised as `paper_rev2.pdf`) | 30 | 17 (+1 explained) | 12 |
+| Round 3 | `paper_rev2.pdf` (revised as `paper_rev3.pdf`) | 28 | 12 (+1 not done, cosmetic) | 15 |
 
 Two complete review and revision rounds are required before submission; a third is recommended.
 Each reviewed version is kept unchanged (`round0_draft/`, `round1_draft/`: source and PDF); the revision is the
@@ -199,13 +199,102 @@ tests; `make check` passes (1676 tests).
 5. Validating the twin's latency and loss predictions, and separating exogenous collisions in
    the ledgers.
 
-# Round 3 (recommended)
+# Round 3
 
-**Uploaded:** `paper_rev3.pdf` (date: ____)
+**Uploaded:** `paper_rev2.pdf` (the round-2 revision, 8 pages). **Revision:** `paper_rev3.pdf`
+(8 pages). The reviewed revision is kept unchanged in `round2_draft/`. The comments are in
+`round3_deep_review.md` (28 of them, each given an ID). This round found no new problem with
+the numbers: the reviewer re-derived the counts of Tables II to IV, H1's percentages and the
+Fisher p-value and found them consistent. The citation checker again passed all 19 references.
+Every new number is generated from the recorded runs (`make paper`), with new unit tests.
 
-| # | Review comment (verbatim) | Modification made | Where | Files or experiments changed |
+## What the review found that was right
+
+- **The abstract's 4.5% was not exact** (M1.1): it is the error over all 586 held-out
+  situations; 4.0% is the steady-state error. Both are now given.
+- **ap1 and ap4 start every run at 3.45 Mbit/s, not 4.6** (I2.5): they share channel 1 at 50 m.
+  Now stated (generated from the configuration).
+- **The twin cannot see a transmit-power step** (I2.6): it is recorded in its state, but
+  nothing it computes depends on it, so it predicts no change and accepts it (a reroute is
+  always rejected, the campus having one path). True of the code; now stated. The heuristics
+  never propose either, so no result depends on it.
+- **The sign of δ when the baseline is zero was not written out** (I2.3). Now: +∞ for an
+  improvement, −∞ for a degradation (a loss appearing where there was none). This is what the
+  code does.
+- **Steering details a reader needs** (I2.1, I2.6): the budget of ⌊0.3 n⌋ stations is shared
+  by the target APs, so no station is proposed twice; an AP with fewer than four clients sheds
+  none; the channel set is 1, 6, 11 over the APs that are up, ties keep the current channel,
+  then the lowest. All stated from `ml/optimizer/heuristics.py`.
+- **What happens at 100% loss** (I2.6): a video flow with no throughput or 100% loss falls
+  back to its class's configured rate, and loss is capped at 100%. Stated.
+- **Several presentation points** (M2.1, M2.2, M2.3, M2.5, M3.1 to M3.5): ≺ defined where first
+  used; the delay constant renamed σ so that s is only the twin state; an unrecovered run is
+  assigned T_end − t_d; the stress window for Jain's index is [t_d, T_end]; "the course problem
+  statement" removed; Jain's index "a function of client counts"; the table row renamed
+  "Rejected, not applied"; the grammar slip fixed.
+- **The silent semantic misses of the local model** (I3.6, W5): the paper now says the schema,
+  compiler and executor guarantee syntax and bounds, not fidelity to the operator's goal.
+
+## What the data answers
+
+- **"A scheduled fault contaminates the harm labels" (I3.2, W4).** Tested, and answered with
+  data: from the run start times in the telemetry and the ledgers' timestamps, the scenario's
+  disruption fell within the 30 s before or after **18 of the 43** harmful actions of V2 and V3
+  (the window the watch compares; the 3 failed rollbacks are among them), so those labels are
+  partly the fault's. It does not explain the misses: leaving them out, the twin still rejected
+  only **2 of the 15** remaining harmful actions of V2. New numbers in Sec. VII-B. (A first
+  version counted only watches that began before the onset: 4; the reviewer agent showed that
+  the baseline window matters too.)
+- **"Up to three actions in one tick make the watches unattributable" (I2.1, W4).** In the
+  whole campaign only **2 ticks** applied more than one action (new number, Sec. V). Each
+  action is watched and rolled back on its own measurement.
+- **"Intent set not described" (I3.6).** Of the 30 intents, 17 ask for one objective in one
+  class and 13 are compound (a second objective, a constraint or two classes). Both models
+  translated all 17 simple ones; the cloud model all 13 compound ones and the local model 4.
+  The 9 local misses are therefore all compound. Stated in Sec. VII-C.
+
+## Per comment
+
+| ID | Comment (short) | Result | Modification, and where | Files, experiments |
 |---|---|---|---|---|
-| 3.1 | (paste the comment) | | | |
+| W1, I3.1 | V2 vs V3 confounds twin and operator gate | Partly | Unchanged from round 2 (stated upfront; ablation named in Sec. VIII). **Not done:** running V3 auto-approving or V2 gated (about 2 h of VM time each) | none |
+| W2 | Circular contention model; 15.8 ms cap; no latency/loss validation | Partly | Already stated in round 2; Sec. IV-A adds the 3.45 Mbit/s start of ap1 and ap4. **Not done:** physical contention, a learned surrogate, latency and loss validation | `main.tex` |
+| W3, I3.3 | Seed reuse, n = 3, no finite V1 | Partly | Ranges (round 2). **Not done:** fresh seeds (about 6 h), a roaming V1 | none |
+| W4, I3.2 | Rollbacks across a scheduled fault; permissive rule; same-tick states | Partly | Harmful actions counted by whether the disruption fell in their baseline or watch window (18 of 43), ticks with several actions counted (2); Sec. V states how each action is watched. **Not done:** the executor changes (re-check S1 on rollback, release the loop, re-verify approvals) and one action per tick | `paper_build.py` (`run_starts`, `_fault_numbers`), `main.tex` |
+| W5, I3.6 | LLM scope; semantic misses | Partly | Sec. I: property of syntax and bounds; Sec. VII-C: simple vs compound split. **Not done:** a standard benchmark, adversarial intents, running the 9 misses through the verifier | `paper_build.py` (`_is_compound`), `main.tex` |
+| M1.1 | Abstract: 4.5% | Fixed | Abstract gives 4.5% and 4.0% in steady state | `main.tex` |
+| I2.1 | Same-tick proposals, bound, attribution | Partly | Sec. V: shared budget, no station twice, none below four clients, own watch per action, 2 multi-action ticks. **Not done:** verifying same-tick proposals jointly or one action per tick | `main.tex` |
+| I2.2 | Rollback without S1; stale approvals | Partly | Already stated; the fixes (re-verify an approval, re-check S1, release the loop) are now listed together in Sec. VIII. **Not done:** implementing them | `main.tex` |
+| I2.3 | Disjunction; Jain bypass; ±∞ sign | Partly | Sign written out. The rule is unchanged (a safety threshold: ADR and approval needed); Table IV already tests the conjunction (4 of 23 harmful stopped) and Jain's share is 1 of 41 | `main.tex` |
+| I2.4 | Latency ceiling; cumulative load; fixed σ; station-level p95 | Partly | Ceiling and station-level p95 stated (round 2). **Not done:** a different delay model | none |
+| I2.5 | Load-independent cap; 3.45 Mbit/s | Fixed | Sec. III-A: each of ap1 and ap4 starts at 3.45 Mbit/s | `paper_build.py` (`CfgSharedCapacity`), `main.tex` |
+| I2.6 | reroute and tx-power mappings; 100% loss; parameters | Partly | Transmit power stated as invisible to the twin and reroute as always rejected; 100% loss fallback and cap; path-loss parameters; positions, demands and noise floors pointed to `config/`; channel set and tie-break. **Not expanded:** the policy compiler, the forecaster and detector hyperparameters | `main.tex` |
+| M2.1 | ≺ defined late | Fixed | Eq. (2) text | `main.tex` |
+| M2.2 | Symbol s twice | Fixed | Delay constant is σ | `main.tex` |
+| M2.3 | Unrecovered run is T_end − t_d | Fixed | Sec. IV-B | `main.tex` |
+| M2.4 | Index the scalar KPIs | Not done | Cosmetic; k is used for both the KPI and its index in the source of every equation, and changing it would touch all of Sec. IV | none |
+| M2.5 | Channel sum over APs that are up | Fixed | Sec. V | `main.tex` |
+| I3.4 | No roaming V1; decouple the two recovery conditions | Partly | As in round 2. **Not done:** a roaming V1; reporting the time to each condition separately (needs the recovery rule split in `experiments/analysis`) | none |
+| I3.5 | Latency and loss not validated offline | Partly | As in round 2. **Not done:** extending the twin validation to latency and loss | none |
+| M3.1 | Stress window | Fixed | Sec. VI: from t_d to the end of the run | `main.tex` |
+| M3.2 | "Course problem statement" | Fixed | Rephrased | `main.tex` |
+| M3.3 | Table III row for V2 | Fixed | Row now "Rejected, not applied"; the caption gives the partition | `paper_build.py`, `main.tex` |
+| M3.4 | "a count" | Fixed | "a function of client counts" | `main.tex` |
+| M3.5 | "1 kept ones" | Fixed | Grammar | `main.tex` |
+
+## Not done, and what it needs (for the next paper)
+
+1. A campaign on fresh seeds: about 6 hours of VM time.
+2. An auto-approving V3 without delay, or a V2 that keeps the operator gate: a small executor
+   and batch change plus one campaign each.
+3. A V1 with native 802.11k/v/r steering, and recovery reported per condition.
+4. The executor fixes: re-verify an approved action, re-check (S1) before a rollback, release
+   the loop when a watch is cancelled by an AP going down, one action per tick.
+5. Latency and loss validation of the twin, and a different delay model.
+
+# Round 4 (only if needed)
+
+Upload `paper_rev3.pdf`; the table is as above.
 
 # How a round is done
 

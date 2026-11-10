@@ -7,10 +7,12 @@ import json
 import re
 import shutil
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 from common.schemas import ACTION_ADAPTER, KPIValues, Verdict
@@ -90,6 +92,7 @@ def _results() -> dict[str, Any]:
     }
     return {
         "table": _table(),
+        "datasets": {m: f"data/eval{m.lower()}-v1" for m in MODES},
         "runs": runs,
         "h1": h1,
         "fairness": {m: {"jain": 0.5 + 0.1 * i, "target_met": False} for i, m in enumerate(MODES)},
@@ -122,6 +125,18 @@ def _ledger(path: Path, outcomes: list[tuple[str, float]]) -> None:
             db.update(action.action_id, status, T0, applied_at=T0)
 
 
+RUN_START = T0 - timedelta(seconds=230)  # an action at T0 is 230 s into a run: 10 s before 240 s
+
+
+def _telemetry(dataset: Path, runs: list[str]) -> None:
+    """A dataset's kpi.parquet: per run, its first sample (t_s = 0) and a later one."""
+    rows = [(r, RUN_START + timedelta(seconds=t), float(t)) for r in runs for t in (0, 5)]
+    columns = list(zip(*rows, strict=True))
+    table = pa.table({"run_id": columns[0], "ts": columns[1], "t_s": columns[2]})
+    dataset.mkdir(parents=True, exist_ok=True)
+    pq.write_table(table, dataset / "kpi.parquet")
+
+
 @pytest.fixture
 def tree(tmp_path: Path) -> Path:
     """A repository-shaped folder holding a small recorded evaluation."""
@@ -129,7 +144,9 @@ def tree(tmp_path: Path) -> Path:
     results = root / "experiments" / "results"
     _json(results / "results.json", _results())
     _json(results / "intents.json", {"cases": 30, "correct": 30, "seconds": [1.0, 2.0, 3.0]})
-    _json(results / "intents_local.json", {"cases": 30, "correct": 21, "seconds": [2.0, 4.0]})
+    local = {"cases": 30, "correct": 21, "seconds": [2.0, 4.0], "misses": ["i1", "i12"]}
+    _json(results / "intents_local.json", local)
+    shutil.copytree(REPO / "genai" / "eval", root / "genai" / "eval")  # the real intent set
     calls = [{"attempt": 1, "valid": True}, {"attempt": 1, "valid": False}, {"attempt": 2}]
     (results / "intent_calls.jsonl").write_text("".join(json.dumps(c) + "\n" for c in calls))
     (results / "intent_calls_local.jsonl").write_text(json.dumps({"attempt": 1}) + "\n")
@@ -181,6 +198,7 @@ def tree(tmp_path: Path) -> Path:
         ok = {"passed": True, "scenario_ok": True}
         runs = [{"run_id": passed} | ok, {"run_id": other} | ok | {"scenario_ok": False}]
         _json(raw / "batch.json", {"runs": runs})  # the second run did not pass: left out
+        _telemetry(root / "data" / f"eval{mode.lower()}-v1", [passed, other])
         if actions:
             _ledger(raw / passed / "actions.db", actions)
             _ledger(raw / other / "actions.db", [("kept", 0.1)])
@@ -229,6 +247,7 @@ def test_failed_rollbacks_are_counted_by_the_scenario_of_their_run(
             ]
         },
     )
+    _telemetry(tree / "data" / "evalv2-v1", ["cochannel_interference-v2-s42"])
     moved = paper_build.numbers(paper_build.load_evidence(tree))
     assert (moved["RbFailAll"], moved["RbFailApFail"]) == ("1", "0")
 
@@ -287,7 +306,7 @@ def test_the_action_table_has_a_row_per_fate_and_a_column_per_variant(
         "Rolled back & 0 & 1 & 1 \\\\",
         "Rollback failed & 0 & 1 & 0 \\\\",
         "Still watched & 0 & 1 & 0 \\\\",
-        "Rejected by the twin & 0 & 0 & 1 \\\\",
+        "Rejected, not applied & 0 & 0 & 1 \\\\",
         "Awaiting an operator & 0 & 0 & 1 \\\\",
     ]
 
@@ -491,6 +510,61 @@ def test_the_predicted_regressions_of_the_harmful_actions_are_counted(
     assert n["HarmAnyRegress"] == "2"
     # accepted only because Jain's index (client counts) was predicted to improve: V3's action
     assert n["HarmJainOnly"] == "1"
+
+
+def _started(ev: paper_build.Evidence, seconds: float) -> paper_build.Evidence:
+    """`ev` with every run started `seconds` later (its actions are then that much earlier)."""
+    moved = {
+        mode: {run: start + timedelta(seconds=seconds) for run, start in runs.items()}
+        for mode, runs in ev.run_starts.items()
+    }
+    return dataclasses.replace(ev, run_starts=moved)
+
+
+def test_harmful_actions_judged_across_the_scheduled_disruption_are_counted(
+    judged: paper_build.Evidence,
+) -> None:
+    # every action of the fixture is applied 230 s into an ap_failure run (disruption at 240 s,
+    # watch and baseline window 30 s each): the four harmful ones (V2's three, V3's one) are
+    # judged over it, and V2's twin rejected one of the three
+    n = paper_build.numbers(judged)
+    assert (n["HarmStraddle"], n["HarmStraddleVtwo"], n["HarmClearVtwo"]) == ("4", "3", "0")
+
+
+def test_the_disruption_taints_a_verdict_before_and_after_the_action(
+    judged: paper_build.Evidence,
+) -> None:
+    # 15 s later in the run (245 s): the disruption is 5 s *before* the action, in the baseline
+    after = paper_build.numbers(_started(judged, -15))
+    assert (after["HarmStraddle"], after["HarmClearVtwo"]) == ("4", "0")
+    # 100 s earlier in the run (130 s): the watch ends at 160 s, before the disruption
+    early = paper_build.numbers(_started(judged, 100))
+    assert (early["HarmStraddle"], early["HarmClearVtwo"]) == ("0", "3")
+    assert early["HarmClearRejected"] == "1"  # the one the twin rejected, now clear of the fault
+    # 100 s later in the run (330 s): the baseline window (300 to 330 s) is clear of it too
+    late = paper_build.numbers(_started(judged, -100))
+    assert late["HarmStraddle"] == "0"
+
+
+def test_actions_applied_in_one_tick_are_counted_as_a_group(judged: paper_build.Evidence) -> None:
+    # V2's ledger applies five actions at one instant (one tick); V3's single action is alone
+    assert paper_build.numbers(judged)["TickMulti"] == "1"
+
+
+def test_the_intents_are_split_into_single_clause_and_compound_ones(
+    evidence: paper_build.Evidence,
+) -> None:
+    n = paper_build.numbers(evidence)
+    assert (n["IntSimple"], n["IntCompound"]) == ("17", "13")  # i12 to i24 have a second clause
+    # the fixture's local model missed i1 (simple) and i12 (compound)
+    assert (n["IntLocalSimpleOk"], n["IntLocalCompoundOk"]) == ("16", "12")
+
+
+def test_ap1_and_ap4_start_with_the_capacity_their_shared_channel_leaves(
+    evidence: paper_build.Evidence,
+) -> None:
+    # 50 m apart on channel 1: w = (60 - 50) / (60 - 30) = 1/3, so 4.6 / (1 + 1/3) = 3.45
+    assert paper_build.numbers(evidence)["CfgSharedCapacity"] == "3.45"
 
 
 def test_h1_is_decided_on_the_capped_recovery_times(judged: paper_build.Evidence) -> None:

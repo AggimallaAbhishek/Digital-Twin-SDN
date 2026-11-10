@@ -26,10 +26,13 @@ import subprocess
 from collections import Counter
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime, timedelta
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
 import matplotlib
+import pyarrow.parquet as pq
 import yaml
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
@@ -37,9 +40,10 @@ from matplotlib.figure import Figure
 from common.schemas import MAX_STEER_FRACTION, MIN_TARGET_RSSI_DBM
 from controller.executor.ledger import ActionRecord, read_records
 from experiments.analysis.figures import GRID, MODE_COLOURS, SURFACE
-from experiments.analysis.results import H1_TARGET_PCT
-from experiments.batch import LOOP_MODES, run_ok
+from experiments.analysis.results import H1_TARGET_PCT, stress_window
+from experiments.batch import LOOP_MODES, load_scenario, run_ok
 from experiments.shell import run
+from twin.radio import capped_capacity_mbps, cochannel_load, load_radio_params
 from twin.verify.verifier import CHANGE_PCT, TX_POWER_MAX_STEP_DB, _better_pct, _kpi_rule
 
 log = logging.getLogger("experiments.paper_build")
@@ -77,7 +81,7 @@ STATUS_WORDS = {  # ledger status -> macro word and table heading
     "rolled_back": ("RolledBack", "Rolled back"),
     "rollback_failed": ("RollbackFailed", "Rollback failed"),
     "applied": ("Watched", "Still watched"),
-    "rejected": ("Rejected", "Rejected by the twin"),
+    "rejected": ("Rejected", "Rejected, not applied"),
     "verified": ("Waiting", "Awaiting an operator"),
 }
 Json = dict[str, Any]  # Any: JSON
@@ -94,10 +98,12 @@ class Evidence:
     genai: Json
     intents: Json
     intents_local: Json
+    intent_set: Sequence[Json]  # the 30 intents and what each should compile to
     intent_calls: Sequence[
         Json
     ]  # every LLM call of the two intent evaluations (one JSON line each)
     ledgers: Mapping[str, Mapping[str, Sequence[ActionRecord]]]  # mode -> passed run -> actions
+    run_starts: Mapping[str, Mapping[str, datetime]]  # mode -> run -> when its t_s was 0
     config: Mapping[str, Json]  # config/<name>.yaml
 
     def actions(self, mode: str) -> list[ActionRecord]:
@@ -117,6 +123,17 @@ def passed_runs(raw: Path) -> list[str]:
     return [r["run_id"] for r in batch["runs"] if run_ok(r)]
 
 
+def run_starts(dataset: Path) -> dict[str, datetime]:
+    """When each run of a dataset started (its t_s = 0), from the telemetry timestamps: the
+    ledgers date an action by the clock, the scenarios by seconds into the run."""
+    table = pq.read_table(dataset / "kpi.parquet", columns=["run_id", "ts", "t_s"])
+    first = table.group_by("run_id").aggregate([("ts", "min"), ("t_s", "min")])
+    return {
+        row["run_id"]: row["ts_min"] - timedelta(seconds=row["t_s_min"])
+        for row in first.to_pylist()
+    }
+
+
 def load_evidence(root: Path = ROOT) -> Evidence:
     """Read the recorded evaluation under `root` (a missing file is an error: say which)."""
     results = root / "experiments" / "results"
@@ -129,14 +146,25 @@ def load_evidence(root: Path = ROOT) -> Evidence:
             for run_id in passed_runs(raw)
             if (raw / run_id / "actions.db").exists()
         }
+    table = _load(results / "results.json")
+    starts = {
+        mode: run_starts(root / table["datasets"][mode]) if ledgers[mode] else {}
+        for mode in LOOP_MODES
+    }
     return Evidence(
-        results=_load(results / "results.json"),
+        results=table,
+        run_starts=starts,
         twin=_load(models / "twin" / "v1" / "validation.json"),
         anomaly=_load(models / "anomaly" / "v1" / "metrics.json"),
         forecast=_load(models / "forecast" / "v1" / "metrics.json"),
         genai=_load(models / "genai" / "v1" / "live.json"),
         intents=_load(results / "intents.json"),
         intents_local=_load(results / "intents_local.json"),
+        intent_set=[
+            json.loads(line)
+            for line in (root / "genai" / "eval" / "intents.jsonl").read_text().splitlines()
+            if line.strip()
+        ],
         intent_calls=[
             json.loads(line)
             for name in ("intent_calls.jsonl", "intent_calls_local.jsonl")
@@ -201,7 +229,14 @@ def numbers(ev: Evidence) -> dict[str, str]:
     sim_ms = [r.verdict.sim_time_ms for mode in LOOP_MODES for r in ev.actions(mode)]
     out["SimMedianMs"] = _f(statistics.median(sim_ms), 2) if sim_ms else "0"
     out |= _failed_rollbacks(ev)
-    return out | _model_numbers(ev) | _config_numbers(ev) | _verifier_numbers(ev) | _run_numbers(ev)
+    return (
+        out
+        | _model_numbers(ev)
+        | _config_numbers(ev)
+        | _verifier_numbers(ev)
+        | _fault_numbers(ev)
+        | _run_numbers(ev)
+    )
 
 
 # ---- the verifier against what the watch found (reviewer round 1: Eq. (6), unvalidated KPIs)
@@ -331,11 +366,66 @@ def _run_numbers(ev: Evidence) -> dict[str, str]:
         recovered = sum(r["ttr_s"] is not None for s in SCENARIOS for r in runs[f"{mode}/{s}"])
         out[f"Recov{MODE_WORDS[mode]}"] = str(recovered)
     out["IntCalls"] = str(len(ev.intent_calls))
+    compound = {i["id"] for i in ev.intent_set if _is_compound(i["expected"])}
+    missed = set(ev.intents_local["misses"])
+    out["IntCompound"] = str(len(compound))
+    out["IntSimple"] = str(len(ev.intent_set) - len(compound))
+    out["IntLocalCompoundOk"] = str(len(compound - missed))
+    out["IntLocalSimpleOk"] = str(len(ev.intent_set) - len(compound) - len(missed - compound))
     out["IntRepairs"] = str(sum(call.get("attempt", 1) > 1 for call in ev.intent_calls))
     out["IntFirstValid"] = str(
         sum(call.get("attempt", 1) == 1 and call.get("valid", False) for call in ev.intent_calls)
     )
     return out
+
+
+def _fault_numbers(ev: Evidence) -> dict[str, str]:
+    """When the actions of V2 and V3 were applied: how many harmful ones had the scenario's
+    scheduled disruption inside the window they were judged on (the watch cannot tell the fault
+    from the action's effect), and how many ticks applied more than one action (their watches
+    then run side by side). The executor compares the watch's KPIs with those of the `watch_s`
+    before the action, so the disruption taints the verdict if it falls within `watch_s` before
+    the action or within `watch_s` after it."""
+    watch = timedelta(seconds=ev.config["executor"]["watch_s"])
+    same_tick = timedelta(seconds=ev.config["loop"]["period_s"] / 2)
+    straddling, multi = 0, 0
+    v2_harm, v2_straddling, v2_rejected_clear = 0, 0, 0
+    for mode in ("V2", "V3"):
+        for run_id, records in ev.ledgers[mode].items():
+            start = ev.run_starts[mode][run_id]
+            onset = timedelta(
+                seconds=stress_window(load_scenario(run_id.rsplit("-", 2)[0])).onset_s
+            )
+            for r in records:
+                if r.status in HARMFUL and r.applied_at is not None:
+                    at = r.applied_at - start
+                    tainted = at - watch < onset < at + watch
+                    straddling += tainted
+                    if mode == "V2":
+                        v2_harm += 1
+                        v2_straddling += tainted
+                        v2_rejected_clear += not tainted and not r.verdict.accepted
+            times = sorted(r.applied_at for r in records if r.applied_at is not None)
+            group = 1
+            for before, after in pairwise(times):
+                if after - before < same_tick:
+                    group += 1
+                    multi += group == 2  # noqa: PLR2004 - count a group once, when it reaches two
+                else:
+                    group = 1
+    return {
+        "HarmStraddle": str(straddling),
+        "HarmStraddleVtwo": str(v2_straddling),
+        "HarmClearVtwo": str(v2_harm - v2_straddling),
+        "HarmClearRejected": str(v2_rejected_clear),
+        "TickMulti": str(multi),
+    }
+
+
+def _is_compound(expected: Json) -> bool:
+    """An intent with a second objective, a hard constraint or two traffic classes."""
+    classes = expected["scope"]["app_class"] or []
+    return len(expected["objectives"]) > 1 or bool(expected.get("constraints")) or len(classes) > 1
 
 
 def _failed_rollbacks(ev: Evidence) -> dict[str, str]:
@@ -392,7 +482,16 @@ def _model_numbers(ev: Evidence) -> dict[str, str]:
 def _config_numbers(ev: Evidence) -> dict[str, str]:
     cfg = ev.config
     radio = cfg["campus_v1"]["radio_model"]
+    params = load_radio_params(cfg["campus_v1"])
+    aps = {a["name"]: a["position"] for a in cfg["campus_v1"]["aps"]}
+    # ap1 and ap4 share channel 1: the capacity each keeps from the start of every run
+    shared = capped_capacity_mbps(
+        cochannel_load([math.dist(aps["ap1"], aps["ap4"])], params), params
+    )
     return {
+        "CfgSharedCapacity": _f(shared if shared is not None else params.ap_capacity_mbps, 2),
+        "CfgRssiOne": _f(params.rssi_at_1m_dbm, 0),
+        "CfgPathExp": _f(params.path_loss_exp, 1),
         "CfgCapacity": _f(radio["ap_capacity_mbps"], 1),
         "CfgBaseLoss": _f(cfg["sim"]["base_loss_pct"], 1),
         "CfgFetch": _f(cfg["sim"]["fetch_efficiency"], 1),

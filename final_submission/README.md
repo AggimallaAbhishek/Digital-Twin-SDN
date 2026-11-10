@@ -1,7 +1,7 @@
 # Final submission: IEEE paper, code, data and reproducibility
 
 **Paper:** *A Twin-Gated Control Loop for Campus Wi-Fi: Verifying SDN and LLM-Proposed Actions in a
-Digital Twin Before They Reach the Network* (IEEE conference format, 8 pages after three review rounds).
+Digital Twin Before They Reach the Network* (IEEE conference format, 8 pages after four review rounds).
 Group 22, EC466 Software Defined Networks, IIIT Dharwad.
 
 Everything here is built from the repository as it is: `make submission` rebuilds the ZIPs and the
@@ -13,7 +13,7 @@ PDF into `dist/`, so nothing is copied by hand and nothing can drift from the co
 |---|---|
 | **Step 1.** Paper in the IEEE Overleaf template: abstract, introduction, related work; problem scenario, system model, mathematical formulation; proposed algorithm; baselines and experimental setup; results, graphs, performance analysis; conclusion; references in IEEE format | `paper/main.tex` (IEEEtran `conference` class), `paper/references.bib` (IEEE style) |
 | The paper reflects the implementation: equations, algorithm, figures and results | Every number, table and plot is generated from the recorded evaluation (`paper/generated/`, `paper/figures/`); `make paper-check` fails if the paper and the evaluation disagree; the equation-to-code map is in `REPRODUCE.md` |
-| **Step 2.** Google Deep Review, at least two rounds (a third recommended), with a revision report | `revisions/revision_report.md` (becomes `Revision_Report.docx`); each reviewed version is kept unchanged in `revisions/round0_draft/` and `round1_draft/`; rounds 1 to 3 are done (`revisions/roundN_deep_review.md` holds the comments, `paper_rev1.pdf` to `paper_rev3.pdf` the revisions); the last revision is `paper_rev3.pdf` |
+| **Step 2.** Google Deep Review, at least two rounds (a third recommended), with a revision report | `revisions/revision_report.md` (becomes `Revision_Report.docx`); each reviewed version is kept unchanged in `revisions/round0_draft/` and `round1_draft/`; all four rounds are done (`revisions/roundN_deep_review.md` holds the comments, `paper_rev1.pdf` to `paper_rev4.pdf` the revisions); the final draft is `paper_rev4.pdf` |
 | **Step 3.** One ZIP, at most 100 MB: *Overleaf.zip, source code, figures, dataset (or a link), README, anything else* | `dist/Final_Submission.zip`: `Overleaf.zip`, `Source_Code/`, `Figures/`, `Dataset/`, `README.md`, plus `paper.pdf`, `Revision_Report.docx`, `REPRODUCE.md`, `requirements.txt`, `install_dataset.sh` (its own README is `package/README.md`) |
 | All implementation files (Python, Mininet and others) | `Source_Code/` in the ZIP: `common/ twin/ ml/ genai/ api/ controller/ telemetry/ testbed/ dashboard/ experiments/ config/ tests/` |
 | Step-by-step installation and execution instructions; system requirements; `requirements.txt` / environment configuration | `SETUP.md` (requirements and setup for the evaluator), `REPRODUCE.md`, `requirements.txt`, `pyproject.toml` + `uv.lock` (pinned), `.env.example` (variables, all blank), `docker-compose.yml` |
@@ -29,7 +29,7 @@ final_submission/
 ├── REPRODUCE.md          install, data, seeds, parameters, exact commands
 ├── requirements.txt      pinned dependencies (uv export of uv.lock)
 ├── paper/                main.tex, references.bib, generated/ (numbers, tables), figures/
-├── revisions/            revision_report.md, round0_draft/ to round2_draft/ (the reviewed versions, unchanged),
+├── revisions/            revision_report.md, round0_draft/ to round3_draft/ (the reviewed versions, unchanged),
 │                         roundN_deep_review.md (the comments), paper_revN.pdf (per round)
 ├── package/              README.md and install_dataset.sh: the top of the submission ZIP
 └── dist/                 built by `make submission` (git-ignored)

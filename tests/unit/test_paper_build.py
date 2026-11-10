@@ -499,6 +499,9 @@ def test_stricter_verifier_rules_are_tried_on_the_recorded_actions(
     assert (n["RuleNoRegHarm"], n["RuleNoRegKept"]) == ("2", "1")
     # and one KPI more than 5% better: also rejects CASES[2] (no improvement predicted)
     assert (n["RuleConjHarm"], n["RuleConjKept"]) == ("3", "1")
+    # as written but over throughput and Jain's index only: CASES[3] (throughput 10% worse, no
+    # gain) is the one harmful action rejected; the kept ones are accepted (loss is not looked at)
+    assert (n["RuleThrJainHarm"], n["RuleThrJainKept"]) == ("1", "0")
 
 
 def test_the_predicted_regressions_of_the_harmful_actions_are_counted(
@@ -544,6 +547,29 @@ def test_the_disruption_taints_a_verdict_before_and_after_the_action(
     # 100 s later in the run (330 s): the baseline window (300 to 330 s) is clear of it too
     late = paper_build.numbers(_started(judged, -100))
     assert late["HarmStraddle"] == "0"
+
+
+def test_the_closed_loop_error_is_also_given_for_the_actions_the_disruption_did_not_taint(
+    judged: paper_build.Evidence,
+) -> None:
+    # all actions are judged across the disruption: none is clear of it
+    assert paper_build.numbers(judged)["LiveClearN"] == "0"
+    # 100 s earlier in the run they are all clear, so the error is the one over all of them
+    n = paper_build.numbers(_started(judged, 100))
+    assert n["LiveClearN"] == n["LiveN"] == "2"
+    assert (n["LiveClearThrErr"], n["LiveClearThrBase"]) == (n["LiveThrErr"], n["LiveThrBase"])
+
+
+def test_kept_actions_judged_across_the_disruption_are_counted(
+    judged: paper_build.Evidence,
+) -> None:
+    assert paper_build.numbers(judged)["KeptStraddleVtwo"] == "2"  # V2's two kept actions
+
+
+def test_the_action_table_says_how_many_rejections_v2_ignored(judged: paper_build.Evidence) -> None:
+    rows = paper_build.table_actions(judged).splitlines()
+    rejected = next(r for r in rows if r.startswith("Rejected, not applied"))
+    assert rejected == "Rejected, not applied & 0 & 0 (2 ignored) & 0 \\\\"
 
 
 def test_actions_applied_in_one_tick_are_counted_as_a_group(judged: paper_build.Evidence) -> None:
@@ -662,5 +688,6 @@ def test_the_rules_table_shows_what_each_rule_would_have_blocked(
         "As written (no KPI $>$5\\% worse, or one $>$5\\% better) & 1 of 3 & 1 of 2 \\\\",
         "No KPI more than 5\\% worse & 2 of 3 & 1 of 2 \\\\",
         "No KPI more than 5\\% worse and one more than 5\\% better & 3 of 3 & 1 of 2 \\\\",
+        "As written, on throughput and Jain's index only & 1 of 3 & 0 of 2 \\\\",
     ]
     assert "table_rules.tex" in paper_build.texts(judged)

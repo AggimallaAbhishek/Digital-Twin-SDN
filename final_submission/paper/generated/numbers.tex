@@ -4,6 +4,7 @@
 \newcommand{\AnoF}{0.964}
 \newcommand{\AnoPrecision}{0.950}
 \newcommand{\AnoRecall}{0.979}
+\newcommand{\CfgApPlaces}{ap1 (20, 50), ap2 (60, 50), ap3 (20, 20) and ap4 (60, 20)}
 \newcommand{\CfgBaseLatency}{0.8}
 \newcommand{\CfgBaseLoss}{0.2}
 \newcommand{\CfgBulk}{0.394}
@@ -12,6 +13,10 @@
 \newcommand{\CfgCochanFull}{30}
 \newcommand{\CfgCochanZero}{60}
 \newcommand{\CfgFetch}{0.8}
+\newcommand{\CfgFloorJain}{0.02}
+\newcommand{\CfgFloorLat}{10.9}
+\newcommand{\CfgFloorLoss}{0.72}
+\newcommand{\CfgFloorThr}{0.18}
 \newcommand{\CfgForestSeed}{42}
 \newcommand{\CfgHighImpactGap}{120}
 \newcommand{\CfgLatCap}{15.8}
@@ -30,7 +35,9 @@
 \newcommand{\CfgTxStep}{3}
 \newcommand{\CfgUtilHigh}{0.8}
 \newcommand{\CfgUtilTarget}{0.6}
+\newcommand{\CfgVideo}{1.0}
 \newcommand{\CfgWatch}{30}
+\newcommand{\CfgWebRate}{0.08}
 \newcommand{\FairJainVone}{0.51}
 \newcommand{\FairJainVthree}{0.79}
 \newcommand{\FairJainVtwo}{0.78}
@@ -75,6 +82,7 @@
 \newcommand{\IntRepairs}{0}
 \newcommand{\IntSimple}{17}
 \newcommand{\KeptAll}{38}
+\newcommand{\KeptStraddleVtwo}{7}
 \newcommand{\KpiApFailJainVone}{0.96}
 \newcommand{\KpiApFailJainVthree}{0.89}
 \newcommand{\KpiApFailJainVtwo}{0.91}
@@ -141,6 +149,19 @@
 \newcommand{\LedVtwoRolledBack}{22}
 \newcommand{\LedVtwoWaiting}{0}
 \newcommand{\LedVtwoWatched}{3}
+\newcommand{\LiveClearJainBase}{1.9}
+\newcommand{\LiveClearJainErr}{0.0}
+\newcommand{\LiveClearJainN}{87}
+\newcommand{\LiveClearLatBase}{66.0}
+\newcommand{\LiveClearLatErr}{76.8}
+\newcommand{\LiveClearLatN}{87}
+\newcommand{\LiveClearLossBase}{48.5}
+\newcommand{\LiveClearLossErr}{59.0}
+\newcommand{\LiveClearLossN}{80}
+\newcommand{\LiveClearN}{87}
+\newcommand{\LiveClearThrBase}{50.5}
+\newcommand{\LiveClearThrErr}{55.6}
+\newcommand{\LiveClearThrN}{87}
 \newcommand{\LiveJainBase}{2.7}
 \newcommand{\LiveJainErr}{0.0}
 \newcommand{\LiveJainN}{114}
@@ -178,6 +199,8 @@
 \newcommand{\RuleConjKept}{6}
 \newcommand{\RuleNoRegHarm}{4}
 \newcommand{\RuleNoRegKept}{4}
+\newcommand{\RuleThrJainHarm}{2}
+\newcommand{\RuleThrJainKept}{3}
 \newcommand{\RuleTotal}{114}
 \newcommand{\RuleWrittenHarm}{2}
 \newcommand{\RuleWrittenKept}{1}

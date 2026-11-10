@@ -266,11 +266,20 @@ def _no_regression(record: ActionRecord) -> bool:
     return all(x >= -CHANGE_PCT for x in _improvements(record))
 
 
+def _accepts_on(record: ActionRecord, kpis: Sequence[str]) -> bool:
+    """The acceptance rule as written, but over some of the KPIs only."""
+    gain = dict(zip(KPI_FIELDS, _improvements(record), strict=True))
+    chosen = [gain[k] for k in kpis]
+    return all(x >= -CHANGE_PCT for x in chosen) or any(x > CHANGE_PCT for x in chosen)
+
+
 RULES: dict[str, Callable[[ActionRecord], bool]] = {  # macro word -> does the rule accept it?
     # the verifier's own rule, called as the code has it, so "as written" cannot drift from it
     "Written": lambda r: not _kpi_rule(r.verdict.baseline, r.verdict.predicted),
     "NoReg": _no_regression,
     "Conj": lambda r: _no_regression(r) and any(x > CHANGE_PCT for x in _improvements(r)),
+    # only the KPIs whose prediction was validated offline: throughput and Jain's index
+    "ThrJain": lambda r: _accepts_on(r, ("throughput_mbps", "jain")),
 }
 
 
@@ -332,11 +341,11 @@ def _count(records: Sequence[ActionRecord], accepted: bool, harmful: bool) -> in
     return sum(r.verdict.accepted == accepted and (r.status in HARMFUL) == harmful for r in records)
 
 
-def _live_error_numbers(resolved: Sequence[ActionRecord]) -> dict[str, str]:
+def _live_error_numbers(resolved: Sequence[ActionRecord], prefix: str = "Live") -> dict[str, str]:
     """Median relative error, per KPI, of the twin's prediction against the KPIs the watch
     measured for the same flows; and of "nothing changes" (the twin's own baseline)."""
     measured = [r for r in resolved if r.measured is not None]
-    out = {"LiveN": str(len(measured))}
+    out = {f"{prefix}N": str(len(measured))}
     for kpi, word in LIVE_WORDS.items():
         pairs = []  # (predicted, baseline, measured) of this KPI
         for r in measured:
@@ -345,10 +354,10 @@ def _live_error_numbers(resolved: Sequence[ActionRecord]) -> dict[str, str]:
                 pairs.append(
                     (getattr(r.verdict.predicted, kpi), getattr(r.verdict.baseline, kpi), live)
                 )
-        out[f"Live{word}N"] = str(len(pairs))  # how many of the measurements this KPI covers
+        out[f"{prefix}{word}N"] = str(len(pairs))  # how many of the measurements this KPI covers
         for suffix, index in (("Err", 0), ("Base", 1)):
             errors = [abs(p[index] - p[2]) / abs(p[2]) * 100 for p in pairs]
-            out[f"Live{word}{suffix}"] = _f(statistics.median(errors), 1) if errors else "n/a"
+            out[f"{prefix}{word}{suffix}"] = _f(statistics.median(errors), 1) if errors else "n/a"
     return out
 
 
@@ -380,16 +389,17 @@ def _run_numbers(ev: Evidence) -> dict[str, str]:
 
 
 def _fault_numbers(ev: Evidence) -> dict[str, str]:
-    """When the actions of V2 and V3 were applied: how many harmful ones had the scenario's
-    scheduled disruption inside the window they were judged on (the watch cannot tell the fault
-    from the action's effect), and how many ticks applied more than one action (their watches
-    then run side by side). The executor compares the watch's KPIs with those of the `watch_s`
-    before the action, so the disruption taints the verdict if it falls within `watch_s` before
-    the action or within `watch_s` after it."""
+    """When the actions of V2 and V3 were applied: how many had the scenario's scheduled
+    disruption inside the window they were judged on (the watch cannot tell the fault from the
+    action's effect), how the twin and its closed-loop error fare without them, and how many
+    ticks applied more than one action (their watches then run side by side). The executor
+    compares the watch's KPIs with those of the `watch_s` before the action, so the disruption
+    taints the verdict if it falls within `watch_s` before the action or within `watch_s` after."""
     watch = timedelta(seconds=ev.config["executor"]["watch_s"])
     same_tick = timedelta(seconds=ev.config["loop"]["period_s"] / 2)
     straddling, multi = 0, 0
-    v2_harm, v2_straddling, v2_rejected_clear = 0, 0, 0
+    v2_harm, v2_straddling, v2_rejected_clear, v2_kept_straddling = 0, 0, 0, 0
+    clear: list[ActionRecord] = []  # resolved actions whose verdict the disruption did not taint
     for mode in ("V2", "V3"):
         for run_id, records in ev.ledgers[mode].items():
             start = ev.run_starts[mode][run_id]
@@ -397,14 +407,20 @@ def _fault_numbers(ev: Evidence) -> dict[str, str]:
                 seconds=stress_window(load_scenario(run_id.rsplit("-", 2)[0])).onset_s
             )
             for r in records:
-                if r.status in HARMFUL and r.applied_at is not None:
-                    at = r.applied_at - start
-                    tainted = at - watch < onset < at + watch
+                if r.status not in RESOLVED or r.applied_at is None:
+                    continue
+                at = r.applied_at - start
+                tainted = at - watch < onset < at + watch
+                if not tainted:
+                    clear.append(r)
+                if r.status in HARMFUL:
                     straddling += tainted
                     if mode == "V2":
                         v2_harm += 1
                         v2_straddling += tainted
                         v2_rejected_clear += not tainted and not r.verdict.accepted
+                elif mode == "V2":
+                    v2_kept_straddling += tainted
             times = sorted(r.applied_at for r in records if r.applied_at is not None)
             group = 1
             for before, after in pairwise(times):
@@ -418,8 +434,9 @@ def _fault_numbers(ev: Evidence) -> dict[str, str]:
         "HarmStraddleVtwo": str(v2_straddling),
         "HarmClearVtwo": str(v2_harm - v2_straddling),
         "HarmClearRejected": str(v2_rejected_clear),
+        "KeptStraddleVtwo": str(v2_kept_straddling),
         "TickMulti": str(multi),
-    }
+    } | _live_error_numbers(clear, "LiveClear")
 
 
 def _is_compound(expected: Json) -> bool:
@@ -488,7 +505,16 @@ def _config_numbers(ev: Evidence) -> dict[str, str]:
     shared = capped_capacity_mbps(
         cochannel_load([math.dist(aps["ap1"], aps["ap4"])], params), params
     )
+    floor = cfg["executor"]["noise_floor"]
+    places = ", ".join(f"{n} ({x:g}, {y:g})" for n, (x, y) in aps.items())
     return {
+        "CfgVideo": _f(cfg["sim"]["apps"]["video"]["offered_mbps"], 1),
+        "CfgWebRate": _f(cfg["sim"]["apps"]["web"]["offered_mbps"], 2),
+        "CfgApPlaces": places.replace(", ap4", " and ap4"),
+        "CfgFloorThr": _f(floor["throughput_mbps"], 2),
+        "CfgFloorLat": _f(floor["latency_ms"], 1),
+        "CfgFloorLoss": _f(floor["loss_pct"], 2),
+        "CfgFloorJain": _f(floor["jain"], 2),
         "CfgSharedCapacity": _f(shared if shared is not None else params.ap_capacity_mbps, 2),
         "CfgRssiOne": _f(params.rssi_at_1m_dbm, 0),
         "CfgPathExp": _f(params.path_loss_exp, 1),
@@ -582,6 +608,7 @@ RULE_LABELS = {
     "Written": "As written (no KPI $>$5\\% worse, or one $>$5\\% better)",
     "NoReg": "No KPI more than 5\\% worse",
     "Conj": "No KPI more than 5\\% worse and one more than 5\\% better",
+    "ThrJain": "As written, on throughput and Jain's index only",
 }
 
 
@@ -613,8 +640,12 @@ def table_actions(ev: Evidence) -> str:
         "\\midrule",
         " & ".join(["Proposed", *(str(sum(counts[m].values())) for m in LOOP_MODES)]) + " \\\\",
     ]
+    ignored = sum(not r.verdict.accepted for r in ev.actions("V2"))  # applied anyway in V2
     for status, (_, heading) in STATUS_WORDS.items():
-        lines.append(" & ".join([heading, *(str(counts[m][status]) for m in LOOP_MODES)]) + " \\\\")
+        cells = [str(counts[m][status]) for m in LOOP_MODES]
+        if status == "rejected" and ignored:
+            cells[LOOP_MODES.index("V2")] += f" ({ignored} ignored)"
+        lines.append(" & ".join([heading, *cells]) + " \\\\")
     return "\n".join([*lines, "\\bottomrule", "\\end{tabular}"]) + "\n"
 
 
@@ -647,7 +678,7 @@ def figure_kpis(ev: Evidence, path: Path) -> None:
     cells = kpi_cells(ev)
     rows = (("loss_pct", "Loss (%)"), ("throughput_mbps", "Throughput (Mbit/s)"))
     with _pdf_style():
-        fig = Figure(figsize=(7.16, 2.5), facecolor=SURFACE, layout="constrained")
+        fig = Figure(figsize=(7.16, 2.2), facecolor=SURFACE, layout="constrained")
         grid = fig.subplots(len(rows), len(SCENARIOS), sharex=True)
         for r, (kpi, label) in enumerate(rows):
             for c, (scenario, (_, title)) in enumerate(SCENARIOS.items()):
@@ -687,7 +718,7 @@ def figure_recovery(ev: Evidence, path: Path) -> None:
     (counted at its run end) (PDF)."""
     runs = ev.results["runs"]
     with _pdf_style():
-        fig = Figure(figsize=(3.45, 2.2), facecolor=SURFACE, layout="constrained")
+        fig = Figure(figsize=(3.45, 2.0), facecolor=SURFACE, layout="constrained")
         ax = fig.subplots()
         _style(ax)
         ticks = [si * 4 + mi for si in range(len(SCENARIOS)) for mi in range(len(LOOP_MODES))]

@@ -17,9 +17,10 @@ I = potential issue, M = minor correction); this report refers to those IDs.
 | Round 1 | `round0_draft/paper_draft_v0.pdf` (revised as `paper_rev1.pdf`) | 27 | 15 | 12 |
 | Round 2 | `paper_rev1.pdf` (revised as `paper_rev2.pdf`) | 30 | 17 (+1 explained) | 12 |
 | Round 3 | `paper_rev2.pdf` (revised as `paper_rev3.pdf`) | 28 | 12 (+1 not done, cosmetic) | 15 |
+| Round 4 (final) | `paper_rev3.pdf` (revised as `paper_rev4.pdf`, the final draft) | 30 | 14 (+1 explained) | 15 |
 
 Two complete review and revision rounds are required before submission; a third is recommended.
-Each reviewed version is kept unchanged (`round0_draft/`, `round1_draft/`: source and PDF); the revision is the
+Each reviewed version is kept unchanged (`round0_draft/` to `round3_draft/`: source and PDF); the revision is the
 current `paper/`.
 
 # Round 1
@@ -292,9 +293,93 @@ Every new number is generated from the recorded runs (`make paper`), with new un
    the loop when a watch is cancelled by an AP going down, one action per tick.
 5. Latency and loss validation of the twin, and a different delay model.
 
-# Round 4 (only if needed)
+# Round 4 (final)
 
-Upload `paper_rev3.pdf`; the table is as above.
+**Uploaded:** `paper_rev3.pdf` (the round-3 revision, 8 pages). **Revision:** `paper_rev4.pdf`,
+the final draft (8 pages). The reviewed revision is kept unchanged in `round3_draft/`. The
+comments are in `round4_deep_review.md` (30 of them, each given an ID). As in round 3, the
+reviewer re-derived the numbers of Tables II to IV, H1's percentages and the Fisher p-value and
+found them consistent, and the citation checker passed all 19 references. Every new number is
+generated from the recorded runs (`make paper`), with new unit tests.
+
+## What the review found that was right
+
+- **A real error in Algorithm 1** (M2.5). Line 11 read "else if the verdict is accepted, queue
+  for approval", so an accepted proposal that needs no approval, arriving after three actions
+  had been applied in the tick, would have been queued for an operator. The code does not do
+  that (`api/loop.py` applies, or skips when a rate limit stops it, and queues only what needs
+  approval); the pseudocode did not match it. Corrected: queue if accepted and needs approval;
+  else apply if accepted and under the per-tick limit.
+- **The abstract and Section I still let a reader think the LLM drove the loop** (I1.1). Both
+  now say that only the heuristic optimizer ran on the emulated network, that the LLM is
+  evaluated offline, and that none of its actions was applied.
+- **Several quantities were not defined well enough to reimplement** (I2.5):
+  measured utilization (the bits the clients sent and received in the last interval, divided by
+  C_i: at most about 1, uplink included); the configured demands (video 1.0, web 0.08, bulk
+  0.394 Mbit/s); that the base loss is not subtracted when a video demand is inverted (a slight
+  overestimate); the AP coordinates; the four noise floors (0.18 Mbit/s, 10.9 ms, 0.72 points,
+  0.02); the flows compared for a channel change (those on the AP and on every AP sharing its
+  old or new channel). All generated from the configuration.
+- **The twin judged on the validated KPIs only** (I3.5). New row in Table IV: gating on
+  throughput and Jain's index alone would have rejected 2 of 23 harmful and 3 of 38 kept
+  actions: no better than the rule as written.
+- **The disruption's share of the harm and error numbers** (I3.3). Of V2's 38 kept actions, 7
+  were also judged across the disruption. Without all the tainted actions (87 remain) the
+  closed-loop errors are 55.6%, 76.8% and 59.0% against 50.5%, 66.0% and 48.5% for "nothing
+  changes": the same conclusion. The text also says that 43 = 23 + 20 and how it relates to
+  41 = 21 + 20.
+- **The seed split, the scoring rule, the 1000 ms value, the "(3 ignored)" cell, the
+  event AP against the affected AP, "Four fixes"**, and the small wording points (M1.1, M2.1,
+  M2.2, M2.4, M2.6, M3.1 to M3.4, M4.1) are fixed.
+
+## What the data or the code answers
+
+- **"Transmit power is accepted vacuously" (I2.3).** True, and now stated with the part the
+  reviewer left out: it is a medium-impact action, so an operator still has to approve it; it
+  is never applied on the twin's word alone.
+- **"Jain's index bypasses the flow checks" (W3, I2.3).** Answered in round 2 and again here:
+  1 of the 41 harmful actions applied after an accepted verdict was accepted on Jain's index
+  alone, and the stricter rules, now including one on throughput and Jain alone, do no better.
+- **M2.3 (parenthesis in Sec. IV-B)** reads cleanly; unchanged.
+- **M2.5, bold k:** the source already writes the predicted vector in bold; no change. The
+  scalar k is kept as the KPI's value and its index, as every equation of Sec. IV uses it.
+
+## Per comment
+
+| ID | Comment (short) | Result | Modification, and where | Files, experiments |
+|---|---|---|---|---|
+| W1, I3.1 | V2 vs V3 confounded; roaming V1; fresh seeds | Partly | Table I caption: V2 and V3 also differ in the operator gate, which no operator used. **Not done:** the auto-approving V3, a gated V2, a roaming V1, fresh seeds (about 2 to 6 h of VM time each) | `main.tex` |
+| W2, I2.1 | Circular, load-independent contention model; 15.8 ms cap | Partly | Sec. II: the model is small on purpose, to test whether a minimal steady-state model suffices for 5 s control. **Not done:** load-dependent contention, a learned surrogate | `main.tex` |
+| W3, I2.3, I2.4 | Disjunctive rule; blind rollback; paralysed loop; same-tick states | Partly | Transmit power stated as medium impact (operator approves). Rule and executor unchanged (a safety threshold and the executor are outside this task and need an ADR). The four fixes are listed together in Sec. VIII | `main.tex` |
+| W4, I3.6 | LLM evaluated offline; twin not tried on the 9 misses; no adversarial intents | Partly | Sec. VI: the scoring criterion. Sec. VIII: the misses were not run through the verifier. **Not done:** categorising them and running them through the twin (needs the compiler's actions replayed on recorded states) | `main.tex` |
+| I1.1 | Title and abstract frame a unified loop | Fixed | Abstract: only the heuristic optimizer ran on the network; the LLM is offline; none of its actions applied | `main.tex` |
+| I1.2 | Thresholds 30% and 20 of 30 unjustified; why V1 | Fixed | Sec. I: the thresholds are targets we set, the second a low floor (H3 weak by design); V1 is the baseline without control; roaming not emulated | `main.tex` |
+| I1.3 | Why a minimal model; verified-LLM literature | Partly | Sec. II as above. **Not added:** the verified-LLM references suggested (details could not be checked) | `main.tex` |
+| M1.1 | Colons after H1 to H3 | Fixed | Sec. I | `main.tex` |
+| I2.2 | Ceiling, priority starvation, station-level latency, transients | Partly | Station-level latency "understates the delay of a station's lower-priority flows" added; ceiling already stated. **Not done:** a different delay model | `main.tex` |
+| I2.5 | Utilization, demands, coordinates, flow scope, parameters | Partly | All the quantities listed above stated. **Not expanded:** the policy compiler's mapping rules and the forecaster and detector hyperparameters (in `config/`) | `paper_build.py` (`CfgVideo`, `CfgWebRate`, `CfgApPlaces`, `CfgFloor*`), `main.tex` |
+| M2.1, M2.2 | Unit; theta_q when demand fits | Fixed | Sec. III-A, IV-A | `main.tex` |
+| M2.3 | Parenthesis in Sec. IV-B | Explained | Reads cleanly | none |
+| M2.4 | Period after Eq. (6); k overloaded; capitals after (S3), (S4) | Fixed | The period and the capitals. The overloading of k is kept (see above) | `main.tex` |
+| M2.5 | Algorithm 1 line 11 | Fixed | Pseudocode now matches `api/loop.py` | `main.tex` |
+| M2.6 | Tie-break wording; long sentence; Policy | Fixed | Sec. V: tie-break rewritten, the sentence split; `Policy` is the schema's name, kept in code font | `main.tex` |
+| I3.2 | Seed reuse; which seed is which split | Partly | Sec. VI: 42, 43 and 44 are the training, validation and test split. **Not done:** fresh seeds | `main.tex` |
+| I3.3 | Disruption inside the watch; kept actions; errors without them | Fixed | Sec. VII-B: 7 of 38 kept actions tainted too; errors without the tainted actions; 43 = 23 + 20 against 41 = 21 + 20 | `paper_build.py` (`_fault_numbers`), `main.tex` |
+| I3.4 | V1 AP failure scored unrecovered; report U | Partly | Sec. VI: event AP against affected AP. **Not done:** the utilization of the surviving AP and a QoS-only recovery time (needs the recovery rule split in `experiments/analysis`) | `main.tex` |
+| I3.5 | Latency and loss unvalidated; rule on validated KPIs | Partly | New row in Table IV. **Not done:** held-out latency and loss error (the validation scores throughput only) | `paper_build.py` (`ThrJain`), `main.tex` |
+| M3.1 to M3.4 | "of this section"; "0.8" twice; 1000 ms footnote; "(3 ignored)" | Fixed | Sec. VI, VII-A; Table II caption; Table III cell | `paper_build.py`, `main.tex` |
+| M4.1 | "Two fixes" | Fixed | "Four fixes", split | `main.tex` |
+
+## Not done, and what it needs (for the next paper)
+
+1. A campaign on fresh seeds (about 6 hours of VM time).
+2. An auto-approving V3 without delay, or a V2 that keeps the operator gate; a V1 with native
+   802.11k/v/r steering.
+3. The executor fixes: re-verify an approved action, re-check (S1) before a rollback, release
+   the loop when a watch is cancelled by an AP going down.
+4. Latency and loss validation of the twin, a different delay model, a load-dependent
+   contention model.
+5. Replaying the local model's semantic misses through the verifier.
 
 # How a round is done
 

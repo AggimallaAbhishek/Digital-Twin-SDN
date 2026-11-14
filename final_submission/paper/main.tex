@@ -5,12 +5,12 @@
 \IEEEoverridecommandlockouts
 \usepackage{cite}
 \usepackage{amsmath,amssymb,amsfonts}
-\usepackage{algorithm}
+\usepackage[boxed]{algorithm}
 \usepackage{algorithmic}
 \usepackage{graphicx}
 \usepackage{textcomp}
 \usepackage{xcolor}
-\usepackage{booktabs}
+\usepackage{array}
 \usepackage{url}
 \usepackage{tikz}
 \usetikzlibrary{positioning,arrows.meta,calc}
@@ -19,6 +19,10 @@
   \usepackage[T1]{fontenc}
 \fi
 \input{generated/numbers}
+
+% figures sit in a thin frame; the content is shrunk by the frame's width so it still fits
+\setlength{\fboxsep}{3pt}
+\newcommand{\framedfigure}[2]{\fbox{\resizebox{\dimexpr#1-2\fboxsep-2\fboxrule\relax}{!}{#2}}}
 
 \newcommand{\KPI}{\mathbf{k}}
 \newcommand{\pct}[1]{#1\%}
@@ -84,7 +88,7 @@ Fig.~\ref{fig:arch} shows the architecture. The testbed streams AP, station and 
 
 \begin{figure}[t]
 \centering
-\resizebox{\columnwidth}{!}{%
+\framedfigure{\columnwidth}{%
 \begin{tikzpicture}[font=\sffamily\footnotesize, >=Stealth, line width=0.5pt,
   box/.style={draw, rounded corners=2pt, align=center, inner sep=3pt, minimum height=8mm},
   prop/.style={box, fill=yellow!25}, gate/.style={box, fill=green!18},
@@ -115,43 +119,49 @@ An \emph{action} $a$ is one of seven allow-listed types (reroute, QoS queue, rat
 \subsection{Analytical twin}
 \emph{Capacity.} An AP $i$ that is up offers $C=\CfgCapacity$\,Mbit/s, reduced by every up AP $j\neq i$ on its channel:
 \begin{equation}
-C_i=\frac{C}{1+\sum_{j\neq i,\ \mathrm{ch}(j)=\mathrm{ch}(i)} w(d_{ij})},
+\boxed{C_i=\frac{C}{1+\sum_{j\neq i,\ \mathrm{ch}(j)=\mathrm{ch}(i)} w(d_{ij})}},
 \label{eq:cap}
 \end{equation}
 where $d_{ij}$ is the distance between the APs, $w(d_{ij})=\min\{1,\max\{0,(d_2-d_{ij})/(d_2-d_1)\}\}$, $d_1=\CfgCochanFull$\,m (a same-channel AP this close takes a full share) and $d_2=\CfgCochanZero$\,m (from here it no longer interferes). The emulator does not produce co-channel contention, so the testbed enforces the same $C_i$ as a downlink rate cap on each AP's traffic-control queue while a co-channel AP is up (the cap is removed otherwise; $\CfgCapacity$\,Mbit/s is the emulator's own limit). Two consequences: agreement between twin and testbed on capacity sharing validates our implementation and the sharing and queueing logic, not the physical realism of Eq.~(\ref{eq:cap}); and Eq.~(\ref{eq:cap}) does not depend on the interferer's load, so an idle co-channel AP counts like a busy one. It also means that, in the twin and in the testbed alike, steering clients away from a co-channel AP or rate-limiting its flows gives its neighbours no capacity back: only a channel change or taking an AP down changes $C_i$, which is why the interference scenario needs a high-impact action.
 
 \emph{Sharing.} Each AP serves three queues $q$ in strict priority (priority, best effort, background). Within a queue, flow $f$ with demand $\lambda_f$ (its source rate, cut to its rate limit) receives the max-min fair share of the capacity left to the queue,
 \begin{equation}
-x_f=\min(\lambda_f,\theta_q),\qquad \sum_{f\in q}\min(\lambda_f,\theta_q)=\min\Big(R_q,\sum_{f\in q}\lambda_f\Big),
+\boxed{\begin{aligned}
+x_f&=\min(\lambda_f,\theta_q),\\
+\textstyle\sum_{f\in q}\min(\lambda_f,\theta_q)&=\min\big(R_q,\textstyle\sum_{f\in q}\lambda_f\big)
+\end{aligned}},
 \label{eq:share}
 \end{equation}
 where, writing $q'\prec q$ for the queues served before $q$, $R_q=\max\big(0,\,C_i-\sum_{q'\prec q}\sum_{f\in q'}x_f\big)$ (if the queue's demand fits, $x_f=\lambda_f$ and $\theta_q$ is any value of at least the largest demand). The demand $\lambda_f$ is the class's configured rate (video \CfgVideo, web \CfgWebRate, bulk \CfgBulk\,Mbit/s) and, for a video flow that has been measured, its received rate divided by $1-\ell_f$ (what its source must have sent; a flow with no throughput or with 100\% loss falls back to its class's configured rate, and loss is capped at 100\%; the \CfgBaseLoss\% base loss is not subtracted, a slight overestimate of $\lambda_f$); a flow is in the best-effort queue unless a QoS action moved it. An inelastic flow (video) loses $\ell_f=1-x_f/\lambda_f$ plus a base loss of \CfgBaseLoss\%; an elastic one (bulk TCP, offered \CfgBulk\,Mbit/s, the median measured on the training runs) slows down and sees only the base loss. A web flow takes part in the sharing and in $\rho_q$ with its configured fetch demand, but the rate it reports is that of one page fetch, \CfgFetch{} of the capacity that the other traffic in its own or a higher queue leaves free. The signal a station would get at another AP, used by (S1), follows a log-distance path-loss model ($\CfgRssiOne$\,dBm at 1\,m, exponent $\CfgPathExp$). The twin records a transmit-power step (at most \CfgTxStep\,dB) in its state, but Eqs.~(\ref{eq:cap})--(\ref{eq:jain}) do not depend on it, so it predicts no change and accepts it (it is medium impact, so an operator still has to approve it); a reroute is always rejected, because the campus has one path between any two nodes. The heuristics propose neither, and they are not evaluated here.
 
 \emph{Latency.} Each queue is modelled by the mean number in an M/M/1/K queue \cite{kleinrock1975} at load $\rho_q=\sum_{q'\preceq q}\sum_{f\in q'}\lambda_f/C_i$, where $q'\preceq q$ are the queues served before $q$ or $q$ itself (its own demand plus that of the queues served before it):
 \begin{equation}
-d_q=d_0+\sigma\,L(\rho_q,K),\quad L(\rho,K)=\frac{\rho}{1-\rho}-\frac{(K+1)\rho^{K+1}}{1-\rho^{K+1}},
+\boxed{d_q=d_0+\sigma\,L(\rho_q,K),\ L(\rho,K)=\tfrac{\rho}{1-\rho}-\tfrac{(K+1)\rho^{K+1}}{1-\rho^{K+1}}},
 \label{eq:lat}
 \end{equation}
 with $L(1,K)=K/2$, $d_0=\CfgBaseLatency$\,ms, $\sigma=\CfgServiceMs$\,ms and $K=\CfgQueueSlots$. Eq.~(\ref{eq:lat}) is a calibrated surrogate, not an exact priority-queue derivation: $\sigma$ was fitted to the delay plateau measured at saturation and $K$ bounds the queue, so the predicted delay stays below $d_0+\sigma K=\CfgLatCap$\,ms; as baseline and prediction are both capped there, the twin cannot predict a violation of the 50\,ms recovery threshold, nor a latency change once both saturate. The recovery criterion (\ref{eq:ttr}) is applied to \emph{measured} latency, not to this prediction. The twin's $L_{95}$ is the nearest-rank 95th percentile of the predicted latencies of the video flows the verdict compares (of all flows if none is video); as all flows of a station report the latency of its highest-priority queue, this is a percentile over stations, not over packet delays, and it understates the delay of a station's lower-priority flows. A flow without a working AP is dead (no throughput, 100\% loss). Network fairness is
 \begin{equation}
-J=\frac{\left(\sum_i n_i\right)^2}{N\sum_i n_i^2},
+\boxed{J=\frac{\left(\sum_i n_i\right)^2}{N\sum_i n_i^2}},
 \label{eq:jain}
 \end{equation}
 over the client counts $n_i$ of the $N$ APs that are up ($J=1$ when no client is associated). $J$ is network-wide and changes only when clients move (steering) or an AP goes up or down. The simulator maps a state and an action set to predicted KPIs, $\hat\KPI=f(s,a)$.
 
 \subsection{Safe control problem}
 Let $t_d$ be the time the disruption starts to load the network (the AP failure and the interference event as scheduled; in the flash crowd the onset of video at 210\,s, when ap1 becomes overloaded; $t_d=210$, $240$ and $180$\,s in the order of Section~III, and $T_{\mathrm{end}}=600$\,s) and $\mathcal U(t)$ the utilization of the affected AP, the traffic it serves divided by $C_i$ (measured as the bits its clients sent and received in the last interval, so at most about 1, uplink included); the affected AP is the one with the highest mean utilization in the 30\,s after $t_d$ (for the AP failure, necessarily a surviving one). The \emph{time to recover} is
-\begin{multline}
-T_{\mathrm{rec}}=\min\big(\{t\ge t_d:\ \mathcal U(\tau)<0.8\ \text{and}\ L_{95}(\tau)\le 50\,\mathrm{ms}\\
-\text{for all }\tau\in[t,t+15\,\mathrm{s}]\}\cup\{T_{\mathrm{end}}\}\big)-t_d,
+\begin{equation}
+\boxed{\begin{aligned}
+T_{\mathrm{rec}}=\min\big(&\{t\ge t_d:\ \mathcal U(\tau)<0.8\ \text{and}\\
+&\phantom{\{}L_{95}(\tau)\le 50\,\mathrm{ms}\ \ \forall\tau\in[t,t+15\,\mathrm{s}]\}\\
+&\cup\{T_{\mathrm{end}}\}\big)-t_d
+\end{aligned}},
 \label{eq:ttr}
-\end{multline}
+\end{equation}
 so a run that never recovers is assigned the time from $t_d$ to the end of the run, $T_{\mathrm{end}}-t_d$ ($390$, $360$ or $420$\,s).
 The controller chooses at each 5\,s tick a set of actions $a_t$ to minimize $T_{\mathrm{rec}}$ subject to:
 (S1)~$a_t\in\mathcal A(s_t)$, the hard bounds (a steer moves at most \CfgMaxSteerPct\% of an AP's clients, only stations on that AP, only to an AP where the predicted signal is at least $\CfgMinRssi$\,dBm; a transmit-power step is at most \CfgTxStep\,dB; the last AP of a zone is never taken down);
 (S2)~the twin's KPI verdict accepts $a_t$ (the verifier also checks any operator policy's constraints and objectives, omitted here), with $\delta_k$ the signed improvement of KPI $k$ in percent (positive is better; for latency and loss lower is better) between $\KPI(s_t)=f(s_t,\emptyset)$, the twin's own simulated no-action baseline (not the live measurement), and $\hat\KPI=f(s_t,a_t)$, over the flows whose simulated KPIs the action changes (for a steer, those on the source and the target AP, whose loads both change; for a channel change, those on the AP and on every AP sharing its old or new channel; $J$ is network-wide):
 \begin{equation}
-\mathrm{accept}\iff\Big(\forall k:\ \delta_k\ge-\CfgChangePct\Big)\ \lor\ \Big(\exists k:\ \delta_k>\CfgChangePct\Big).
+\boxed{\mathrm{accept}\Leftrightarrow\Big(\forall k:\ \delta_k\ge-\CfgChangePct\Big)\lor\Big(\exists k:\ \delta_k>\CfgChangePct\Big)}.
 \label{eq:accept}
 \end{equation}
 Here $\delta_k=100\,(\hat k-k)/|k|$ for throughput and $J$ and $100\,(k-\hat k)/|k|$ for latency and loss (a relative change, also for loss), $\delta_k=0$ if $k=\hat k$, and $\delta_k=+\infty$ or $-\infty$ if $k=0\neq\hat k$ is an improvement or a degradation (a loss appearing where there was none is $-\infty$). Eq.~(\ref{eq:accept}) is the rule as implemented; it agrees with the recorded verdict of all \RuleAgree{} of \RuleTotal{} resolved actions. It is deliberately permissive, and Section~VII-B tries stricter rules on the recorded predictions. As $J$ depends on client counts alone, a steer that evens out the counts can satisfy the second clause by itself; that was how \HarmJainOnly{} of the \the\numexpr\HarmAccepted+\HarmVthree\relax{} harmful actions applied after an accepted verdict was accepted.
@@ -191,12 +201,14 @@ Algorithm~\ref{alg:loop} is one tick of the loop. The heuristics propose two kin
 \caption{Compared controllers. V2 exists to measure what the twin prevents; V2 and V3 also differ in the operator gate (S3) for high-impact actions, which no operator used.}
 \label{tab:variants}
 \centering\small
-\begin{tabular}{@{}lp{6.2cm}@{}}
-\toprule
+\begin{tabular}{|l|p{5.8cm}|}
+\hline
 V1 plain SDN & Controller's L2 learning only; stations re-associate by themselves.\\
+\hline
 V2 no twin & Heuristic proposals applied directly; the twin's verdict is computed and recorded but ignored; every change is watched and rolled back on regression, as in V3.\\
+\hline
 V3 full & Proposals verified in the twin; high-impact ones wait for an operator; every change is watched and rolled back on regression.\\
-\bottomrule
+\hline
 \end{tabular}
 \end{table}
 
@@ -208,7 +220,7 @@ V3 full & Proposals verified in the twin; high-impact ones wait for an operator;
 \begin{table*}[t]
 \caption{KPIs of the affected flows (mean and [smallest--largest] over the three seeds; with so few seeds no interval is given). $\geq$ marks a recovery time that includes runs that never recovered (their number in brackets), counted at the run end. A p95 latency of 1000\,ms is the probe's value for a ping that gets no reply.}
 \label{tab:kpi}
-\centering\small
+\centering\small\setlength{\tabcolsep}{4pt}% the column rules need the room
 \input{generated/table_kpis}
 \end{table*}
 
@@ -217,14 +229,14 @@ Table~\ref{tab:kpi} and Fig.~\ref{fig:kpis} give the results. In the \emph{flash
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=\textwidth]{figures/fig_kpis.pdf}
+\framedfigure{\textwidth}{\includegraphics{figures/fig_kpis.pdf}}
 \caption{Loss (top) and throughput (bottom) of the affected flows per scenario and variant; bars are means, whiskers the smallest and largest of the three seeds.}
 \label{fig:kpis}
 \end{figure*}
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=\columnwidth]{figures/fig_recovery.pdf}
+\framedfigure{\columnwidth}{\includegraphics{figures/fig_recovery.pdf}}
 \caption{Time to recover of every run. A hollow triangle is a run that never recovered, plotted at its run end.}
 \label{fig:recovery}
 \end{figure}

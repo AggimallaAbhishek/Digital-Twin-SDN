@@ -583,13 +583,33 @@ def _span(ev: Evidence, cell: Mapping[str, Any], decimals: int) -> str:
     return f"{_f(cell['mean'], decimals)} [{_f(low, decimals)}--{_f(high, decimals)}]"
 
 
+def _boxed_tabular(
+    columns: Sequence[str],
+    head: Sequence[str],
+    rows: Sequence[Sequence[str]],
+    rules: Sequence[str] | None = None,
+) -> str:
+    """A fully boxed tabular: a border around it and between every column and row. `rules[i]`
+    is the rule under body row i (default: \\hline under every row)."""
+    under = ["\\hline"] * len(rows) if rules is None else rules
+    lines = [
+        f"\\begin{{tabular}}{{|{'|'.join(columns)}|}}",
+        "\\hline",
+        " & ".join(head) + " \\\\",
+        "\\hline",
+    ]
+    for row, rule in zip(rows, under, strict=True):
+        lines += [" & ".join(row) + " \\\\", rule]
+    return "\n".join([*lines, "\\end{tabular}"]) + "\n"
+
+
 def table_kpis(ev: Evidence) -> str:
     """The KPI table: mean and [smallest--largest] over the seeds, per scenario and variant
-    (tabular only)."""
+    (tabular only). Within a scenario the rules leave the cell of its name open."""
     cells = kpi_cells(ev)
-    head = " & ".join(["Scenario", "Variant", *(k[2] for k in KPIS.values())])
-    lines = ["\\begin{tabular}{@{}llccccc@{}}", "\\toprule", f"{head} \\\\", "\\midrule"]
-    for si, (scenario, (_, title)) in enumerate(SCENARIOS.items()):
+    rows: list[list[str]] = []
+    rules: list[str] = []
+    for scenario, (_, title) in SCENARIOS.items():
         for mi, mode in enumerate(LOOP_MODES):
             row = [title if mi == 0 else "", MODE_LABELS[mode]]
             for kpi, (_, decimals, _) in KPIS.items():
@@ -598,10 +618,11 @@ def table_kpis(ev: Evidence) -> str:
                 if kpi == "ttr_s":  # how many of the runs never recovered, counted at the run end
                     text = f"$\\geq$ {text} ({cell['never']})" if cell["never"] else f"{text} (0)"
                 row.append(text)
-            lines.append(" & ".join(row) + " \\\\")
-        if si < len(SCENARIOS) - 1:
-            lines.append("\\addlinespace")
-    return "\n".join([*lines, "\\bottomrule", "\\end{tabular}"]) + "\n"
+            rows.append(row)
+            last = mi == len(LOOP_MODES) - 1  # a full rule only under a scenario's last row
+            rules.append("\\hline" if last else f"\\cline{{2-{2 + len(KPIS)}}}")
+    head = ["Scenario", "Variant", *(k[2] for k in KPIS.values())]
+    return _boxed_tabular(["l", "l", *["c"] * len(KPIS)], head, rows, rules)
 
 
 RULE_LABELS = {
@@ -616,37 +637,31 @@ def table_rules(ev: Evidence) -> str:
     """What each acceptance rule would have rejected among the resolved actions of V2 and V3
     that the watch found harmful, and among those it kept (tabular only)."""
     n = numbers(ev)
-    lines = [
-        "\\begin{tabular}{@{}p{4.2cm}cc@{}}",
-        "\\toprule",
-        "Acceptance rule & Harmful rejected & Kept rejected \\\\",
-        "\\midrule",
+    rows = [
+        [
+            label,
+            f"{n[f'Rule{word}Harm']} of {n['HarmAll']}",
+            f"{n[f'Rule{word}Kept']} of {n['KeptAll']}",
+        ]
+        for word, label in RULE_LABELS.items()
     ]
-    for word, label in RULE_LABELS.items():
-        harm = f"{n[f'Rule{word}Harm']} of {n['HarmAll']}"
-        kept = f"{n[f'Rule{word}Kept']} of {n['KeptAll']}"
-        lines.append(f"{label} & {harm} & {kept} \\\\")
-    return "\n".join([*lines, "\\bottomrule", "\\end{tabular}"]) + "\n"
+    head = ["Acceptance rule", "Harmful rejected", "Kept rejected"]
+    label = ">{\\raggedright\\arraybackslash}p{3.6cm}"  # ragged: a narrow justified cell stretches
+    return _boxed_tabular([label, "c", "c"], head, rows)
 
 
 def table_actions(ev: Evidence) -> str:
     """What became of every action, from the executor ledgers: one row per fate, one column per
     variant (tabular only)."""
     counts = {mode: status_counts(ev.actions(mode)) for mode in LOOP_MODES}
-    lines = [
-        "\\begin{tabular}{@{}lrrr@{}}",
-        "\\toprule",
-        " & ".join(["Actions", *LOOP_MODES]) + " \\\\",
-        "\\midrule",
-        " & ".join(["Proposed", *(str(sum(counts[m].values())) for m in LOOP_MODES)]) + " \\\\",
-    ]
+    rows = [["Proposed", *(str(sum(counts[m].values())) for m in LOOP_MODES)]]
     ignored = sum(not r.verdict.accepted for r in ev.actions("V2"))  # applied anyway in V2
     for status, (_, heading) in STATUS_WORDS.items():
         cells = [str(counts[m][status]) for m in LOOP_MODES]
         if status == "rejected" and ignored:
             cells[LOOP_MODES.index("V2")] += f" ({ignored} ignored)"
-        lines.append(" & ".join([heading, *cells]) + " \\\\")
-    return "\n".join([*lines, "\\bottomrule", "\\end{tabular}"]) + "\n"
+        rows.append([heading, *cells])
+    return _boxed_tabular(["l", *["r"] * len(LOOP_MODES)], ["Actions", *LOOP_MODES], rows)
 
 
 # ---------------------------------------------------------------- figures

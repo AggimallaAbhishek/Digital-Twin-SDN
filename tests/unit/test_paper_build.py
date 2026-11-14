@@ -294,6 +294,22 @@ def test_the_kpi_table_marks_means_that_include_runs_that_never_recovered(
     assert body[2].startswith(" & V3 full & ")  # the scenario's name only on its first row
 
 
+@pytest.mark.parametrize("table", ["table_kpis", "table_actions", "table_rules"])
+def test_every_table_is_fully_boxed(evidence: paper_build.Evidence, table: str) -> None:
+    lines = getattr(paper_build, table)(evidence).splitlines()
+    spec = re.fullmatch(r"\\begin\{tabular\}\{(.*)\}", lines[0])
+    assert spec is not None
+    columns = spec.group(1)
+    assert columns.startswith("|")  # a border on the left, the right ...
+    assert columns.endswith("|")
+    assert columns.count("|") == lines[2].count("&") + 2  # ... and between every two columns
+    assert lines[1] == "\\hline"  # closed at the top ...
+    assert lines[-2] == "\\hline"  # ... and at the bottom
+    rows = [i for i, line in enumerate(lines) if line.endswith("\\\\")]
+    rules = [lines[i + 1] for i in rows]
+    assert all(re.fullmatch(r"\\hline|\\cline\{.*\}", rule) for rule in rules)  # one after each row
+
+
 def test_the_action_table_has_a_row_per_fate_and_a_column_per_variant(
     evidence: paper_build.Evidence,
 ) -> None:

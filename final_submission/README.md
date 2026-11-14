@@ -57,7 +57,7 @@ evaluation, in the project's layout; the installer copies it into `Source_Code/`
 
 ## Notes for the authors
 
-- The acknowledgment discloses AI-assisted drafting (Claude Code), as IEEE asks; edit it if needed.
+- The paper has no acknowledgment section (removed by the authors on 2026-11-14).
 - Fifteen of the 20 references were added for this paper, not taken from the project report (round 2's citation checker verified all 19 it was given):
   Lantz, McKeown, Liu, Holt, Jain, Kleinrock (draft) and, after Deep Review round 1, Kephart,
   Clemm (RFC 9315), Fogel (Batfish), Khurshid (VeriFlow), Wang (NetConfEval), Bianchi, Heusse,

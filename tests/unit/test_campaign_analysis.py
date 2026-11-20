@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from experiments.analysis.campaign import StressWindow, run_kpis, summarise
+from experiments.analysis.campaign import StressWindow, jain_per_window, run_kpis, summarise
 
 ONSET = 100.0
 WINDOW = StressWindow(onset_s=ONSET, end_s=300.0)
@@ -78,6 +78,16 @@ def test_a_summary_is_the_mean_with_a_t_based_95_percent_interval() -> None:
     s = summarise([10.0, 20.0, 30.0])
     assert (s.mean, s.n) == (20.0, 3)
     assert s.ci95 == pytest.approx(24.84, abs=0.01)  # t(0.975, 2) = 4.303; sd 10; / sqrt(3)
+
+
+def test_jains_index_per_window_counts_only_the_aps_that_reported_with_their_mean_count() -> None:
+    rows = [
+        {"t_s": 0.0, "ap": "ap1", "n_clients": 1},
+        {"t_s": 1.0, "ap": "ap1", "n_clients": 3},  # ap1's mean in window 0: 2
+        {"t_s": 2.0, "ap": "ap2", "n_clients": 2},
+        {"t_s": 6.0, "ap": "ap1", "n_clients": 2},  # window 1: ap2 is down (no rows), so
+    ]  # Eq. (4) is over ap1 alone, not ap1 and an ap2 with no clients (0.5)
+    assert jain_per_window(rows, step_s=5.0) == {0: pytest.approx(1.0), 1: pytest.approx(1.0)}
 
 
 def test_one_value_has_no_interval_and_none_has_no_mean() -> None:

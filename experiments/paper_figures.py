@@ -641,18 +641,17 @@ def _over_time(
     axes = list(fig.subplots(1, len(SCENARIOS), sharey=True))
     for ax, scenario in zip(axes, SCENARIOS, strict=True):
         _style(ax)
-        runs: list[RunSeries] = []
         for mode in LOOP_MODES:
-            runs = ev.runs(mode, scenario)
-            mean, low, high = across_runs([metric(s, step_s) for s in runs])
+            mean, low, high = across_runs([metric(s, step_s) for s in ev.runs(mode, scenario)])
             t = midpoints(len(mean), step_s)
             ax.fill_between(t, low, high, color=MODE_COLOURS[mode], alpha=0.14, linewidth=0)
             ax.plot(t, mean, color=MODE_COLOURS[mode], linewidth=0.9, label=MODE_LABELS[mode])
-        _onset(ax, runs[0].onset_s)
+        run = ev.runs(LOOP_MODES[0], scenario)[0]  # a scenario's onset and end are its own
+        _onset(ax, run.onset_s)
         if limit is not None:  # labelled in the legend: a label on the line would cover data
             ax.axhline(limit[0], color=INK, linestyle="--", linewidth=0.6, label=limit[1])
         ax.set_title(_title(scenario))
-        ax.set_xlim(0, runs[0].end_s)
+        ax.set_xlim(0, run.end_s)
         ax.set_xlabel("Time into the run (s)")
     axes[0].set_ylabel(label)
     _legend(fig, _handles(axes[0]))

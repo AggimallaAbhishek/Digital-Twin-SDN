@@ -12,16 +12,11 @@ import pytest
 
 from common.schemas import KPIValues
 from experiments import paper_evidence, paper_figures
-from tests.unit.test_paper_build import _kpis, _verdict_ledger, make_tree
+from tests.unit.test_paper_build import _kpis, _verdict_ledger
 
 NAN = math.nan
 STEP_S = 5.0  # config/loop.yaml period_s, as the figures average
 MAIN_TEX = Path(paper_figures.__file__).resolve().parents[1] / "final_submission/paper/main.tex"
-
-
-@pytest.fixture
-def evidence(tmp_path: Path) -> paper_evidence.Evidence:
-    return paper_evidence.load_evidence(make_tree(tmp_path))
 
 
 def _run(ev: paper_evidence.Evidence, scenario: str) -> paper_evidence.RunSeries:
@@ -137,19 +132,34 @@ def test_each_action_is_placed_at_the_time_it_was_proposed_with_its_fate(
     assert times["ap_failure-v3-s42"] == [(230.0, s) for s in statuses]
 
 
+def _measured_from(ev: paper_evidence.Evidence, path: Path, *thr: float) -> paper_evidence.Evidence:
+    """V2 runs the actions of CASES, the watch having seen these throughputs before CASES[0],
+    [1], ... (Mbit/s) and 0.4 before the rest."""
+    records = _verdict_ledger(path)
+    seen = [*thr, *[0.4] * (len(records) - len(thr))]
+    records = [
+        dataclasses.replace(r, baseline=KPIValues.model_validate(_kpis(thr=t)))
+        for r, t in zip(records, seen, strict=True)
+    ]
+    return dataclasses.replace(ev, ledgers={"V1": {}, "V2": {"run": records}, "V3": {}})
+
+
 def test_predicted_and_measured_changes_are_those_of_resolved_actions_with_a_measurement(
     evidence: paper_evidence.Evidence, tmp_path: Path
 ) -> None:
-    live = KPIValues.model_validate(_kpis(thr=0.4))  # what the watch saw before each action
-    records = [
-        dataclasses.replace(r, baseline=live) for r in _verdict_ledger(tmp_path / "actions.db")
-    ]
-    ev = dataclasses.replace(evidence, ledgers={"V1": {}, "V2": {"run": records}, "V3": {}})
-    changes = paper_figures.throughput_changes(ev)
+    changes = paper_figures.throughput_changes(_measured_from(evidence, tmp_path / "a.db"))
     # CASES[0]: predicted 0.5 -> 0.55 (+10%), measured 0.4 -> 0.6 (+50%), kept
     # CASES[1]: predicted +10%, measured 0.4 -> 0.55 (+37.5%), rolled back; the rest unmeasured
     assert [s for _, _, s in changes] == ["kept", "rolled_back"]
     assert [v for x, y, _ in changes for v in (x, y)] == pytest.approx([10.0, 50.0, 10.0, 37.5])
+
+
+def test_an_action_measured_from_a_throughput_of_zero_has_no_change_to_draw(
+    evidence: paper_evidence.Evidence, tmp_path: Path
+) -> None:
+    # before CASES[0] (kept) the flows carried nothing; before CASES[1] (rolled back), 0.4
+    ev = _measured_from(evidence, tmp_path / "a.db", 0.0)
+    assert [s for _, _, s in paper_figures.throughput_changes(ev)] == ["rolled_back"]
 
 
 def test_intents_are_scored_per_model_and_kind_with_their_times(
@@ -170,6 +180,14 @@ def test_first_alerts_are_keyed_by_scenario_and_two_test_runs_of_one_are_refused
     doubled = dataclasses.replace(evidence, anomaly={"test_detection": twice})
     with pytest.raises(ValueError, match="two test runs of ap_failure"):
         paper_figures.detections(doubled)
+
+
+def test_a_test_run_outside_the_campaign_scenarios_has_no_first_alert_to_draw(
+    evidence: paper_evidence.Evidence,
+) -> None:
+    normal = dict(evidence.anomaly["test_detection"]) | {"normal-s44": {"delay_s": 1.0}}
+    ev = dataclasses.replace(evidence, anomaly={"test_detection": normal})
+    assert set(paper_figures.detections(ev)) == set(paper_evidence.SCENARIOS)
 
 
 def test_the_paper_includes_every_generated_figure_and_no_other() -> None:

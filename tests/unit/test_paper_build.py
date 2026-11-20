@@ -760,3 +760,15 @@ def test_the_rules_table_shows_what_each_rule_would_have_blocked(
         "As written, on throughput and Jain's index only & 1 of 3 & 0 of 2 \\\\",
     ]
     assert "table_rules.tex" in paper_build.texts(judged)
+
+
+def test_the_check_reads_no_telemetry(monkeypatch: pytest.MonkeyPatch) -> None:
+    asked: dict[str, bool] = {}
+
+    def load(*, series: bool) -> paper_evidence.Evidence:
+        asked["series"] = series
+        raise FileNotFoundError("stop here")  # what was asked for is all this test needs
+
+    monkeypatch.setattr(paper_build, "load_evidence", load)
+    assert paper_build.main(["--check"]) == 1
+    assert asked == {"series": False}  # the generated text never reads it: the check stays fast

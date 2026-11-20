@@ -61,7 +61,7 @@ secrets from `.env.example`; it never overwrites an existing file and the file i
 
 ```bash
 make results      # experiments/results/{results.json,results.md,figures/}  (no VM, no LLM)
-make paper        # generated numbers + tables + 2 figures, then paper.pdf (needs Tectonic)
+make paper        # generated numbers + tables + 16 plots, then paper.pdf (needs Tectonic)
 make paper-check  # exit 0 if the paper's generated files match the evaluation
 make check        # lint, types, import boundaries and all unit tests (about 25 s)
 ```
@@ -76,21 +76,25 @@ activated environment: `python -m experiments.analysis.results` (`make results`)
 the absolute dataset paths inside `results.json` differ, the numbers do not).
 
 `make paper` writes `final_submission/paper/generated/numbers.tex` (one macro per number quoted in
-the text), `table_kpis.tex`, `table_actions.tex` and `figures/fig_kpis.pdf`, `fig_recovery.pdf`,
-from `results.json` and the ledgers; `main.tex` contains no hand-typed result. Without Tectonic,
+the text), `table_kpis.tex`, `table_actions.tex`, `table_rules.tex` and the 16 plots in
+`figures/` (`experiments/paper_figures.py`), from `results.json`, the ledgers, the campaign's
+telemetry and `models/`; `main.tex` contains no hand-typed result. A rebuild from the same
+evaluation writes the same bytes (the PDFs carry no creation date). Without Tectonic,
 use `make paper` only for the generated files, then upload `final_submission/paper/` to Overleaf
 (or use `Overleaf.zip`) and compile there.
 
 | In the paper | Produced by |
 |---|---|
-| Table II, Fig. 2, Fig. 3, H1 verdicts, fairness | `make results`, then `make paper` |
-| Table III, H2 counts, failed rollbacks, twin prediction time | the executor ledgers in `data/raw/eval*-v1`, `make paper` |
-| Twin accuracy (4.5%, per case) | `models/twin/v1/validation.json` (Level B: `python -m experiments.analysis.twin_validation --datasets data/v1 data/actions-v1`) |
-| Anomaly detection | `models/anomaly/v1/metrics.json` (`python -m experiments.analysis.anomaly_eval`) |
-| Forecasting | `models/forecast/v1/metrics.json` (`python -m experiments.analysis.forecast_eval`) |
-| Intent accuracy (30/30, 21/30) | `experiments/results/intents*.json` (`make intent-eval`, needs Ollama) |
+| Table II, Fig. 4, Fig. 5, H1 verdicts, fairness | `make results`, then `make paper` |
+| Fig. 1 (campus), Figs. 6-10 (runs over time) | the campaign's telemetry in `data/eval*-v1`, `config/campus_v1.yaml`, the scenario files, `make paper` |
+| Fig. 3 (the twin's model) | `twin/radio.py`, `twin/sim/analytical.py` with `config/campus_v1.yaml` and `config/sim.yaml`, `make paper` |
+| Table III, Figs. 11-13, H2 counts, failed rollbacks, twin prediction time | the executor ledgers in `data/raw/eval*-v1`, `make paper` |
+| Twin accuracy (4.5%, per case; Fig. 14) | `models/twin/v1/validation.json` (Level B: `python -m experiments.analysis.twin_validation --datasets data/v1 data/actions-v1`) |
+| Anomaly detection (Fig. 16) | `models/anomaly/v1/metrics.json` (`python -m experiments.analysis.anomaly_eval`) |
+| Forecasting (Fig. 17) | `models/forecast/v1/metrics.json` (`python -m experiments.analysis.forecast_eval`) |
+| Intent accuracy (30/30, 21/30; Fig. 15) | `experiments/results/intents*.json` (`make intent-eval`, needs Ollama) |
 | Copilot and root-cause results | `models/genai/v1/live.json` (`make genai-batch`, then `make genai-live`) |
-| Fig. 1 | TikZ in `paper/main.tex` |
+| Fig. 2 (architecture) | TikZ in `paper/main.tex` |
 
 ### Equations and algorithm against the code
 
@@ -120,7 +124,7 @@ use `make paper` only for the generated files, then upload `final_submission/pap
   `config/executor.yaml` (watch, rollback, rate limits), `config/loop.yaml` (5 s period),
   `config/anomaly.yaml`, `config/forecast.yaml`, `config/llm.yaml` (models, temperature 0,
   at most 2 repairs), `config/campus_v1.yaml` (topology and radio model). The constants the paper
-  quotes are read from these files and from the code by `experiments/paper_build.py`.
+  quotes are read from these files and from the code by `experiments/paper_build.py` (numbers) and `experiments/paper_figures.py` (plots), through `experiments/paper_evidence.py`.
 - **Testbed:** Mininet-WiFi 2.7 with Ryu 4.34 (OpenFlow 1.3) on Ubuntu 20.04 aarch64, 4 vCPU;
   versions in `docs/setup.md`.
 - **Evaluation code version:** the recorded runs were made at the git tag `eval-v1` (frozen before

@@ -17,13 +17,13 @@ import pytest
 
 from common.schemas import ACTION_ADAPTER, KPIValues, Verdict
 from controller.executor.ledger import ActionRecord, Ledger, read_records
-from experiments import paper_build
+from experiments import paper_build, paper_evidence, paper_figures
 from experiments.batch import LOOP_MODES
 
 REPO = Path(__file__).resolve().parents[2]
 T0 = datetime(2026, 10, 12, 8, 0, tzinfo=UTC)
 MODES = LOOP_MODES
-SCENARIOS = tuple(paper_build.SCENARIOS)
+SCENARIOS = tuple(paper_evidence.SCENARIOS)
 KPI_MEANS = {  # kpi -> mean of every cell (V3 flash-crowd loss is made distinctive below)
     "ttr_s": 390.0,
     "throughput_mbps": 0.52,
@@ -126,26 +126,56 @@ def _ledger(path: Path, outcomes: list[tuple[str, float]]) -> None:
 
 
 RUN_START = T0 - timedelta(seconds=230)  # an action at T0 is 230 s into a run: 10 s before 240 s
+TELEMETRY_STEP_S = 5  # as the figures average: every window has a row
+HOME = {"sta1": "ap2", "sta2": "ap1", "sta3": "ap3", "sta4": "ap4"}  # one station per AP
+UTIL = {"ap1": 0.9, "ap2": 0.5, "ap3": 0.4, "ap4": 0.3}  # ap1 is the busiest in every run
+WALKER = "sta4"  # walks 30 m before the flash crowd's onset
+
+
+def _write(dataset: Path, name: str, rows: list[dict[str, Any]]) -> None:
+    pq.write_table(pa.Table.from_pylist(rows), dataset / f"{name}.parquet")
 
 
 def _telemetry(dataset: Path, runs: list[str]) -> None:
-    """A dataset's kpi.parquet: per run, its first sample (t_s = 0) and a later one."""
-    rows = [(r, RUN_START + timedelta(seconds=t), float(t)) for r in runs for t in (0, 5)]
-    columns = list(zip(*rows, strict=True))
-    table = pa.table({"run_id": columns[0], "ts": columns[1], "t_s": columns[2]})
+    """A dataset's AP, station and flow telemetry: per run (`<scenario>-<mode>-s<seed>`), every
+    TELEMETRY_STEP_S of 600 s, four APs with one station and one video flow each."""
+    aps, stations, kpis = [], [], []
+    for run_id in runs:
+        scenario, _, seed = run_id.rsplit("-", 2)
+        common = {"run_id": run_id, "scenario_id": scenario}
+        for t in range(0, 600, TELEMETRY_STEP_S):
+            for ap, util in UTIL.items():
+                aps.append(
+                    common
+                    | {"seed": int(seed[1:]), "t_s": float(t), "ap": ap}
+                    | {"channel_util": util, "n_clients": 1 + (ap == "ap1") * (t >= 200)}
+                )
+            for k, (sta, ap) in enumerate(HOME.items()):
+                x = 10.0 + 30 * (sta == WALKER and t >= 100)
+                stations.append(
+                    common | {"t_s": float(t), "sta": sta, "ap": ap, "x": x, "y": 5.0 * k}
+                )
+                kpis.append(
+                    common
+                    | {"ts": RUN_START + timedelta(seconds=t), "t_s": float(t)}
+                    | {"flow_id": f"{sta}-video", "app_class": "video"}
+                    | {"throughput_mbps": 0.5, "latency_ms": 10.0 + k, "loss_pct": 2.0 * k}
+                )
     dataset.mkdir(parents=True, exist_ok=True)
-    pq.write_table(table, dataset / "kpi.parquet")
+    _write(dataset, "ap_stats", aps)
+    _write(dataset, "sta_stats", stations)
+    _write(dataset, "kpi", kpis)
 
 
-@pytest.fixture
-def tree(tmp_path: Path) -> Path:
+def make_tree(tmp_path: Path) -> Path:
     """A repository-shaped folder holding a small recorded evaluation."""
     root = tmp_path / "repo"
     results = root / "experiments" / "results"
     _json(results / "results.json", _results())
-    _json(results / "intents.json", {"cases": 30, "correct": 30, "seconds": [1.0, 2.0, 3.0]})
-    local = {"cases": 30, "correct": 21, "seconds": [2.0, 4.0], "misses": ["i1", "i12"]}
-    _json(results / "intents_local.json", local)
+    cloud = {"cases": 30, "correct": 30, "seconds": [1.0, 2.0, 3.0], "misses": []}
+    _json(results / "intents.json", cloud | {"models": {"cloud-model": 30}})
+    local = {"cases": 30, "correct": 21, "seconds": [2.0, 4.0], "misses": ["i01", "i12"]}
+    _json(results / "intents_local.json", local | {"models": {"local-model": 30}})
     shutil.copytree(REPO / "genai" / "eval", root / "genai" / "eval")  # the real intent set
     calls = [{"attempt": 1, "valid": True}, {"attempt": 1, "valid": False}, {"attempt": 2}]
     (results / "intent_calls.jsonl").write_text("".join(json.dumps(c) + "\n" for c in calls))
@@ -162,15 +192,22 @@ def tree(tmp_path: Path) -> Path:
     _json(root / "models" / "twin" / "v1" / "validation.json", twin)
     anomaly = {
         "test": {"precision": 0.95, "recall": 0.979, "f1": 0.964},
+        "test_by_scenario": {s: {"precision": 0.9, "recall": 1.0} for s in (*SCENARIOS, "normal")},
         "test_detection": {
             "ap_failure-s44": {"delay_s": 5.0},
             "cochannel_interference-s44": {"delay_s": 25.0},
+            "lecture_flash_crowd-s44": {"delay_s": 5.0, "false_alarms_before": 12},
         },
     }
     _json(root / "models" / "anomaly" / "v1" / "metrics.json", anomaly)
     rmse = {"holt": {"rmse_60s": 0.1294, "rmse_180s": 0.2562}}
     rmse["moving_average"] = {"rmse_60s": 0.1171, "rmse_180s": 0.2116}
-    _json(root / "models" / "forecast" / "v1" / "metrics.json", {"metrics": {"test": rmse}})
+    forecast = {
+        "metrics": {"test": rmse},
+        "test_by_scenario": {s: rmse for s in (*SCENARIOS, "normal")},
+        "config": {"horizons_s": [60, 180]},
+    }
+    _json(root / "models" / "forecast" / "v1" / "metrics.json", forecast)
     genai = {
         "copilot_correct": 5,
         "copilot_questions": 5,
@@ -198,7 +235,8 @@ def tree(tmp_path: Path) -> Path:
         ok = {"passed": True, "scenario_ok": True}
         runs = [{"run_id": passed} | ok, {"run_id": other} | ok | {"scenario_ok": False}]
         _json(raw / "batch.json", {"runs": runs})  # the second run did not pass: left out
-        _telemetry(root / "data" / f"eval{mode.lower()}-v1", [passed, other])
+        telemetry = [f"{s}-{mode.lower()}-s42" for s in SCENARIOS]  # passed is one of them
+        _telemetry(root / "data" / f"eval{mode.lower()}-v1", [*telemetry, other])
         if actions:
             _ledger(raw / passed / "actions.db", actions)
             _ledger(raw / other / "actions.db", [("kept", 0.1)])
@@ -206,11 +244,16 @@ def tree(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def evidence(tree: Path) -> paper_build.Evidence:
-    return paper_build.load_evidence(tree)
+def tree(tmp_path: Path) -> Path:
+    return make_tree(tmp_path)
 
 
-def test_numbers_come_from_the_recorded_results(evidence: paper_build.Evidence) -> None:
+@pytest.fixture
+def evidence(tree: Path) -> paper_evidence.Evidence:
+    return paper_evidence.load_evidence(tree)
+
+
+def test_numbers_come_from_the_recorded_results(evidence: paper_evidence.Evidence) -> None:
     n = paper_build.numbers(evidence)
     assert n["KpiFlashLossVthree"] == "8.6"  # the table's 8.57, to one decimal
     assert n["KpiApFailTtrVone"] == "390"
@@ -222,7 +265,7 @@ def test_numbers_come_from_the_recorded_results(evidence: paper_build.Evidence) 
 
 
 def test_what_became_of_actions_is_counted_in_the_ledgers_of_passed_runs(
-    evidence: paper_build.Evidence,
+    evidence: paper_evidence.Evidence,
 ) -> None:
     n = paper_build.numbers(evidence)
     assert n["LedVoneProposed"] == "0"
@@ -233,7 +276,7 @@ def test_what_became_of_actions_is_counted_in_the_ledgers_of_passed_runs(
 
 
 def test_failed_rollbacks_are_counted_by_the_scenario_of_their_run(
-    evidence: paper_build.Evidence, tree: Path
+    evidence: paper_evidence.Evidence, tree: Path
 ) -> None:
     n = paper_build.numbers(evidence)
     assert (n["RbFailAll"], n["RbFailApFail"]) == ("1", "1")  # V2's, in its ap_failure run
@@ -248,16 +291,16 @@ def test_failed_rollbacks_are_counted_by_the_scenario_of_their_run(
         },
     )
     _telemetry(tree / "data" / "evalv2-v1", ["cochannel_interference-v2-s42"])
-    moved = paper_build.numbers(paper_build.load_evidence(tree))
+    moved = paper_build.numbers(paper_evidence.load_evidence(tree))
     assert (moved["RbFailAll"], moved["RbFailApFail"]) == ("1", "0")
 
 
-def test_the_twins_prediction_time_is_the_ledgers_median(evidence: paper_build.Evidence) -> None:
+def test_the_twins_prediction_time_is_the_ledgers_median(evidence: paper_evidence.Evidence) -> None:
     # twin prediction times of the 9 actions of passed runs: 0.1 0.2 0.2 0.2 0.3 and 0.5 x4
     assert paper_build.numbers(evidence)["SimMedianMs"] == "0.30"  # the middle one of nine
 
 
-def test_model_and_configuration_numbers(evidence: paper_build.Evidence) -> None:
+def test_model_and_configuration_numbers(evidence: paper_evidence.Evidence) -> None:
     n = paper_build.numbers(evidence)
     assert (n["TwinMape"], n["TwinN"], n["TwinChannel"]) == ("4.5", "586", "8.1")
     assert (n["TwinBulkLow"], n["TwinBulkHigh"]) == ("12", "21")
@@ -271,9 +314,13 @@ def test_model_and_configuration_numbers(evidence: paper_build.Evidence) -> None
     # the constants the method section quotes come from the code, not from the text
     assert (n["CfgMaxSteerPct"], n["CfgMinRssi"], n["CfgChangePct"]) == ("30", "-75", "5")
     assert (n["CfgCapacity"], n["CfgWatch"], n["CfgRegressPct"]) == ("4.6", "30", "10")
+    # the queue model's cap d0 + sigma K (config/sim.yaml: 0.8 + 2.5 x 6) and how the figures
+    # draw, which their captions quote
+    assert n["CfgLatCap"] == "15.8"
+    assert (n["FigLinearPct"], n["FigErrorFloorPct"]) == ("10", "0.1")
 
 
-def test_every_number_is_a_valid_latex_macro(evidence: paper_build.Evidence) -> None:
+def test_every_number_is_a_valid_latex_macro(evidence: paper_evidence.Evidence) -> None:
     text = paper_build.render_numbers(paper_build.numbers(evidence))
     macros = re.findall(r"^\\newcommand\{\\([^}]*)\}\{([^}]*)\}$", text, flags=re.MULTILINE)
     assert len(macros) == text.count("\\newcommand")
@@ -282,11 +329,11 @@ def test_every_number_is_a_valid_latex_macro(evidence: paper_build.Evidence) -> 
 
 
 def test_the_kpi_table_marks_means_that_include_runs_that_never_recovered(
-    evidence: paper_build.Evidence,
+    evidence: paper_evidence.Evidence,
 ) -> None:
     table = paper_build.table_kpis(evidence)
     rows = [line for line in table.splitlines() if line.endswith("\\\\") and "&" in line]
-    body = [r for r in rows if any(label in r for label in paper_build.MODE_LABELS.values())]
+    body = [r for r in rows if any(label in r for label in paper_evidence.MODE_LABELS.values())]
     assert len(body) == 9  # three variants in each of three scenarios
     assert "$\\geq$ 390 [390--390] (3)" in body[0]  # V1: all three runs never recovered
     assert "$\\geq$" not in body[1]  # V2: every run recovered ...
@@ -295,7 +342,7 @@ def test_the_kpi_table_marks_means_that_include_runs_that_never_recovered(
 
 
 @pytest.mark.parametrize("table", ["table_kpis", "table_actions", "table_rules"])
-def test_every_table_is_fully_boxed(evidence: paper_build.Evidence, table: str) -> None:
+def test_every_table_is_fully_boxed(evidence: paper_evidence.Evidence, table: str) -> None:
     lines = getattr(paper_build, table)(evidence).splitlines()
     spec = re.fullmatch(r"\\begin\{tabular\}\{(.*)\}", lines[0])
     assert spec is not None
@@ -311,7 +358,7 @@ def test_every_table_is_fully_boxed(evidence: paper_build.Evidence, table: str) 
 
 
 def test_the_action_table_has_a_row_per_fate_and_a_column_per_variant(
-    evidence: paper_build.Evidence,
+    evidence: paper_evidence.Evidence,
 ) -> None:
     lines = paper_build.table_actions(evidence).splitlines()
     rows = [line for line in lines if line.endswith("\\\\")]
@@ -328,17 +375,11 @@ def test_the_action_table_has_a_row_per_fate_and_a_column_per_variant(
 
 
 def test_building_writes_the_files_and_pdf_figures(
-    evidence: paper_build.Evidence, tmp_path: Path
+    evidence: paper_evidence.Evidence, tmp_path: Path
 ) -> None:
     written = paper_build.build_generated(evidence, tmp_path / "paper")
-    assert {p.name for p in written} == {
-        "numbers.tex",
-        "table_kpis.tex",
-        "table_actions.tex",
-        "table_rules.tex",
-        "fig_kpis.pdf",
-        "fig_recovery.pdf",
-    }
+    tables = {"numbers.tex", "table_kpis.tex", "table_actions.tex", "table_rules.tex"}
+    assert {p.name for p in written} == tables | set(paper_figures.FIGURES)
     for path in written:
         assert path.stat().st_size > 0
         if path.suffix == ".pdf":
@@ -346,7 +387,7 @@ def test_building_writes_the_files_and_pdf_figures(
 
 
 def test_files_that_differ_from_the_evaluation_are_reported(
-    evidence: paper_build.Evidence, tmp_path: Path
+    evidence: paper_evidence.Evidence, tmp_path: Path
 ) -> None:
     out = tmp_path / "paper"
     assert paper_build.out_of_date(evidence, out) == [
@@ -363,22 +404,30 @@ def test_files_that_differ_from_the_evaluation_are_reported(
 
 
 def test_a_stale_paper_fails_the_check(
-    evidence: paper_build.Evidence, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    evidence: paper_evidence.Evidence, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(paper_build, "ROOT", tmp_path)
     monkeypatch.setattr(paper_build, "PAPER", tmp_path / "paper")
-    monkeypatch.setattr(paper_build, "load_evidence", lambda: evidence)
-    for figure in ("figure_kpis", "figure_recovery"):  # drawn in test_building_...; not the point
-        monkeypatch.setattr(paper_build, figure, lambda ev, path: None)
+    loads: list[dict[str, bool]] = []
+
+    def load(**options: bool) -> paper_evidence.Evidence:
+        loads.append(options)
+        return evidence
+
+    monkeypatch.setattr(paper_build, "load_evidence", load)
+    skip = dict.fromkeys(paper_figures.FIGURES, lambda ev, path: None)  # drawn in test_building_
+    monkeypatch.setattr(paper_build, "FIGURES", skip)
     assert paper_build.main(["--check"]) == 1  # nothing generated yet
     assert paper_build.main(["--no-pdf"]) == 0
     assert paper_build.main(["--check"]) == 0
+    # the check compares text only, so it skips the figures' telemetry (most of the loading)
+    assert loads == [{"series": False}, {"series": True}, {"series": False}]
 
 
 def test_a_missing_evaluation_file_is_named(tree: Path) -> None:
     (tree / "models" / "twin" / "v1" / "validation.json").unlink()
     with pytest.raises(FileNotFoundError, match=r"validation\.json"):
-        paper_build.load_evidence(tree)
+        paper_evidence.load_evidence(tree)
 
 
 def test_values_are_escaped_for_latex() -> None:
@@ -391,7 +440,7 @@ def test_values_are_escaped_for_latex() -> None:
 def test_a_missing_evaluation_file_stops_the_build_with_its_name(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    def missing() -> paper_build.Evidence:
+    def missing(**_: bool) -> paper_evidence.Evidence:
         raise FileNotFoundError("models/twin/v1/validation.json")
 
     monkeypatch.setattr(paper_build, "load_evidence", missing)
@@ -446,7 +495,7 @@ def _verdict_ledger(path: Path, cases: Sequence[tuple[Any, ...]] = CASES) -> lis
 
 
 @pytest.fixture
-def judged(evidence: paper_build.Evidence, tmp_path: Path) -> paper_build.Evidence:
+def judged(evidence: paper_evidence.Evidence, tmp_path: Path) -> paper_evidence.Evidence:
     """The fixture evaluation with V2's ledger replaced by the five judged actions above, and V3's
     by one action the twin accepted that turned out harmful (V3 only applies accepted actions)."""
     v2 = _verdict_ledger(tmp_path / "judged" / "actions.db")
@@ -459,7 +508,7 @@ def judged(evidence: paper_build.Evidence, tmp_path: Path) -> paper_build.Eviden
 
 
 def test_harmful_actions_are_counted_by_what_the_twin_said_of_them(
-    judged: paper_build.Evidence,
+    judged: paper_evidence.Evidence,
 ) -> None:
     n = paper_build.numbers(judged)
     # harmful = rolled back or rollback failed: CASES[1], [2] (twin accepted) and [3] (rejected);
@@ -472,7 +521,7 @@ def test_harmful_actions_are_counted_by_what_the_twin_said_of_them(
 
 
 def test_the_counts_of_the_calls_that_were_valid_the_first_time_come_from_the_logs(
-    evidence: paper_build.Evidence,
+    evidence: paper_evidence.Evidence,
 ) -> None:
     n = paper_build.numbers(evidence)
     # calls: attempt 1 valid, attempt 1 invalid, attempt 2 (no 'valid' field), local attempt 1
@@ -493,7 +542,7 @@ def test_a_measurement_of_zero_has_no_relative_error_and_is_left_out_and_counted
 
 
 def test_v2s_harm_rate_is_given_for_actions_the_twin_rejected_and_accepted(
-    judged: paper_build.Evidence,
+    judged: paper_evidence.Evidence,
 ) -> None:
     n = paper_build.numbers(judged)
     # V2 applies whatever the verdict. Resolved: the twin rejected CASES[3] (harmful) and
@@ -503,7 +552,7 @@ def test_v2s_harm_rate_is_given_for_actions_the_twin_rejected_and_accepted(
 
 
 def test_stricter_verifier_rules_are_tried_on_the_recorded_actions(
-    judged: paper_build.Evidence,
+    judged: paper_evidence.Evidence,
 ) -> None:
     n = paper_build.numbers(judged)
     # as written (no KPI >5% worse, or one >5% better): rejects only CASES[3] of the harmful
@@ -521,7 +570,7 @@ def test_stricter_verifier_rules_are_tried_on_the_recorded_actions(
 
 
 def test_the_predicted_regressions_of_the_harmful_actions_are_counted(
-    judged: paper_build.Evidence,
+    judged: paper_evidence.Evidence,
 ) -> None:
     n = paper_build.numbers(judged)
     # V2's harmful actions are CASES[1] (loss 30% worse), [2] (no change) and [3] (all 10% worse):
@@ -531,7 +580,7 @@ def test_the_predicted_regressions_of_the_harmful_actions_are_counted(
     assert n["HarmJainOnly"] == "1"
 
 
-def _started(ev: paper_build.Evidence, seconds: float) -> paper_build.Evidence:
+def _started(ev: paper_evidence.Evidence, seconds: float) -> paper_evidence.Evidence:
     """`ev` with every run started `seconds` later (its actions are then that much earlier)."""
     moved = {
         mode: {run: start + timedelta(seconds=seconds) for run, start in runs.items()}
@@ -541,7 +590,7 @@ def _started(ev: paper_build.Evidence, seconds: float) -> paper_build.Evidence:
 
 
 def test_harmful_actions_judged_across_the_scheduled_disruption_are_counted(
-    judged: paper_build.Evidence,
+    judged: paper_evidence.Evidence,
 ) -> None:
     # every action of the fixture is applied 230 s into an ap_failure run (disruption at 240 s,
     # watch and baseline window 30 s each): the four harmful ones (V2's three, V3's one) are
@@ -551,7 +600,7 @@ def test_harmful_actions_judged_across_the_scheduled_disruption_are_counted(
 
 
 def test_the_disruption_taints_a_verdict_before_and_after_the_action(
-    judged: paper_build.Evidence,
+    judged: paper_evidence.Evidence,
 ) -> None:
     # 15 s later in the run (245 s): the disruption is 5 s *before* the action, in the baseline
     after = paper_build.numbers(_started(judged, -15))
@@ -566,7 +615,7 @@ def test_the_disruption_taints_a_verdict_before_and_after_the_action(
 
 
 def test_the_closed_loop_error_is_also_given_for_the_actions_the_disruption_did_not_taint(
-    judged: paper_build.Evidence,
+    judged: paper_evidence.Evidence,
 ) -> None:
     # all actions are judged across the disruption: none is clear of it
     assert paper_build.numbers(judged)["LiveClearN"] == "0"
@@ -577,46 +626,50 @@ def test_the_closed_loop_error_is_also_given_for_the_actions_the_disruption_did_
 
 
 def test_kept_actions_judged_across_the_disruption_are_counted(
-    judged: paper_build.Evidence,
+    judged: paper_evidence.Evidence,
 ) -> None:
     assert paper_build.numbers(judged)["KeptStraddleVtwo"] == "2"  # V2's two kept actions
 
 
-def test_the_action_table_says_how_many_rejections_v2_ignored(judged: paper_build.Evidence) -> None:
+def test_the_action_table_says_how_many_rejections_v2_ignored(
+    judged: paper_evidence.Evidence,
+) -> None:
     rows = paper_build.table_actions(judged).splitlines()
     rejected = next(r for r in rows if r.startswith("Rejected, not applied"))
     assert rejected == "Rejected, not applied & 0 & 0 (2 ignored) & 0 \\\\"
 
 
-def test_actions_applied_in_one_tick_are_counted_as_a_group(judged: paper_build.Evidence) -> None:
+def test_actions_applied_in_one_tick_are_counted_as_a_group(
+    judged: paper_evidence.Evidence,
+) -> None:
     # V2's ledger applies five actions at one instant (one tick); V3's single action is alone
     assert paper_build.numbers(judged)["TickMulti"] == "1"
 
 
 def test_the_intents_are_split_into_single_clause_and_compound_ones(
-    evidence: paper_build.Evidence,
+    evidence: paper_evidence.Evidence,
 ) -> None:
     n = paper_build.numbers(evidence)
     assert (n["IntSimple"], n["IntCompound"]) == ("17", "13")  # i12 to i24 have a second clause
-    # the fixture's local model missed i1 (simple) and i12 (compound)
+    # the fixture's local model missed i01 (simple) and i12 (compound)
     assert (n["IntLocalSimpleOk"], n["IntLocalCompoundOk"]) == ("16", "12")
 
 
 def test_ap1_and_ap4_start_with_the_capacity_their_shared_channel_leaves(
-    evidence: paper_build.Evidence,
+    evidence: paper_evidence.Evidence,
 ) -> None:
     # 50 m apart on channel 1: w = (60 - 50) / (60 - 30) = 1/3, so 4.6 / (1 + 1/3) = 3.45
     assert paper_build.numbers(evidence)["CfgSharedCapacity"] == "3.45"
 
 
-def test_h1_is_decided_on_the_capped_recovery_times(judged: paper_build.Evidence) -> None:
+def test_h1_is_decided_on_the_capped_recovery_times(judged: paper_evidence.Evidence) -> None:
     assert paper_build.numbers(judged)["HoneCapped"] == "not met"  # 7.86% in every scenario
 
 
 def test_h1_is_met_only_if_every_scenario_reaches_the_target(
-    evidence: paper_build.Evidence,
+    evidence: paper_evidence.Evidence,
 ) -> None:
-    def with_speedups(*speedups: float) -> paper_build.Evidence:
+    def with_speedups(*speedups: float) -> paper_evidence.Evidence:
         h1 = {
             s: {"faster_pct": pct, "verdict": "x", "v1_s": 1.0, "v3_s": 1.0}
             for s, pct in zip(SCENARIOS, speedups, strict=True)
@@ -627,22 +680,22 @@ def test_h1_is_met_only_if_every_scenario_reaches_the_target(
     assert paper_build.numbers(with_speedups(30.0, 45.0, 29.9))["HoneCapped"] == "not met"
 
 
-def test_a_cell_without_any_value_has_no_range(evidence: paper_build.Evidence) -> None:
+def test_a_cell_without_any_value_has_no_range(evidence: paper_evidence.Evidence) -> None:
     runs = {k: [{**r, "loss_pct": None} for r in v] for k, v in evidence.results["runs"].items()}
     empty = dataclasses.replace(evidence, results=evidence.results | {"runs": runs})
     with pytest.raises(ValueError, match="no run of V1/"):
-        paper_build.kpi_range(empty, "V1", SCENARIOS[0], "loss_pct")
+        paper_evidence.kpi_range(empty, "V1", SCENARIOS[0], "loss_pct")
 
 
 def test_every_mean_of_the_recorded_evaluation_lies_in_its_range_over_the_seeds() -> None:
-    ev = paper_build.load_evidence()
-    for (mode, scenario, kpi), cell in paper_build.kpi_cells(ev).items():
-        low, high = paper_build.kpi_range(ev, mode, scenario, kpi)
+    ev = paper_evidence.load_evidence()
+    for (mode, scenario, kpi), cell in paper_evidence.kpi_cells(ev).items():
+        low, high = paper_evidence.kpi_range(ev, mode, scenario, kpi)
         assert low - 1e-9 <= cell["mean"] <= high + 1e-9, (mode, scenario, kpi)
 
 
 def test_the_kpi_table_gives_the_range_over_the_seeds_not_an_interval(
-    evidence: paper_build.Evidence,
+    evidence: paper_evidence.Evidence,
 ) -> None:
     body = paper_build.table_kpis(evidence)
     assert "9.2 [1.0--3.0]" in body  # loss of the three runs of a cell: 1, 2 and 3
@@ -650,14 +703,14 @@ def test_the_kpi_table_gives_the_range_over_the_seeds_not_an_interval(
 
 
 def test_the_range_of_a_cell_counts_a_run_that_never_recovered_at_its_run_end(
-    evidence: paper_build.Evidence,
+    evidence: paper_evidence.Evidence,
 ) -> None:
-    assert paper_build.kpi_range(evidence, "V2", SCENARIOS[0], "ttr_s") == (100.0, 390.0)
-    assert paper_build.kpi_range(evidence, "V1", SCENARIOS[0], "ttr_s") == (390.0, 390.0)
+    assert paper_evidence.kpi_range(evidence, "V2", SCENARIOS[0], "ttr_s") == (100.0, 390.0)
+    assert paper_evidence.kpi_range(evidence, "V1", SCENARIOS[0], "ttr_s") == (390.0, 390.0)
 
 
 def test_the_twins_prediction_is_compared_with_what_the_watch_measured(
-    judged: paper_build.Evidence,
+    judged: paper_evidence.Evidence,
 ) -> None:
     n = paper_build.numbers(judged)
     assert n["LiveN"] == "2"  # two resolved actions have a measurement
@@ -678,7 +731,7 @@ def test_fisher_exact_test_matches_the_textbook_tea_tasting_example() -> None:
 
 
 def test_runs_are_summarised_per_seed_and_by_how_many_recovered(
-    evidence: paper_build.Evidence,
+    evidence: paper_evidence.Evidence,
 ) -> None:
     n = paper_build.numbers(evidence)
     assert n["PerSeedLossApFailVtwo"] == "1.0, 2.0, 3.0"
@@ -687,7 +740,7 @@ def test_runs_are_summarised_per_seed_and_by_how_many_recovered(
 
 
 def test_intent_retries_and_the_latency_cap_come_from_the_logs_and_the_config(
-    evidence: paper_build.Evidence,
+    evidence: paper_evidence.Evidence,
 ) -> None:
     n = paper_build.numbers(evidence)
     assert (n["IntCalls"], n["IntRepairs"]) == ("4", "1")  # one call needed a second attempt
@@ -696,7 +749,7 @@ def test_intent_retries_and_the_latency_cap_come_from_the_logs_and_the_config(
 
 
 def test_the_rules_table_shows_what_each_rule_would_have_blocked(
-    judged: paper_build.Evidence,
+    judged: paper_evidence.Evidence,
 ) -> None:
     rows = [line for line in paper_build.table_rules(judged).splitlines() if line.endswith("\\\\")]
     assert rows == [

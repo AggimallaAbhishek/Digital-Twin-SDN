@@ -5,67 +5,62 @@ from the recorded evaluation, so that no result in the paper is typed by hand.
     make paper-check      # fail if generated/ is out of date with the evaluation
 
 `main.tex` takes every result from `generated/numbers.tex` (one `\\newcommand` per number) and
-`generated/table_*.tex`, and the three figures from `figures/*.pdf`. They are rebuilt from:
-
-- `experiments/results/results.json` (`make results`): the KPI table, H1, fairness, H2 counts;
-- the executor ledgers of the 27 campaign runs (`data/raw/eval<mode>-v1/<run>/actions.db`,
-  opened read-only): what became of every action, and the twin's prediction time;
-- `models/{twin,anomaly,forecast,genai}/v1/*.json` and `experiments/results/intents*.json`;
-- the configuration files and constants the method section quotes (config/*.yaml, the verifier).
+`generated/table_*.tex`, and its plots from `figures/*.pdf` (experiments/paper_figures.py). All
+of them are rebuilt from the recorded evaluation (experiments/paper_evidence.py lists the files).
 """
 
 from __future__ import annotations
 
 import argparse
-import contextlib
-import json
 import logging
 import math
 import statistics
 import subprocess
 from collections import Counter
-from collections.abc import Callable, Iterator, Mapping, Sequence
-from dataclasses import dataclass
-from datetime import datetime, timedelta
+from collections.abc import Callable, Mapping, Sequence
+from datetime import timedelta
 from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
-import matplotlib
-import pyarrow.parquet as pq
-import yaml
-from matplotlib.axes import Axes
-from matplotlib.figure import Figure
-
 from common.schemas import MAX_STEER_FRACTION, MIN_TARGET_RSSI_DBM
-from controller.executor.ledger import ActionRecord, read_records
-from experiments.analysis.figures import GRID, MODE_COLOURS, SURFACE
+from controller.executor.ledger import ActionRecord
 from experiments.analysis.results import H1_TARGET_PCT, stress_window
-from experiments.batch import LOOP_MODES, load_scenario, run_ok
+from experiments.batch import LOOP_MODES, load_scenario
+from experiments.paper_evidence import (
+    HARMFUL,
+    KPI_FIELDS,
+    KPIS,
+    MODE_LABELS,
+    MODE_WORDS,
+    RESOLVED,
+    ROOT,
+    SCENARIOS,
+    STATUS_WORDS,
+    Evidence,
+    capacity_mbps,
+    cochannel_pairs,
+    correct_by_kind,
+    improvements,
+    intent_kinds,
+    kpi_cells,
+    kpi_range,
+    latency_cap_ms,
+    live_errors,
+    load_evidence,
+    prediction_times,
+    resolved_actions,
+)
+from experiments.paper_figures import ERROR_FLOOR_PCT, FIGURES, SYMLOG_LINEAR_PCT
 from experiments.shell import run
-from twin.radio import capped_capacity_mbps, cochannel_load, load_radio_params
-from twin.verify.verifier import CHANGE_PCT, TX_POWER_MAX_STEP_DB, _better_pct, _kpi_rule
+from twin.radio import load_radio_params
+from twin.sim.analytical import load_sim_params
+from twin.verify.verifier import CHANGE_PCT, TX_POWER_MAX_STEP_DB, _kpi_rule
 
 log = logging.getLogger("experiments.paper_build")
-ROOT = Path(__file__).resolve().parents[1]
 PAPER = ROOT / "final_submission" / "paper"
-GENERATED, FIGURES = PAPER / "generated", PAPER / "figures"
 TEX_TIMEOUT_S = 600.0  # Tectonic fetches its bundle on the first run
 
-SCENARIOS = {  # scenario -> (macro word, title)
-    "lecture_flash_crowd": ("Flash", "Lecture flash crowd"),
-    "ap_failure": ("ApFail", "AP failure"),
-    "cochannel_interference": ("Cochan", "Co-channel interference"),
-}
-MODE_WORDS = {"V1": "Vone", "V2": "Vtwo", "V3": "Vthree"}  # LaTeX names have no digits
-MODE_LABELS = {"V1": "V1 plain SDN", "V2": "V2 no twin", "V3": "V3 full"}
-KPIS = {  # kpi -> (macro word, decimals, heading)
-    "ttr_s": ("Ttr", 0, "Recovery (s)"),
-    "throughput_mbps": ("Thr", 2, "Thr. (Mbit/s)"),
-    "latency_p95_ms": ("Lat", 0, "p95 lat. (ms)"),
-    "loss_pct": ("Loss", 1, "Loss (\\%)"),
-    "jain": ("Jain", 2, "Jain"),
-}
 SAFETY_KEYS = {
     "recorded": "Recorded",
     "applied": "Applied",
@@ -76,115 +71,9 @@ SAFETY_KEYS = {
     "high_impact_unapproved": "HighImpactUnapproved",
     "unresolved": "Unresolved",
 }
-STATUS_WORDS = {  # ledger status -> macro word and table heading
-    "kept": ("Kept", "Kept"),
-    "rolled_back": ("RolledBack", "Rolled back"),
-    "rollback_failed": ("RollbackFailed", "Rollback failed"),
-    "applied": ("Watched", "Still watched"),
-    "rejected": ("Rejected", "Rejected, not applied"),
-    "verified": ("Waiting", "Awaiting an operator"),
-}
-Json = dict[str, Any]  # Any: JSON
-
-
-@dataclass(frozen=True)
-class Evidence:
-    """Everything the paper's numbers come from (see the module docstring)."""
-
-    results: Json
-    twin: Json
-    anomaly: Json
-    forecast: Json
-    genai: Json
-    intents: Json
-    intents_local: Json
-    intent_set: Sequence[Json]  # the 30 intents and what each should compile to
-    intent_calls: Sequence[
-        Json
-    ]  # every LLM call of the two intent evaluations (one JSON line each)
-    ledgers: Mapping[str, Mapping[str, Sequence[ActionRecord]]]  # mode -> passed run -> actions
-    run_starts: Mapping[str, Mapping[str, datetime]]  # mode -> run -> when its t_s was 0
-    config: Mapping[str, Json]  # config/<name>.yaml
-
-    def actions(self, mode: str) -> list[ActionRecord]:
-        """Every action of the passed runs of one variant."""
-        return [r for records in self.ledgers[mode].values() for r in records]
-
-
-def _load(path: Path) -> Json:
-    data: Json = json.loads(path.read_text())
-    return data
-
-
-def passed_runs(raw: Path) -> list[str]:
-    """The run folders of a raw campaign (data/raw/eval<mode>-v1) that gave usable data: the
-    same rule as the results tables (experiments/batch.py run_ok)."""
-    batch = _load(raw / "batch.json")
-    return [r["run_id"] for r in batch["runs"] if run_ok(r)]
-
-
-def run_starts(dataset: Path) -> dict[str, datetime]:
-    """When each run of a dataset started (its t_s = 0), from the telemetry timestamps: the
-    ledgers date an action by the clock, the scenarios by seconds into the run."""
-    table = pq.read_table(dataset / "kpi.parquet", columns=["run_id", "ts", "t_s"])
-    first = table.group_by("run_id").aggregate([("ts", "min"), ("t_s", "min")])
-    return {
-        row["run_id"]: row["ts_min"] - timedelta(seconds=row["t_s_min"])
-        for row in first.to_pylist()
-    }
-
-
-def load_evidence(root: Path = ROOT) -> Evidence:
-    """Read the recorded evaluation under `root` (a missing file is an error: say which)."""
-    results = root / "experiments" / "results"
-    models = root / "models"
-    ledgers = {}
-    for mode in LOOP_MODES:
-        raw = root / "data" / "raw" / f"eval{mode.lower()}-v1"
-        ledgers[mode] = {
-            run_id: read_records(raw / run_id / "actions.db")
-            for run_id in passed_runs(raw)
-            if (raw / run_id / "actions.db").exists()
-        }
-    table = _load(results / "results.json")
-    starts = {
-        mode: run_starts(root / table["datasets"][mode]) if ledgers[mode] else {}
-        for mode in LOOP_MODES
-    }
-    return Evidence(
-        results=table,
-        run_starts=starts,
-        twin=_load(models / "twin" / "v1" / "validation.json"),
-        anomaly=_load(models / "anomaly" / "v1" / "metrics.json"),
-        forecast=_load(models / "forecast" / "v1" / "metrics.json"),
-        genai=_load(models / "genai" / "v1" / "live.json"),
-        intents=_load(results / "intents.json"),
-        intents_local=_load(results / "intents_local.json"),
-        intent_set=[
-            json.loads(line)
-            for line in (root / "genai" / "eval" / "intents.jsonl").read_text().splitlines()
-            if line.strip()
-        ],
-        intent_calls=[
-            json.loads(line)
-            for name in ("intent_calls.jsonl", "intent_calls_local.jsonl")
-            for line in (results / name).read_text().splitlines()
-            if line.strip()
-        ],
-        ledgers=ledgers,
-        config={
-            name: yaml.safe_load((root / "config" / f"{name}.yaml").read_text())
-            for name in ("sim", "optimizer", "loop", "executor", "campus_v1", "anomaly")
-        },
-    )
 
 
 # ---------------------------------------------------------------- numbers
-
-
-def kpi_cells(ev: Evidence) -> dict[tuple[str, str, str], Json]:
-    """The results table by (variant, scenario, KPI)."""
-    return {(r["mode"], r["scenario"], r["kpi"]): r for r in ev.results["table"]}
 
 
 def _f(value: float, decimals: int) -> str:
@@ -226,7 +115,7 @@ def numbers(ev: Evidence) -> dict[str, str]:
         out[f"Led{MODE_WORDS[mode]}Proposed"] = str(len(records))
         for status, (word, _) in STATUS_WORDS.items():
             out[f"Led{MODE_WORDS[mode]}{word}"] = str(counts[status])
-    sim_ms = [r.verdict.sim_time_ms for mode in LOOP_MODES for r in ev.actions(mode)]
+    sim_ms = prediction_times(ev)
     out["SimMedianMs"] = _f(statistics.median(sim_ms), 2) if sim_ms else "0"
     out |= _failed_rollbacks(ev)
     return (
@@ -241,34 +130,25 @@ def numbers(ev: Evidence) -> dict[str, str]:
 
 # ---- the verifier against what the watch found (reviewer round 1: Eq. (6), unvalidated KPIs)
 
-KPI_FIELDS = ("throughput_mbps", "latency_ms", "loss_pct", "jain")  # common/schemas.py KPIValues
 LIVE_WORDS = {"throughput_mbps": "Thr", "latency_ms": "Lat", "loss_pct": "Loss", "jain": "Jain"}
-RESOLVED = ("kept", "rolled_back", "rollback_failed")  # applied, and the watch has decided
-HARMFUL = ("rolled_back", "rollback_failed")  # the watch measured a regression
-
-
-def _improvements(record: ActionRecord) -> list[float]:
-    """The signed improvement of each KPI the twin predicted for the action, in percent."""
-    before, after = record.verdict.baseline, record.verdict.predicted
-    return [_better_pct(k, getattr(before, k), getattr(after, k)) for k in KPI_FIELDS]
 
 
 def _only_fairness_gain(record: ActionRecord) -> bool:
     """Whether the only KPI predicted to improve by more than the tolerance is Jain's index,
     which depends on the APs' client counts alone."""
-    gain = dict(zip(KPI_FIELDS, _improvements(record), strict=True))
+    gain = dict(zip(KPI_FIELDS, improvements(record), strict=True))
     return gain["jain"] > CHANGE_PCT and all(
         v <= CHANGE_PCT for k, v in gain.items() if k != "jain"
     )
 
 
 def _no_regression(record: ActionRecord) -> bool:
-    return all(x >= -CHANGE_PCT for x in _improvements(record))
+    return all(x >= -CHANGE_PCT for x in improvements(record))
 
 
 def _accepts_on(record: ActionRecord, kpis: Sequence[str]) -> bool:
     """The acceptance rule as written, but over some of the KPIs only."""
-    gain = dict(zip(KPI_FIELDS, _improvements(record), strict=True))
+    gain = dict(zip(KPI_FIELDS, improvements(record), strict=True))
     chosen = [gain[k] for k in kpis]
     return all(x >= -CHANGE_PCT for x in chosen) or any(x > CHANGE_PCT for x in chosen)
 
@@ -277,7 +157,7 @@ RULES: dict[str, Callable[[ActionRecord], bool]] = {  # macro word -> does the r
     # the verifier's own rule, called as the code has it, so "as written" cannot drift from it
     "Written": lambda r: not _kpi_rule(r.verdict.baseline, r.verdict.predicted),
     "NoReg": _no_regression,
-    "Conj": lambda r: _no_regression(r) and any(x > CHANGE_PCT for x in _improvements(r)),
+    "Conj": lambda r: _no_regression(r) and any(x > CHANGE_PCT for x in improvements(r)),
     # only the KPIs whose prediction was validated offline: throughput and Jain's index
     "ThrJain": lambda r: _accepts_on(r, ("throughput_mbps", "jain")),
 }
@@ -311,7 +191,7 @@ def _verifier_numbers(ev: Evidence) -> dict[str, str]:
     out["HarmRejected"] = str(sum(not r.verdict.accepted for r in harmful))
     out["HarmAccepted"] = str(sum(r.verdict.accepted for r in harmful))
     out["HarmVthree"] = str(sum(r.status in HARMFUL for r in resolved["V3"]))
-    out["HarmAnyRegress"] = str(sum(min(_improvements(r)) < 0 for r in harmful))
+    out["HarmAnyRegress"] = str(sum(min(improvements(r)) < 0 for r in harmful))
     out["HarmJainOnly"] = str(
         sum(
             r.verdict.accepted and _only_fairness_gain(r)
@@ -323,7 +203,7 @@ def _verifier_numbers(ev: Evidence) -> dict[str, str]:
     for word, rule in RULES.items():
         out[f"Rule{word}Harm"] = str(sum(not rule(r) for r in harmful))
         out[f"Rule{word}Kept"] = str(sum(not rule(r) for r in kept))
-    both = [*v2, *resolved["V3"]]
+    both = resolved_actions(ev)  # V2's and V3's
     out["RuleAgree"] = str(sum(RULES["Written"](r) == r.verdict.accepted for r in both))
     out["RuleTotal"] = str(len(both))
     cells = [
@@ -347,16 +227,9 @@ def _live_error_numbers(resolved: Sequence[ActionRecord], prefix: str = "Live") 
     measured = [r for r in resolved if r.measured is not None]
     out = {f"{prefix}N": str(len(measured))}
     for kpi, word in LIVE_WORDS.items():
-        pairs = []  # (predicted, baseline, measured) of this KPI
-        for r in measured:
-            live = getattr(r.measured, kpi)
-            if live:  # a measurement of 0 has no relative error
-                pairs.append(
-                    (getattr(r.verdict.predicted, kpi), getattr(r.verdict.baseline, kpi), live)
-                )
-        out[f"{prefix}{word}N"] = str(len(pairs))  # how many of the measurements this KPI covers
-        for suffix, index in (("Err", 0), ("Base", 1)):
-            errors = [abs(p[index] - p[2]) / abs(p[2]) * 100 for p in pairs]
+        twin, unchanged = live_errors(measured, kpi)
+        out[f"{prefix}{word}N"] = str(len(twin))  # how many of the measurements this KPI covers
+        for suffix, errors in (("Err", twin), ("Base", unchanged)):
             out[f"{prefix}{word}{suffix}"] = _f(statistics.median(errors), 1) if errors else "n/a"
     return out
 
@@ -375,12 +248,9 @@ def _run_numbers(ev: Evidence) -> dict[str, str]:
         recovered = sum(r["ttr_s"] is not None for s in SCENARIOS for r in runs[f"{mode}/{s}"])
         out[f"Recov{MODE_WORDS[mode]}"] = str(recovered)
     out["IntCalls"] = str(len(ev.intent_calls))
-    compound = {i["id"] for i in ev.intent_set if _is_compound(i["expected"])}
-    missed = set(ev.intents_local["misses"])
-    out["IntCompound"] = str(len(compound))
-    out["IntSimple"] = str(len(ev.intent_set) - len(compound))
-    out["IntLocalCompoundOk"] = str(len(compound - missed))
-    out["IntLocalSimpleOk"] = str(len(ev.intent_set) - len(compound) - len(missed - compound))
+    local = correct_by_kind(ev.intents_local, intent_kinds(ev))
+    (out["IntLocalSimpleOk"], out["IntSimple"]) = map(str, local["single-clause"])
+    (out["IntLocalCompoundOk"], out["IntCompound"]) = map(str, local["compound"])
     out["IntRepairs"] = str(sum(call.get("attempt", 1) > 1 for call in ev.intent_calls))
     out["IntFirstValid"] = str(
         sum(call.get("attempt", 1) == 1 and call.get("valid", False) for call in ev.intent_calls)
@@ -439,12 +309,6 @@ def _fault_numbers(ev: Evidence) -> dict[str, str]:
     } | _live_error_numbers(clear, "LiveClear")
 
 
-def _is_compound(expected: Json) -> bool:
-    """An intent with a second objective, a hard constraint or two traffic classes."""
-    classes = expected["scope"]["app_class"] or []
-    return len(expected["objectives"]) > 1 or bool(expected.get("constraints")) or len(classes) > 1
-
-
 def _failed_rollbacks(ev: Evidence) -> dict[str, str]:
     """How many rollbacks failed, and how many of those were in the AP-failure scenario (a run
     id starts with its scenario)."""
@@ -501,10 +365,10 @@ def _config_numbers(ev: Evidence) -> dict[str, str]:
     radio = cfg["campus_v1"]["radio_model"]
     params = load_radio_params(cfg["campus_v1"])
     aps = {a["name"]: a["position"] for a in cfg["campus_v1"]["aps"]}
-    # ap1 and ap4 share channel 1: the capacity each keeps from the start of every run
-    shared = capped_capacity_mbps(
-        cochannel_load([math.dist(aps["ap1"], aps["ap4"])], params), params
-    )
+    # ap1 and ap4 share channel 1 (the text says so: a KeyError if the campus changes): the
+    # capacity each keeps from the start of every run
+    pairs = {(a, b): d for a, b, d in cochannel_pairs(cfg["campus_v1"])}
+    shared = capacity_mbps([pairs[("ap1", "ap4")]], params)
     floor = cfg["executor"]["noise_floor"]
     places = ", ".join(f"{n} ({x:g}, {y:g})" for n, (x, y) in aps.items())
     return {
@@ -515,7 +379,7 @@ def _config_numbers(ev: Evidence) -> dict[str, str]:
         "CfgFloorLat": _f(floor["latency_ms"], 1),
         "CfgFloorLoss": _f(floor["loss_pct"], 2),
         "CfgFloorJain": _f(floor["jain"], 2),
-        "CfgSharedCapacity": _f(shared if shared is not None else params.ap_capacity_mbps, 2),
+        "CfgSharedCapacity": _f(shared, 2),
         "CfgRssiOne": _f(params.rssi_at_1m_dbm, 0),
         "CfgPathExp": _f(params.path_loss_exp, 1),
         "CfgCapacity": _f(radio["ap_capacity_mbps"], 1),
@@ -523,9 +387,11 @@ def _config_numbers(ev: Evidence) -> dict[str, str]:
         "CfgFetch": _f(cfg["sim"]["fetch_efficiency"], 1),
         "CfgBulk": _f(cfg["sim"]["apps"]["bulk"]["offered_mbps"], 3),
         # the most the queue model can predict: base delay + service time x the K packets it holds
-        "CfgLatCap": _f(
-            cfg["sim"]["base_latency_ms"] + cfg["sim"]["service_ms"] * cfg["sim"]["queue_slots"], 1
-        ),
+        "CfgLatCap": _f(latency_cap_ms(load_sim_params(cfg["sim"])), 1),
+        # how two figures draw (captions quote them): the symmetric-log axes are linear within
+        # this many %, and the error axis draws smaller errors at its floor
+        "FigLinearPct": _f(SYMLOG_LINEAR_PCT, 0),
+        "FigErrorFloorPct": _f(ERROR_FLOOR_PCT, 1),
         "CfgStationSeed": str(cfg["campus_v1"]["stations"]["seed"]),
         "CfgForestSeed": str(cfg["anomaly"]["seed"]),
         "CfgCochanFull": _f(radio["cochannel_full_m"], 0),
@@ -563,19 +429,6 @@ def render_numbers(values: Mapping[str, str]) -> str:
 
 
 # ---------------------------------------------------------------- tables
-
-
-def kpi_range(ev: Evidence, mode: str, scenario: str, kpi: str) -> tuple[float, float]:
-    """The smallest and the largest value of a KPI over the runs of one cell; a run that never
-    recovered counts at its run end."""
-    values = [
-        run["censor_s"] if kpi == "ttr_s" and run["ttr_s"] is None else run[kpi]
-        for run in ev.results["runs"][f"{mode}/{scenario}"]
-    ]
-    known = [v for v in values if v is not None]
-    if not known:
-        raise ValueError(f"no run of {mode}/{scenario} has a {kpi} value")
-    return min(known), max(known)
 
 
 def _span(ev: Evidence, cell: Mapping[str, Any], decimals: int) -> str:
@@ -664,111 +517,6 @@ def table_actions(ev: Evidence) -> str:
     return _boxed_tabular(["l", *["r"] * len(LOOP_MODES)], ["Actions", *LOOP_MODES], rows)
 
 
-# ---------------------------------------------------------------- figures
-
-
-@contextlib.contextmanager
-def _pdf_style() -> Iterator[None]:
-    """IEEE-ready PDF text (embedded TrueType, no Type 3) for the figures drawn inside."""
-    with matplotlib.rc_context():  # restores the settings on exit
-        params = matplotlib.rcParams
-        params["pdf.fonttype"] = 42
-        params["font.family"] = "serif"
-        params["font.size"] = 7
-        params["axes.linewidth"] = 0.6
-        yield
-
-
-def _style(ax: Axes) -> None:
-    ax.set_facecolor(SURFACE)
-    ax.grid(axis="y", color=GRID, linewidth=0.5)
-    ax.set_axisbelow(True)
-    for side in ("top", "right"):
-        ax.spines[side].set_visible(False)
-    ax.tick_params(length=2, width=0.5)
-
-
-def figure_kpis(ev: Evidence, path: Path) -> None:
-    """Fig. 2: loss and throughput of the affected flows, per scenario and variant (PDF)."""
-    cells = kpi_cells(ev)
-    rows = (("loss_pct", "Loss (%)"), ("throughput_mbps", "Throughput (Mbit/s)"))
-    with _pdf_style():
-        fig = Figure(figsize=(7.16, 2.2), facecolor=SURFACE, layout="constrained")
-        grid = fig.subplots(len(rows), len(SCENARIOS), sharex=True)
-        for r, (kpi, label) in enumerate(rows):
-            for c, (scenario, (_, title)) in enumerate(SCENARIOS.items()):
-                ax = grid[r][c]
-                _style(ax)
-                for i, mode in enumerate(LOOP_MODES):
-                    cell = cells[(mode, scenario, kpi)]
-                    lo, hi = kpi_range(ev, mode, scenario, kpi)  # the runs' own range
-                    low, up = max(0.0, cell["mean"] - lo), max(0.0, hi - cell["mean"])
-                    ax.bar(
-                        i,
-                        cell["mean"],
-                        0.62,
-                        color=MODE_COLOURS[mode],
-                        yerr=[[low], [up]],
-                        error_kw={"linewidth": 0.7, "capsize": 2},
-                    )
-                    ax.annotate(  # the value above the interval: the colours alone do not say it
-                        _f(cell["mean"], KPIS[kpi][1]),
-                        (i, cell["mean"] + up),
-                        xytext=(0, 2),
-                        textcoords="offset points",
-                        ha="center",
-                        va="bottom",
-                        fontsize=6,
-                    )
-                if r == 0:
-                    ax.set_title(title, fontsize=7)
-                if c == 0:
-                    ax.set_ylabel(label)
-                ax.set_xticks(range(len(LOOP_MODES)), list(LOOP_MODES))
-        fig.savefig(path, format="pdf")
-
-
-def figure_recovery(ev: Evidence, path: Path) -> None:
-    """Fig. 3: time to recover of every run; a hollow triangle is a run that never recovered
-    (counted at its run end) (PDF)."""
-    runs = ev.results["runs"]
-    with _pdf_style():
-        fig = Figure(figsize=(3.45, 2.0), facecolor=SURFACE, layout="constrained")
-        ax = fig.subplots()
-        _style(ax)
-        ticks = [si * 4 + mi for si in range(len(SCENARIOS)) for mi in range(len(LOOP_MODES))]
-        for si, scenario in enumerate(SCENARIOS):
-            for mi, mode in enumerate(LOOP_MODES):
-                x = si * 4 + mi
-                for k, run in enumerate(runs[f"{mode}/{scenario}"]):
-                    xs = x + (k - 1) * 0.26  # apart, so runs with near-equal times stay visible
-                    if run["ttr_s"] is None:
-                        ax.plot(
-                            xs,
-                            run["censor_s"],
-                            "^",
-                            mfc="white",
-                            mec=MODE_COLOURS[mode],
-                            ms=4.5,
-                            mew=0.9,
-                        )
-                    else:
-                        ax.plot(xs, run["ttr_s"], "o", color=MODE_COLOURS[mode], ms=4, alpha=0.8)
-            ax.text(
-                si * 4 + 1,
-                -0.24,
-                SCENARIOS[scenario][1].replace(" ", "\n", 1),
-                ha="center",
-                va="top",
-                fontsize=6,
-                transform=ax.get_xaxis_transform(),
-            )
-        ax.set_xticks(ticks, list(LOOP_MODES) * len(SCENARIOS))
-        ax.set_ylabel("Time to recover (s)")
-        ax.set_ylim(0, None)
-        fig.savefig(path, format="pdf")
-
-
 # ---------------------------------------------------------------- build
 
 
@@ -780,13 +528,9 @@ def build_generated(ev: Evidence, out: Path) -> list[Path]:
     files = {gen / name: text for name, text in texts(ev).items()}
     for path, text in files.items():
         path.write_text(text)
-    plots: dict[Path, Callable[[Evidence, Path], None]] = {
-        figs / "fig_kpis.pdf": figure_kpis,
-        figs / "fig_recovery.pdf": figure_recovery,
-    }
-    for path, draw in plots.items():
-        draw(ev, path)
-    return [*files, *plots]
+    for name, draw in FIGURES.items():
+        draw(ev, figs / name)
+    return [*files, *(figs / name for name in FIGURES)]
 
 
 def texts(ev: Evidence) -> dict[str, str]:
@@ -823,8 +567,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-pdf", action="store_true", help="skip compiling main.tex")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(message)s")
+    logging.getLogger("fontTools").setLevel(logging.WARNING)  # its font-subsetting notes per PDF
     try:
-        ev = load_evidence()
+        ev = load_evidence(series=not args.check)  # the check compares text, not the figures
     except FileNotFoundError as exc:  # a part of the recorded evaluation is not there
         log.error("the recorded evaluation is incomplete: %s", exc)
         return 1

@@ -106,15 +106,24 @@ def _h1_verdict(faster: float | None, v1_never: int, v3_never: int) -> str:
     return "met" if met else "not met"
 
 
-def load_runs(dataset: Path, mode: str) -> dict[tuple[str, str], list[RunKpis]]:
-    """The KPIs of every evaluation run of one mode's dataset."""
+def run_tables(
+    dataset: Path, columns: Mapping[str, Sequence[str]] = COLUMNS
+) -> dict[str, dict[str, list[Row]]]:
+    """The rows of every evaluation run of a dataset: run -> table -> rows (`columns` names the
+    tables and their columns)."""
     tables: dict[str, dict[str, list[Row]]] = defaultdict(lambda: defaultdict(list))
     only = [("scenario_id", "in", list(SCENARIOS))]
-    for name, cols in COLUMNS.items():
+    for name, cols in columns.items():
         for row in pq.read_table(
-            dataset / f"{name}.parquet", columns=cols, filters=only
+            dataset / f"{name}.parquet", columns=list(cols), filters=only
         ).to_pylist():
             tables[row["run_id"]][name].append(row)
+    return tables
+
+
+def load_runs(dataset: Path, mode: str) -> dict[tuple[str, str], list[RunKpis]]:
+    """The KPIs of every evaluation run of one mode's dataset."""
+    tables = run_tables(dataset)
     windows = {s: stress_window(load_scenario(s)) for s in SCENARIOS}
     runs: dict[tuple[str, str], list[RunKpis]] = defaultdict(list)
     for _, t in sorted(tables.items()):

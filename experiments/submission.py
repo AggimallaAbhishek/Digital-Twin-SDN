@@ -34,7 +34,7 @@ from pathlib import Path
 
 import pypandoc
 
-from experiments import paper_build
+from experiments import paper_build, paper_evidence
 from experiments.shell import run
 
 log = logging.getLogger("experiments.submission")
@@ -259,7 +259,7 @@ def checksums(files: Iterable[Path]) -> str:
 def _stale_paper_files() -> str:
     """The generated paper files that differ from the recorded evaluation, comma-separated."""
     try:
-        evidence = paper_build.load_evidence()
+        evidence = paper_evidence.load_evidence(series=False)  # text only: no figures
     except FileNotFoundError as exc:
         raise SubmissionError(f"the recorded evaluation is incomplete: {exc}") from exc
     return ", ".join(paper_build.out_of_date(evidence, paper_build.PAPER))

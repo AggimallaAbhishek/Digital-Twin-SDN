@@ -70,22 +70,35 @@ class StressWindow:
     event_ap: str | None = None  # ap_down / force_channel; None for the flash crowd
 
 
-def run_kpis(
+def affected_flows(
     ap_rows: Sequence[Row], sta_rows: Sequence[Row], kpi_rows: Sequence[Row], window: StressWindow
-) -> RunKpis:
-    """The KPIs of one run over its stress window."""
+) -> tuple[str, set[str]]:
+    """The affected AP (the busiest just after the onset) and the affected flows: those of the
+    stations on the event's AP just before it (they lose service), else (no AP named: the
+    crowd) of the stations on the affected AP just after the onset."""
     onset_s = window.onset_s
     ap = affected_ap(ap_rows, onset_s, AFFECTED_WINDOW_S)
-    # the affected stations: those on the event's AP just before it (they lose service), else
-    # those on the busiest AP just after the onset (the crowd)
     on, start = (window.event_ap, onset_s - AFFECTED_WINDOW_S) if window.event_ap else (ap, onset_s)
     stations = {
         r["sta"]
         for r in sta_rows
         if r["ap"] == on and start <= r["t_s"] < start + AFFECTED_WINDOW_S
     }
+    flows = {
+        r["flow_id"]
+        for r in kpi_rows
+        if r["t_s"] >= onset_s and r["flow_id"].split("-", 1)[0] in stations
+    }
+    return ap, flows
+
+
+def run_kpis(
+    ap_rows: Sequence[Row], sta_rows: Sequence[Row], kpi_rows: Sequence[Row], window: StressWindow
+) -> RunKpis:
+    """The KPIs of one run over its stress window."""
+    onset_s = window.onset_s
+    ap, flows = affected_flows(ap_rows, sta_rows, kpi_rows, window)
     stress = [r for r in kpi_rows if r["t_s"] >= onset_s]
-    flows = {r["flow_id"] for r in stress if r["flow_id"].split("-", 1)[0] in stations}
     # the verifier's own KPI definitions (throughput and loss means, p95 video latency);
     # its Jain needs association rows per window, so Jain is computed over time below
     kpis = window_kpis(stress, [], [], flows)
@@ -100,11 +113,17 @@ def run_kpis(
     )
 
 
-def _mean_jain(ap_rows: Sequence[Row]) -> float | None:
+def jain_per_window(ap_rows: Sequence[Row], step_s: float = JAIN_STEP_S) -> dict[int, float]:
+    """Jain's index of the APs' client counts per `step_s` window (each AP that reported in it
+    counts with its mean count), by window index (t_s // step_s)."""
     steps: dict[int, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
     for r in ap_rows:
-        steps[int(r["t_s"] // JAIN_STEP_S)][r["ap"]].append(r["n_clients"])
-    values = [jain([statistics.fmean(v) for v in per_ap.values()]) for per_ap in steps.values()]
+        steps[int(r["t_s"] // step_s)][r["ap"]].append(r["n_clients"])
+    return {i: jain([statistics.fmean(v) for v in per_ap.values()]) for i, per_ap in steps.items()}
+
+
+def _mean_jain(ap_rows: Sequence[Row]) -> float | None:
+    values = list(jain_per_window(ap_rows).values())
     return statistics.fmean(values) if values else None
 
 

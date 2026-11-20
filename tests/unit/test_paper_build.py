@@ -567,6 +567,41 @@ def test_stricter_verifier_rules_are_tried_on_the_recorded_actions(
     # as written but over throughput and Jain's index only: CASES[3] (throughput 10% worse, no
     # gain) is the one harmful action rejected; the kept ones are accepted (loss is not looked at)
     assert (n["RuleThrJainHarm"], n["RuleThrJainKept"]) == ("1", "0")
+    # as written, but a gain in Jain's index alone does not pass the "one better" clause: no
+    # V2 action of the fixture was accepted on Jain's index alone, so the same as written
+    assert (n["RuleNoJainHarm"], n["RuleNoJainKept"]) == ("1", "1")
+
+
+def test_a_gain_in_jains_index_alone_does_not_pass_the_rule_without_it(tmp_path: Path) -> None:
+    cases = [
+        ("kept", True, _kpis(loss=22.0, jain=0.6), None),  # loss 10% worse, Jain's index +20%
+        ("kept", True, _kpis(thr=0.55, loss=22.0), None),  # loss 10% worse, throughput +10%
+    ]
+    records = _verdict_ledger(tmp_path / "jain" / "actions.db", cases)
+    assert [paper_build.RULES["Written"](r) for r in records] == [True, True]
+    assert [paper_build.RULES["NoJain"](r) for r in records] == [False, True]
+
+
+def test_the_rules_are_also_scored_on_the_actions_the_disruption_did_not_overlap(
+    judged: paper_evidence.Evidence,
+) -> None:
+    # the fixture's actions are applied 230 s into an ap_failure run, 10 s before its disruption:
+    # all judged across it, so none is clear of it
+    n = paper_build.numbers(judged)
+    assert (n["HarmClearVtwo"], n["KeptClearVtwo"]) == ("0", "0")
+    assert (n["RuleWrittenHarmClear"], n["RuleWrittenKeptClear"]) == ("0", "0")
+    assert "1 of 3 (0 of 0)" in paper_build.table_rules(judged)
+    # 100 s earlier (130 s into the run) the watch and its baseline window end before 240 s
+    early = paper_build.numbers(_started(judged, 100.0))
+    assert (early["HarmClearVtwo"], early["KeptClearVtwo"]) == ("3", "2")
+    assert (early["RuleNoRegHarmClear"], early["RuleNoRegKeptClear"]) == ("2", "1")
+
+
+def test_the_closed_loop_error_is_also_given_per_variant(judged: paper_evidence.Evidence) -> None:
+    n = paper_build.numbers(judged)
+    # V2's measured actions are CASES[0] and [1]; V3's one action has no measurement
+    assert (n["LiveVtwoN"], n["LiveVtwoThrErr"], n["LiveVtwoThrBase"]) == ("2", "4.2", "12.9")
+    assert (n["LiveVthreeN"], n["LiveVthreeThrErr"]) == ("0", "n/a")
 
 
 def test_the_predicted_regressions_of_the_harmful_actions_are_counted(
@@ -751,13 +786,20 @@ def test_intent_retries_and_the_latency_cap_come_from_the_logs_and_the_config(
 def test_the_rules_table_shows_what_each_rule_would_have_blocked(
     judged: paper_evidence.Evidence,
 ) -> None:
-    rows = [line for line in paper_build.table_rules(judged).splitlines() if line.endswith("\\\\")]
+    # in brackets, the actions the disruption did not taint: here, applied 130 s into the run,
+    # all of them (the fixture's own 230 s puts every one inside the disruption's window)
+    table = paper_build.table_rules(_started(judged, 100.0))
+    rows = [line for line in table.splitlines() if line.endswith("\\\\")]
     assert rows == [
         "Acceptance rule & Harmful rejected & Kept rejected \\\\",
-        "As written (no KPI $>$5\\% worse, or one $>$5\\% better) & 1 of 3 & 1 of 2 \\\\",
-        "No KPI more than 5\\% worse & 2 of 3 & 1 of 2 \\\\",
-        "No KPI more than 5\\% worse and one more than 5\\% better & 3 of 3 & 1 of 2 \\\\",
-        "As written, on throughput and Jain's index only & 1 of 3 & 0 of 2 \\\\",
+        "As written (no KPI $>$5\\% worse, or one $>$5\\% better)"
+        " & 1 of 3 (1 of 3) & 1 of 2 (1 of 2) \\\\",
+        "No KPI more than 5\\% worse & 2 of 3 (2 of 3) & 1 of 2 (1 of 2) \\\\",
+        "No KPI more than 5\\% worse and one more than 5\\% better"
+        " & 3 of 3 (3 of 3) & 1 of 2 (1 of 2) \\\\",
+        "As written, on throughput and Jain's index only & 1 of 3 (1 of 3) & 0 of 2 (0 of 2) \\\\",
+        "As written, but Jain's index alone cannot make it pass"
+        " & 1 of 3 (1 of 3) & 1 of 2 (1 of 2) \\\\",
     ]
     assert "table_rules.tex" in paper_build.texts(judged)
 
@@ -772,3 +814,21 @@ def test_the_check_reads_no_telemetry(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(paper_build, "load_evidence", load)
     assert paper_build.main(["--check"]) == 1
     assert asked == {"series": False}  # the generated text never reads it: the check stays fast
+
+
+def test_the_starting_stations_and_each_scenarios_video_come_from_the_configuration(
+    evidence: paper_evidence.Evidence,
+) -> None:
+    n = paper_build.numbers(evidence)
+    # config/campus_v1.yaml stations.initial, in the order of the APs (ap1 to ap4, one per zone)
+    assert n["CfgStartClients"] == "3, 5, 7 and 5"
+    # experiments/scenarios/*.yaml: the rate of the video every scenario adds to the web traffic
+    video = (n["ScenVideoFlash"], n["ScenVideoApFail"], n["ScenVideoCochan"])
+    assert video == ("0.4", "0.6", "0.4")
+
+
+def test_the_flash_crowds_false_alarms_before_the_onset_come_from_the_detection_metrics(
+    evidence: paper_evidence.Evidence,
+) -> None:
+    # models/anomaly/v1/metrics.json test_detection, the flash crowd's test run (fixture: 12)
+    assert paper_build.numbers(evidence)["AnoFalseFlash"] == "12"

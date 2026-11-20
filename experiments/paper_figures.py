@@ -29,6 +29,7 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure  # no pyplot: no global state, no display backend
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch, Rectangle
+from matplotlib.ticker import LogLocator
 
 from controller.executor.live_kpis import p95
 from experiments.analysis.campaign import KPI_TITLES, jain_per_window
@@ -817,11 +818,17 @@ def figure_live_error(ev: Evidence) -> Figure:
     """The distribution of the closed-loop relative error per KPI: the twin's prediction and its
     no-action baseline ("nothing changes") against what the watch measured."""
     resolved = resolved_actions(ev)
+    errors_by_kpi = {kpi: live_errors(resolved, kpi) for kpi in LIVE_TITLES}
+    # each panel as wide as the decades it spans, so a decade is as wide in every panel and
+    # every decade can carry its label
+    spans = []
+    for twin, unchanged in errors_by_kpi.values():
+        drawn = [max(e, ERROR_FLOOR_PCT) for e in (*twin, *unchanged)]
+        spans.append(max(1.0, math.log10(max(drawn) / min(drawn))) if drawn else 1.0)
     fig = _figure(COLUMN_IN, 1.6)
-    axes = fig.subplots(1, len(LIVE_TITLES), sharey=True)
-    for ax, kpi in zip(axes, LIVE_TITLES, strict=True):
+    axes = fig.subplots(1, len(LIVE_TITLES), sharey=True, width_ratios=spans)
+    for ax, (kpi, (twin, unchanged)) in zip(axes, errors_by_kpi.items(), strict=True):
         _style(ax, grid="both")
-        twin, unchanged = live_errors(resolved, kpi)
         for errors, colour, style, label in (
             (twin, METHOD, "-", "Twin's prediction"),
             (unchanged, BASELINE, "--", "Nothing changes"),
@@ -831,6 +838,7 @@ def figure_live_error(ev: Evidence) -> Figure:
                 ax.step(xs, ys, style, where="post", color=colour, lw=1.0, label=label)
         ax.axhline(0.5, color=MUTED, linestyle=":", linewidth=0.6)
         ax.set_xscale("log")
+        ax.xaxis.set_major_locator(LogLocator(base=10, numticks=12))  # a label at every decade
         ax.set_title(LIVE_TITLES[kpi])
         ax.set_xlabel("Error (%)")
     axes[0].set_ylabel("Share of actions")
@@ -856,7 +864,11 @@ def figure_twin(ev: Evidence) -> Figure:
         bars.barh(y, row["mape"] * 100, 0.7, color=colour, hatch=hatch)
         label = f" {row['mape'] * 100:.1f}% (n={row['n']})"
         bars.text(row["mape"] * 100, y, label, va="center", fontsize=5.5)
-    bars.set_yticks(range(len(cases)), [CASE_WORDS.get(k, k.replace("_", " ")) for k, *_ in cases])
+    ticks = [f"{CASE_WORDS.get(k, k.replace('_', ' '))} ({app})" for k, app, _ in cases]
+    bars.set_yticks(range(len(cases)), ticks)  # each case named with its class: they repeat
+    first_bulk = next((y for y, (_, app, _) in enumerate(cases) if app != "video"), None)
+    if first_bulk:  # a rule between the video and the bulk cases
+        bars.axhline(first_bulk - 0.5, color=MUTED, linewidth=0.6)
     bars.invert_yaxis()
     bars.set_xlabel("Per-flow throughput error, MAPE (%)")
     bars.set_xlim(0, 1.45 * max((c[2]["mape"] * 100 for c in cases), default=1.0))

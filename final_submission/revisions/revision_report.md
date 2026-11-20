@@ -381,6 +381,24 @@ generated from the recorded runs (`make paper`), with new unit tests.
    contention model.
 5. Replaying the local model's semantic misses through the verifier.
 
+# Faculty guide's review (after round 4)
+
+The faculty guide reviewed the project and `paper_rev4.pdf` and asked: *"You need to add 12-14
+significant graphs. That will enhance the quality."*
+
+| Comment | Result | Modification, and where | Files, experiments |
+|---|---|---|---|
+| Add 12 to 14 significant graphs | Fixed | 14 graphs added (16 plots and the architecture diagram, 17 figures; 8 to 12 pages), each cited where its result is discussed. Sec. III: the campus with each scenario's event and the flash crowd's walkers (Fig. 1). Sec. IV: the twin's capacity and delay curves, drawn with its own code (Fig. 3). Sec. VII-A: the affected AP's utilization, the affected flows' p95 video latency and loss, and Jain's index over the run per variant (Figs. 6-9), and the clients per AP in the flash crowd (Fig. 10). Sec. VII-B: every action at the time it was proposed, by its fate (Fig. 11), the throughput change the twin predicted against the one measured (Fig. 12) and the closed-loop error distributions (Fig. 13). Sec. VII-C: the twin's offline error by case and its prediction time (Fig. 14), the intents by kind and their latency (Fig. 15), anomaly detection per scenario (Fig. 16) and forecast error per scenario (Fig. 17). No new experiment: every graph is drawn from the recorded evaluation, and every statement the new text makes about one was checked against the data | `experiments/paper_figures.py` (new), `experiments/paper_evidence.py` (new), `experiments/paper_build.py`, `paper/main.tex`, `paper/figures/`, `tests/unit/test_paper_figures.py` |
+
+What the graphs show that the tables did not: in every flash-crowd run of V2 and V3 the first
+steer, proposed at the onset, was rolled back, and every AP-failure and interference run began
+with a steer that was rolled back before any disruption; the three failed rollbacks were steers
+proposed shortly before the AP failure; in the flash crowd V2 and V3 bring Jain's index back to
+about the 0.8 target within a few minutes (five of their six runs end above it), so their means
+over the stress window miss it because of the first minutes after the onset; and the throughput
+change the twin predicts bears no relation to the one measured. The revised paper is
+`paper_final.pdf` (the paper as built by `make paper`).
+
 # How a round is done
 
 1. Compile the paper (`make paper`, or on Overleaf) and upload the PDF to

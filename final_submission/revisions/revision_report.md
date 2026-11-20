@@ -18,9 +18,10 @@ I = potential issue, M = minor correction); this report refers to those IDs.
 | Round 2 | `paper_rev1.pdf` (revised as `paper_rev2.pdf`) | 30 | 17 (+1 explained) | 12 |
 | Round 3 | `paper_rev2.pdf` (revised as `paper_rev3.pdf`) | 28 | 12 (+1 not done, cosmetic) | 15 |
 | Round 4 (final) | `paper_rev3.pdf` (revised as `paper_rev4.pdf`, the final draft) | 30 | 14 (+1 explained) | 15 |
+| Round 5 (after the faculty guide's graphs) | `paper_final.pdf` (revised as `paper_rev5.pdf`) | 39 | 22 | 17 |
 
 Two complete review and revision rounds are required before submission; a third is recommended.
-Each reviewed version is kept unchanged (`round0_draft/` to `round3_draft/`: source and PDF); the revision is the
+Each reviewed version is kept unchanged (`round0_draft/` to `round4_draft/`: source and PDF); the revision is the
 current `paper/`.
 
 # Round 1
@@ -398,6 +399,106 @@ about the 0.8 target within a few minutes (five of their six runs end above it),
 over the stress window miss it because of the first minutes after the onset; and the throughput
 change the twin predicts bears no relation to the one measured. The revised paper is
 `paper_final.pdf` (the paper as built by `make paper`).
+
+# Round 5
+
+**Uploaded:** `paper_final.pdf` (the 12-page paper with the guide's 14 graphs). **Revision:**
+`paper_rev5.pdf` (13 pages). The reviewed version is kept unchanged in `round4_draft/`. The
+comments are in `round5_deep_review.md` (39 of them, each given an ID). The reviewer re-derived
+the ledger counts of Tables III and IV, H1's percentages and the Fisher p-value and found them
+exact. Every new number is generated from the recorded runs or the configuration (`make paper`),
+with new unit tests; every new sentence about the data was checked against it.
+
+## What the review found that was right
+
+- **A wrong sentence about the flash crowd** (I4.4). The paper said that in two of the three
+  seeds of V2 and of V3 the affected AP crosses 0.8 and stays below. The data: in each variant
+  one seed never stays below 0.8 for more than a second; the other four cross it, some more than once; in V2's seed 42 the
+  utilization never stays below 0.8 for the full 15 s hold of the recovery rule (at most 14 s in
+  a row, checked per second as the rule does), and video latency spikes shorten those stretches
+  further (Table II: two V2 runs and one V3 run unrecovered). Rewritten to say so. Fig. 7 draws
+  the affected flows' latency, while Eq. (5) applies the limit to every video flow; the text now
+  says which.
+- **The H1 parenthesis was ambiguous** (I1.1): "which favours V3" now reads "the cap works
+  against V3 wherever V3 recovers".
+- **The 4.0% and 3.3% twin errors are for video flows only** (I4.3); the abstract and Sec. VII-C
+  now say so, and why web flows, latency and loss are not scored offline.
+- **The text promised traffic the scenarios do not have** (I1.2): no evaluation scenario carries
+  bulk traffic (only the disruption-free calibration run does). Sec. III-A now gives the starting
+  stations per AP (3, 5, 7, 5, from `config/campus_v1.yaml`) and each scenario's video
+  (generated: `CfgStartClients`, `ScenVideo*`).
+- **The state description was wrong in one detail** (M1.2): the twin does not read a flow's queue
+  or rate limit back from telemetry; it rebuilds every flow as best effort and unlimited. Exact
+  for this campaign (no QoS or rate-limit action was applied); now stated.
+- **Which flows Eq. (5) uses was not stated** (I4.2): $L_{95}$ in the recovery rule covers every
+  video flow in the network, per second (`experiments/analysis/time_to_recover.py`), not the
+  affected flows of Table II. Now stated, as are the dead flow's latency (the probe's 1000 ms),
+  the loss cap, the uncapped demand inversion, the web-fetch formula, the KPI aggregation and the
+  per-AP index (I2.2, I2.3, M2.1 to M2.4).
+- **The intent set is not held out from the prompt's design** (I3.4): the prompt (rules and five
+  worked examples, none a test intent) was revised once after a run on the same 30 intents. Now
+  stated, with how the intents were written, the compiler's mapping rules, the steering budget,
+  the proposal order and that a proposal identical to one waiting for an operator is not queued twice.
+- **New analyses on the recorded data** (I4.3, I4.1): Table IV gains the counts on the actions
+  the disruption did not taint (15 harmful, 31 kept: rejecting every predicted regression stops 3
+  of 15) and a rule in which Jain's index cannot pass the second clause alone (2 of 23 harmful,
+  the same as written); the closed-loop errors are given per variant (the twin is no closer than
+  "nothing changes" in V2 or in V3).
+- **The small points**: seed reuse and seed 44 as the only out-of-sample seed (I3.2), the explicit
+  channel-load sum, $f(s,\{p\})$, the seed sentences, the model identities, $L_{95}$, tense,
+  "percentage points", the Fig. 1, 11 and 13 captions, Fig. 13's decade labels (each panel now as
+  wide as the decades it spans), Fig. 14's labels grouped by class, the 129 verdicts against the 6
+  LLM actions, the pooled detector precision and its 12 false alarms, references [13] and [19].
+
+## What the data or the code answers
+
+- **"Stranding a station on the dead AP helps recovery"** (I4.2). It lowers the surviving AP's
+  utilization, but the stranded video's 1000 ms keeps $L_{95}$ above 50 ms: none of the three runs
+  with a failed rollback recovered. Now stated in Sec. VII-A.
+- **"Forward loss can exceed 100%"** (I2.2): the code caps it (`min(100, ...)`); the formula in
+  the text now shows the cap.
+- **"The first-minute steers are start-up bursts"** (I4.3): confirmed on the ledgers. All twelve
+  were proposed 11 to 36 s into the run, when the video starting at 10 s briefly took the source AP
+  to 0.8 to 1.0 before it settled near 0.5 to 0.65; now stated.
+- **"Fig. 10 starts below 20 clients"** (I1.2): the AP rows sum to 20 at the start of every run
+  (3 + 5 + 7 + 5).
+- **Jain's index alone** (I2.4, W3): the new Table IV row shows that taking it out of the second
+  clause changes nothing for V2.
+
+## Per comment
+
+| ID | Comment (short) | Result | Modification, and where | Files, experiments |
+|---|---|---|---|---|
+| W1, I4.1 | V2 vs V3 confounded by the operator gate | Partly | Closed-loop errors per variant (Sec. VII-B). **Not done:** an auto-approving V3 or gated V2 (about 2 h of VM time per variant) | `paper_build.py` (`LiveVtwo*`, `LiveVthree*`), `main.tex` |
+| W2, I2.1 | Load-independent capacity; 15.8 ms cap; rho_q on offered demand; sigma fixed | Partly | Sec. IV-A states the two further simplifications. **Not done:** a transient-aware or learned surrogate (twin code, needs an ADR) | `main.tex` |
+| W3 | Incremental novelty | Partly | Sec. II: the parts are known; the contribution is their combination for Wi-Fi and its measurement. **Not added:** the references we could not check | `main.tex` |
+| W4, I4.5 | LLM offline; 9 misses not verified | Partly | Sec. I: H3 tests translation, not the twin's verdict. **Not done:** replaying the misses through the verifier | `main.tex` |
+| W5, I3.2, I3.3 | Seed reuse; three seeds; no roaming V1 | Partly | Sec. VI: the seed reuse and seed 44. **Not done:** fresh seeds, a roaming V1 | `main.tex` |
+| I1.1 | H1 censoring wording | Fixed | Sec. I | `main.tex` |
+| I1.2 | Starting stations and traffic | Fixed | Sec. III-A, generated from the configuration; "bulk" removed from the scenario description | `paper_build.py` (`CfgStartClients`, `ScenVideo*`), `main.tex` |
+| I1.3 | Seven types vs two proposed; gate rule | Fixed | Sec. III-B | `main.tex` |
+| M1.1 to M1.3 | Fig. 1 dashed line; state read-back; fairness definition | Fixed | Fig. 1 caption; Sec. III-B (queue and rate limit not read back); Sec. I | `main.tex` |
+| I2.2 | Demand inversion, loss cap, baseline offset | Partly | Sec. IV-A states the cap, the uncapped inversion and the offset (shared by baseline and prediction). **Not changed:** the twin's estimator | `main.tex` |
+| I2.3 | Web-flow rate and T | Fixed | Sec. IV-A: the formula, and that the probe measures web the same way | `main.tex` |
+| I2.4 | No noise floor in Eq. (6); U not compared; J clause | Partly | Sec. IV-B states both; Table IV row without Jain's index. **Not changed:** the rule (a safety threshold, needs an ADR) | `paper_build.py` (`NoJain`), `main.tex` |
+| M2.1 to M2.4 | Per-AP index, mean loss, station delay, Eq. (4) index, t_d names, uplink | Fixed | Sec. IV-A, IV-B | `main.tex` |
+| M2.5 | k overloaded; "points" | Partly | "percentage points". The overloading of k kept, as in round 4 | `main.tex` |
+| I3.1 | Rollback, approval and watch preconditions; same-tick states | Partly | (S1) says a steer's target AP being up is left to the prediction. **Not done:** the executor fixes (listed in Sec. VIII; need an ADR) | `main.tex` |
+| I3.4 | Budget, order, compiler, intents | Partly | Sec. V and VI. **Not done:** an external intent benchmark | `main.tex` |
+| M3.1 to M3.5 | Channel sum, f(s,{p}), seeds, model names, L95, tense | Fixed | Sec. V, VI, Algorithm 1 | `main.tex` |
+| I4.2 | Cohort scopes; stranding; 1000 ms means | Partly | Eq. (5)'s flow set and the stranding stated. **Not done:** a QoS-only recovery time | `main.tex` |
+| I4.3 | Video-only errors; taint in Table IV; start-up; later window | Partly | Video only stated; Table IV brackets; start-up stated. **Not done:** offline latency and loss validation, a later comparison window | `paper_build.py` (`tainted_actions`, `Rule*Clear`), `main.tex` |
+| I4.4 | Flash-crowd recovery narrative | Fixed | Sec. VII-A rewritten from the data | `main.tex` |
+| M4.1 to M4.5 | Fig. 11, 13, 14; 129 vs 6; precision; references | Fixed | Captions, Fig. 13 axes, Fig. 14 labels, Sec. VII-C, `references.bib` | `paper_figures.py`, `paper_build.py` (`AnoFalseFlash`), `main.tex`, `references.bib` |
+
+## Not done, and what it needs (for the next paper)
+
+1. A campaign on fresh seeds; an auto-approving V3 or a gated V2; a V1 with native 802.11k/v/r
+   roaming (about 2 to 6 hours of VM time each).
+2. The executor fixes of Sec. VIII and a noise floor in Eq. (6) (safety logic: an ADR first).
+3. Offline validation of latency and loss, a transient-aware delay model, a later comparison
+   window for kept actions, a QoS-only recovery time.
+4. Replaying the local model's semantic misses through the verifier; an external intent benchmark.
 
 # How a round is done
 

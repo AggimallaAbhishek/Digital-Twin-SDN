@@ -49,6 +49,7 @@ KPIS = {  # kpi -> (macro word, decimals, heading)
     "jain": ("Jain", 2, "Jain"),
 }
 KPI_FIELDS = ("throughput_mbps", "latency_ms", "loss_pct", "jain")  # common/schemas.py KPIValues
+JUDGED_MODES = ("V2", "V3")  # the variants whose proposals the twin judges (V1 proposes none)
 RESOLVED = ("kept", "rolled_back", "rollback_failed")  # applied, and the watch has decided
 HARMFUL = ("rolled_back", "rollback_failed")  # the watch measured a regression
 STATUS_WORDS = {  # ledger status -> macro word and table heading (also the figures' legend)
@@ -259,6 +260,28 @@ def resolved_actions(ev: Evidence) -> list[ActionRecord]:
     """The resolved actions of every variant (applied, and the watch has decided): V2's and V3's,
     as V1 proposes nothing."""
     return [r for m in LOOP_MODES for r in ev.actions(m) if r.status in RESOLVED]
+
+
+def tainted_actions(ev: Evidence) -> set[str]:
+    """The ids of the resolved actions of V2 and V3 whose verdict the scenario's scheduled
+    disruption taints (the watch cannot tell the fault from the action's effect). The executor
+    compares the watch's KPIs with those of the `watch_s` before the action, so the disruption
+    taints the verdict if it falls within `watch_s` of the action, before or after. A run id
+    starts with its scenario."""
+    watch = timedelta(seconds=ev.config["executor"]["watch_s"])
+    onsets = {s: timedelta(seconds=stress_window(load_scenario(s)).onset_s) for s in SCENARIOS}
+    out = set()
+    for mode in JUDGED_MODES:
+        for run_id, records in ev.ledgers[mode].items():
+            start, onset = ev.run_starts[mode][run_id], onsets[run_id.rsplit("-", 2)[0]]
+            out |= {
+                r.action.action_id
+                for r in records
+                if r.status in RESOLVED
+                and r.applied_at is not None
+                and abs(r.applied_at - start - onset) < watch
+            }
+    return out
 
 
 def prediction_times(ev: Evidence) -> list[float]:

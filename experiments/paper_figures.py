@@ -867,7 +867,7 @@ def figure_twin(ev: Evidence) -> Figure:
     ticks = [f"{CASE_WORDS.get(k, k.replace('_', ' '))} ({app})" for k, app, _ in cases]
     bars.set_yticks(range(len(cases)), ticks)  # each case named with its class: they repeat
     first_bulk = next((y for y, (_, app, _) in enumerate(cases) if app != "video"), None)
-    if first_bulk:  # a rule between the video and the bulk cases
+    if first_bulk is not None and first_bulk > 0:  # a rule between the video and bulk cases
         bars.axhline(first_bulk - 0.5, color=MUTED, linewidth=0.6)
     bars.invert_yaxis()
     bars.set_xlabel("Per-flow throughput error, MAPE (%)")

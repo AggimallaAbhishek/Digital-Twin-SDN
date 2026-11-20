@@ -18,7 +18,7 @@ import pytest
 from common.schemas import ACTION_ADAPTER, KPIValues, Verdict
 from controller.executor.ledger import ActionRecord, Ledger, read_records
 from experiments import paper_build, paper_evidence, paper_figures
-from experiments.batch import LOOP_MODES
+from experiments.batch import LOOP_MODES, load_scenario
 
 REPO = Path(__file__).resolve().parents[2]
 T0 = datetime(2026, 10, 12, 8, 0, tzinfo=UTC)
@@ -832,3 +832,17 @@ def test_the_flash_crowds_false_alarms_before_the_onset_come_from_the_detection_
 ) -> None:
     # models/anomaly/v1/metrics.json test_detection, the flash crowd's test run (fixture: 12)
     assert paper_build.numbers(evidence)["AnoFalseFlash"] == "12"
+
+
+def test_a_scenario_whose_video_items_differ_in_rate_has_no_one_rate_to_quote(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    flash = load_scenario("lecture_flash_crowd")
+    video = next(t for t in flash.traffic if t.profile == "video")
+    for other in (0.9, None):  # a second, different rate; or one left to the profile
+        mixed = flash.model_copy(
+            update={"traffic": [*flash.traffic, video.model_copy(update={"rate_mbps": other})]}
+        )
+        monkeypatch.setattr(paper_build, "load_scenario", lambda _, s=mixed: s)
+        with pytest.raises(ValueError, match="one stated video rate"):
+            paper_build.video_rate("lecture_flash_crowd")

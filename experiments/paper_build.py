@@ -25,10 +25,11 @@ from typing import Any
 
 from common.schemas import MAX_STEER_FRACTION, MIN_TARGET_RSSI_DBM
 from controller.executor.ledger import ActionRecord
-from experiments.analysis.results import H1_TARGET_PCT, stress_window
+from experiments.analysis.results import H1_TARGET_PCT
 from experiments.batch import LOOP_MODES, load_scenario
 from experiments.paper_evidence import (
     HARMFUL,
+    JUDGED_MODES,
     KPI_FIELDS,
     KPIS,
     MODE_LABELS,
@@ -50,9 +51,11 @@ from experiments.paper_evidence import (
     load_evidence,
     prediction_times,
     resolved_actions,
+    tainted_actions,
 )
 from experiments.paper_figures import ERROR_FLOOR_PCT, FIGURES, SYMLOG_LINEAR_PCT
 from experiments.shell import run
+from testbed.layout import layout_from_dict
 from twin.radio import load_radio_params
 from twin.sim.analytical import load_sim_params
 from twin.verify.verifier import CHANGE_PCT, TX_POWER_MAX_STEP_DB, _kpi_rule
@@ -133,29 +136,30 @@ def numbers(ev: Evidence) -> dict[str, str]:
 LIVE_WORDS = {"throughput_mbps": "Thr", "latency_ms": "Lat", "loss_pct": "Loss", "jain": "Jain"}
 
 
+def _gains(record: ActionRecord) -> dict[str, float]:
+    """The predicted improvement of each KPI, in percent, by KPI."""
+    return dict(zip(KPI_FIELDS, improvements(record), strict=True))
+
+
+def _has_flow_gain(record: ActionRecord) -> bool:
+    """Whether a flow KPI (throughput, latency or loss) is predicted to improve by more than the
+    tolerance."""
+    return any(v > CHANGE_PCT for k, v in _gains(record).items() if k != "jain")
+
+
 def _only_fairness_gain(record: ActionRecord) -> bool:
     """Whether the only KPI predicted to improve by more than the tolerance is Jain's index,
     which depends on the APs' client counts alone."""
-    gain = dict(zip(KPI_FIELDS, improvements(record), strict=True))
-    return gain["jain"] > CHANGE_PCT and all(
-        v <= CHANGE_PCT for k, v in gain.items() if k != "jain"
-    )
+    return _gains(record)["jain"] > CHANGE_PCT and not _has_flow_gain(record)
 
 
 def _no_regression(record: ActionRecord) -> bool:
     return all(x >= -CHANGE_PCT for x in improvements(record))
 
 
-def _flow_gain(record: ActionRecord) -> bool:
-    """Whether a flow KPI (throughput, latency or loss) is predicted to improve by more than the
-    tolerance."""
-    gain = dict(zip(KPI_FIELDS, improvements(record), strict=True))
-    return any(v > CHANGE_PCT for k, v in gain.items() if k != "jain")
-
-
 def _accepts_on(record: ActionRecord, kpis: Sequence[str]) -> bool:
     """The acceptance rule as written, but over some of the KPIs only."""
-    gain = dict(zip(KPI_FIELDS, improvements(record), strict=True))
+    gain = _gains(record)
     chosen = [gain[k] for k in kpis]
     return all(x >= -CHANGE_PCT for x in chosen) or any(x > CHANGE_PCT for x in chosen)
 
@@ -168,7 +172,7 @@ RULES: dict[str, Callable[[ActionRecord], bool]] = {  # macro word -> does the r
     # only the KPIs whose prediction was validated offline: throughput and Jain's index
     "ThrJain": lambda r: _accepts_on(r, ("throughput_mbps", "jain")),
     # as written, but Jain's index (client counts alone) cannot pass the "one better" clause
-    "NoJain": lambda r: _no_regression(r) or _flow_gain(r),
+    "NoJain": lambda r: _no_regression(r) or _has_flow_gain(r),
 }
 
 
@@ -192,7 +196,7 @@ def _verifier_numbers(ev: Evidence) -> dict[str, str]:
     accepted actions, so its harmful ones can never have been rejected and would bias the rate
     against the twin). Its harmful actions are counted apart. The prediction error uses both."""
     out: dict[str, str] = {}
-    resolved = {m: [r for r in ev.actions(m) if r.status in RESOLVED] for m in ("V2", "V3")}
+    resolved = {m: [r for r in ev.actions(m) if r.status in RESOLVED] for m in JUDGED_MODES}
     v2 = resolved["V2"]
     harmful = [r for r in v2 if r.status in HARMFUL]
     kept = [r for r in v2 if r.status == "kept"]
@@ -209,18 +213,7 @@ def _verifier_numbers(ev: Evidence) -> dict[str, str]:
             if r.status in HARMFUL
         )
     )
-    taint = tainted_actions(ev)
-    clear_harmful = [r for r in harmful if r.action.action_id not in taint]
-    clear_kept = [r for r in kept if r.action.action_id not in taint]
-    out["KeptClearVtwo"] = str(len(clear_kept))
-    for word, rule in RULES.items():
-        for suffix, group in (
-            ("Harm", harmful),
-            ("Kept", kept),
-            ("HarmClear", clear_harmful),
-            ("KeptClear", clear_kept),
-        ):
-            out[f"Rule{word}{suffix}"] = str(sum(not rule(r) for r in group))
+    out |= _rule_numbers(harmful, kept, tainted_actions(ev))
     both = resolved_actions(ev)  # V2's and V3's
     out["RuleAgree"] = str(sum(RULES["Written"](r) == r.verdict.accepted for r in both))
     out["RuleTotal"] = str(len(both))
@@ -230,12 +223,31 @@ def _verifier_numbers(ev: Evidence) -> dict[str, str]:
     out["HarmFisherP"] = _f(fisher_one_sided(cells[0][0], cells[0][1], cells[1][0], cells[1][1]), 2)
     out["VtwoRejHarm"], out["VtwoRejTotal"] = str(cells[0][0]), str(sum(cells[0]))
     out["VtwoAccHarm"], out["VtwoAccTotal"] = str(cells[1][0]), str(sum(cells[1]))
-    per_variant = {
-        k: v
-        for mode, records in resolved.items()
-        for k, v in _live_error_numbers(records, f"Live{MODE_WORDS[mode]}").items()
-    }  # the two variants act on different states once V3 holds its channel changes (I4.1)
-    return out | _live_error_numbers(both) | per_variant
+    out |= _live_error_numbers(both)
+    for mode, records in resolved.items():  # apart too: V3 holds its channel changes, V2 not
+        out |= _live_error_numbers(records, f"Live{MODE_WORDS[mode]}")
+    return out
+
+
+def _rule_numbers(
+    harmful: Sequence[ActionRecord], kept: Sequence[ActionRecord], taint: set[str]
+) -> dict[str, str]:
+    """What each acceptance rule would have rejected among V2's harmful and kept actions, and
+    among those whose verdict the scheduled disruption did not taint (`taint`: action ids)."""
+    clear_harmful = [r for r in harmful if r.action.action_id not in taint]
+    clear_kept = [r for r in kept if r.action.action_id not in taint]
+    out = {
+        "HarmClearVtwo": str(len(clear_harmful)),
+        "KeptClearVtwo": str(len(clear_kept)),
+        "HarmStraddleVtwo": str(len(harmful) - len(clear_harmful)),
+        "KeptStraddleVtwo": str(len(kept) - len(clear_kept)),
+        "HarmClearRejected": str(sum(not r.verdict.accepted for r in clear_harmful)),
+    }
+    groups = {"Harm": harmful, "Kept": kept, "HarmClear": clear_harmful, "KeptClear": clear_kept}
+    for word, rule in RULES.items():
+        for suffix, group in groups.items():
+            out[f"Rule{word}{suffix}"] = str(sum(not rule(r) for r in group))
+    return out
 
 
 def _count(records: Sequence[ActionRecord], accepted: bool, harmful: bool) -> int:
@@ -262,7 +274,7 @@ def _run_numbers(ev: Evidence) -> dict[str, str]:
     the retries of the intent evaluation."""
     runs = ev.results["runs"]
     out = {}
-    for mode in ("V2", "V3"):
+    for mode in JUDGED_MODES:
         seeds = runs[f"{mode}/ap_failure"]
         word = MODE_WORDS[mode]
         out[f"PerSeedLossApFail{word}"] = ", ".join(_f(r["loss_pct"], 1) for r in seeds)
@@ -281,55 +293,19 @@ def _run_numbers(ev: Evidence) -> dict[str, str]:
     return out
 
 
-def tainted_actions(ev: Evidence) -> set[str]:
-    """The ids of the resolved actions of V2 and V3 whose verdict the scenario's scheduled
-    disruption taints (the watch cannot tell the fault from the action's effect). The executor
-    compares the watch's KPIs with those of the `watch_s` before the action, so the disruption
-    taints the verdict if it falls within `watch_s` before the action or within `watch_s` after."""
-    watch = timedelta(seconds=ev.config["executor"]["watch_s"])
-    out = set()
-    for mode in ("V2", "V3"):
-        for run_id, records in ev.ledgers[mode].items():
-            start = ev.run_starts[mode][run_id]
-            onset = timedelta(
-                seconds=stress_window(load_scenario(run_id.rsplit("-", 2)[0])).onset_s
-            )
-            out |= {
-                r.action.action_id
-                for r in records
-                if r.status in RESOLVED
-                and r.applied_at is not None
-                and r.applied_at - start - watch < onset < r.applied_at - start + watch
-            }
-    return out
-
-
 def _fault_numbers(ev: Evidence) -> dict[str, str]:
     """When the actions of V2 and V3 were applied: how many had the scenario's scheduled
-    disruption inside the window they were judged on (`tainted_actions`), how the twin and its
-    closed-loop error fare without them, and how many ticks applied more than one action (their
-    watches then run side by side)."""
+    disruption inside the window they were judged on (`tainted_actions`; V2's own counts are in
+    `_verifier_numbers`), the closed-loop error without them, and how many ticks applied more
+    than one action (their watches then run side by side)."""
     taint = tainted_actions(ev)
     same_tick = timedelta(seconds=ev.config["loop"]["period_s"] / 2)
-    straddling, multi = 0, 0
-    v2_harm, v2_straddling, v2_rejected_clear, v2_kept_straddling = 0, 0, 0, 0
-    clear: list[ActionRecord] = []  # resolved actions whose verdict the disruption did not taint
-    for mode in ("V2", "V3"):
+    applied = [r for r in resolved_actions(ev) if r.applied_at is not None]
+    clear = [r for r in applied if r.action.action_id not in taint]
+    straddling = sum(r.status in HARMFUL and r.action.action_id in taint for r in applied)
+    multi = 0
+    for mode in JUDGED_MODES:
         for records in ev.ledgers[mode].values():
-            for r in records:
-                if r.status not in RESOLVED or r.applied_at is None:
-                    continue
-                tainted = r.action.action_id in taint
-                if not tainted:
-                    clear.append(r)
-                if r.status in HARMFUL:
-                    straddling += tainted
-                    if mode == "V2":
-                        v2_harm += 1
-                        v2_straddling += tainted
-                        v2_rejected_clear += not tainted and not r.verdict.accepted
-                elif mode == "V2":
-                    v2_kept_straddling += tainted
             times = sorted(r.applied_at for r in records if r.applied_at is not None)
             group = 1
             for before, after in pairwise(times):
@@ -338,14 +314,9 @@ def _fault_numbers(ev: Evidence) -> dict[str, str]:
                     multi += group == 2  # noqa: PLR2004 - count a group once, when it reaches two
                 else:
                     group = 1
-    return {
-        "HarmStraddle": str(straddling),
-        "HarmStraddleVtwo": str(v2_straddling),
-        "HarmClearVtwo": str(v2_harm - v2_straddling),
-        "HarmClearRejected": str(v2_rejected_clear),
-        "KeptStraddleVtwo": str(v2_kept_straddling),
-        "TickMulti": str(multi),
-    } | _live_error_numbers(clear, "LiveClear")
+    return {"HarmStraddle": str(straddling), "TickMulti": str(multi)} | _live_error_numbers(
+        clear, "LiveClear"
+    )
 
 
 def _failed_rollbacks(ev: Evidence) -> dict[str, str]:
@@ -400,6 +371,25 @@ def _model_numbers(ev: Evidence) -> dict[str, str]:
     }
 
 
+def video_rate(scenario: str) -> float:
+    """The rate of the video a scenario adds to everyone's web traffic (Mbit/s). The paper quotes
+    one rate per scenario, so every video item must state the same rate; ValueError otherwise."""
+    rates = {t.rate_mbps for t in load_scenario(scenario).traffic if t.profile == "video"}
+    stated = {r for r in rates if r is not None}
+    if len(stated) != 1 or len(rates) != 1:
+        raise ValueError(f"{scenario}: the paper quotes one stated video rate, found {rates}")
+    return stated.pop()
+
+
+def _scenario_numbers(campus: Mapping[str, Any]) -> dict[str, str]:
+    """What every run starts with: the stations on each AP (config/campus_v1.yaml, read by the
+    testbed's own parser and its checks; one AP per zone) and each scenario's video rate."""
+    layout = layout_from_dict(campus)
+    counts = [str(layout.initial.get(ap.zone, 0)) for ap in layout.aps]
+    video = {f"ScenVideo{word}": _f(video_rate(s), 1) for s, (word, _) in SCENARIOS.items()}
+    return video | {"CfgStartClients": f"{', '.join(counts[:-1])} and {counts[-1]}"}
+
+
 def _config_numbers(ev: Evidence) -> dict[str, str]:
     cfg = ev.config
     radio = cfg["campus_v1"]["radio_model"]
@@ -411,18 +401,7 @@ def _config_numbers(ev: Evidence) -> dict[str, str]:
     shared = capacity_mbps([pairs[("ap1", "ap4")]], params)
     floor = cfg["executor"]["noise_floor"]
     places = ", ".join(f"{n} ({x:g}, {y:g})" for n, (x, y) in aps.items())
-    start = cfg["campus_v1"]["stations"]["initial"]  # zone -> stations, one AP per zone
-    counts = [str(start[a["zone"]]) for a in cfg["campus_v1"]["aps"]]
-    default = cfg["sim"]["apps"]["video"]["offered_mbps"]  # a video item without its own rate
-    video = {  # the rate of the video each scenario adds to everyone's web traffic
-        f"ScenVideo{word}": _f(
-            next(t.rate_mbps or default for t in load_scenario(s).traffic if t.profile == "video"),
-            1,
-        )
-        for s, (word, _) in SCENARIOS.items()
-    }
-    return video | {
-        "CfgStartClients": f"{', '.join(counts[:-1])} and {counts[-1]}",
+    return _scenario_numbers(cfg["campus_v1"]) | {
         "CfgVideo": _f(cfg["sim"]["apps"]["video"]["offered_mbps"], 1),
         "CfgWebRate": _f(cfg["sim"]["apps"]["web"]["offered_mbps"], 2),
         "CfgApPlaces": places.replace(", ap4", " and ap4"),
@@ -543,17 +522,12 @@ def table_rules(ev: Evidence) -> str:
     found harmful, and among those it kept; in brackets, among those the scheduled disruption
     did not taint (tabular only)."""
     n = numbers(ev)
-    rows = [
-        [
-            label,
-            *(
-                f"{n[f'Rule{word}{s}']} of {n[f'{s}All']}"
-                f" ({n[f'Rule{word}{s}Clear']} of {n[f'{s}ClearVtwo']})"
-                for s in ("Harm", "Kept")
-            ),
-        ]
-        for word, label in RULE_LABELS.items()
-    ]
+
+    def cell(word: str, group: str) -> str:
+        whole = f"{n[f'Rule{word}{group}']} of {n[f'{group}All']}"
+        return f"{whole} ({n[f'Rule{word}{group}Clear']} of {n[f'{group}ClearVtwo']})"
+
+    rows = [[label, cell(word, "Harm"), cell(word, "Kept")] for word, label in RULE_LABELS.items()]
     head = ["Acceptance rule", "Harmful rejected", "Kept rejected"]
     label = ">{\\raggedright\\arraybackslash}p{3.0cm}"  # ragged: a narrow justified cell stretches
     return _boxed_tabular([label, "c", "c"], head, rows)

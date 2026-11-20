@@ -1,6 +1,6 @@
 # Google Deep Review, round 1: the comments, verbatim
 
-Uploaded: `round0_draft/paper_draft_v0.pdf` (the draft as reviewed). Pasted by the authors
+Uploaded: `reviewed/paper_draft_v0.pdf` (the draft as reviewed). Pasted by the authors
 on 2026-11-10. The responses are in `revision_report.md`, each pointing at the heading
 numbers used here (S = summary item, W = weakness, I1 to I3 = the three sections of
 "Potential Issues And Suggestions", numbered as in the review, M = minor corrections).

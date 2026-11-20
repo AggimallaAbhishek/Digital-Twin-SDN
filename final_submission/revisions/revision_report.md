@@ -8,25 +8,27 @@ subtitle: "A Twin-Gated Control Loop for Campus Wi-Fi (IEEE conference paper)"
 For every round it lists **each review comment**, the **modification made** in response (with
 the place in the paper and the files or experiments that changed), and the **PDF that was
 uploaded**. A comment that was not acted on, or only partly, says why. The comments are kept
-word for word in `round1_deep_review.md` (each given an ID such as I2.1 there: W = weakness,
+word for word in `roundN/review_comments.md` (each given an ID such as I2.1 there: W = weakness,
 I = potential issue, M = minor correction); this report refers to those IDs.
 
 | Round | Uploaded PDF | Comments | Fully addressed | Partly (the rest declined, with reason) |
 |---|---|---|---|---|
-| Draft (before review) | `round0_draft/paper_draft_v0.pdf` | n/a | n/a | n/a |
-| Round 1 | `round0_draft/paper_draft_v0.pdf` (revised as `paper_rev1.pdf`) | 27 | 15 | 12 |
-| Round 2 | `paper_rev1.pdf` (revised as `paper_rev2.pdf`) | 30 | 17 (+1 explained) | 12 |
-| Round 3 | `paper_rev2.pdf` (revised as `paper_rev3.pdf`) | 28 | 12 (+1 not done, cosmetic) | 15 |
-| Round 4 (final) | `paper_rev3.pdf` (revised as `paper_rev4.pdf`, the final draft) | 30 | 14 (+1 explained) | 15 |
-| Round 5 (after the faculty guide's graphs) | `paper_final.pdf` (revised as `paper_rev5.pdf`) | 39 | 22 | 17 |
+| Draft (before review) | `round1/reviewed/paper_draft_v0.pdf` | n/a | n/a | n/a |
+| Round 1 | `round1/reviewed/paper_draft_v0.pdf` (revised as `round1/paper_rev1.pdf`) | 27 | 15 | 12 |
+| Round 2 | `round2/reviewed/paper_rev1.pdf` (revised as `round2/paper_rev2.pdf`) | 30 | 17 (+1 explained) | 12 |
+| Round 3 | `round3/reviewed/paper_rev2.pdf` (revised as `round3/paper_rev3.pdf`) | 28 | 12 (+1 not done, cosmetic) | 15 |
+| Round 4 (final) | `round4/reviewed/paper_rev3.pdf` (revised as `round4/paper_rev4.pdf`, the final draft) | 30 | 14 (+1 explained) | 15 |
+| Round 5 (after the faculty guide's graphs) | `round5/reviewed/paper_final.pdf` (revised as `round5/paper_rev5.pdf`) | 39 | 22 | 17 |
 
 Two complete review and revision rounds are required before submission; a third is recommended.
-Each reviewed version is kept unchanged (`round0_draft/` to `round4_draft/`: source and PDF); the revision is the
-current `paper/`.
+Each round has its own folder, `round1/` to `round5/`: `review_comments.md` (the comments, word
+for word), `reviewed/` (the version that was uploaded, unchanged: source and PDF) and
+`paper_revN.pdf` (the revision the round produced). The latest revision is also `paper_final.pdf`
+next to this report, and its source is the current `paper/`.
 
 # Round 1
 
-**Uploaded:** `round0_draft/paper_draft_v0.pdf` (the draft). **Revision:** `paper_rev1.pdf`
+**Uploaded:** `round1/reviewed/paper_draft_v0.pdf` (the draft). **Revision:** `round1/paper_rev1.pdf`
 (7 pages; the draft had 6). Every new number in the paper is generated from the recorded runs
 (`make paper`), with new unit tests.
 
@@ -102,9 +104,9 @@ current `paper/`.
 
 # Round 2
 
-**Uploaded:** `paper_rev1.pdf` (the round-1 revision, 7 pages). **Revision:** `paper_rev2.pdf`
+**Uploaded:** `round2/reviewed/paper_rev1.pdf` (the round-1 revision, 7 pages). **Revision:** `round2/paper_rev2.pdf`
 (8 pages; the references take the last page). The reviewed revision is kept unchanged in
-`round1_draft/`. The comments are in `round2_deep_review.md` (30 of them, each given an ID).
+`round2/reviewed/`. The comments are in `round2/review_comments.md` (30 of them, each given an ID).
 The citation checker passed all 19 references it was given, among them the fifteen we added
 in round 1. Every new number is generated from the recorded runs (`make paper`), with new unit
 tests; `make check` passes (1676 tests).
@@ -203,9 +205,9 @@ tests; `make check` passes (1676 tests).
 
 # Round 3
 
-**Uploaded:** `paper_rev2.pdf` (the round-2 revision, 8 pages). **Revision:** `paper_rev3.pdf`
-(8 pages). The reviewed revision is kept unchanged in `round2_draft/`. The comments are in
-`round3_deep_review.md` (28 of them, each given an ID). This round found no new problem with
+**Uploaded:** `round3/reviewed/paper_rev2.pdf` (the round-2 revision, 8 pages). **Revision:** `round3/paper_rev3.pdf`
+(8 pages). The reviewed revision is kept unchanged in `round3/reviewed/`. The comments are in
+`round3/review_comments.md` (28 of them, each given an ID). This round found no new problem with
 the numbers: the reviewer re-derived the counts of Tables II to IV, H1's percentages and the
 Fisher p-value and found them consistent. The citation checker again passed all 19 references.
 Every new number is generated from the recorded runs (`make paper`), with new unit tests.
@@ -296,9 +298,9 @@ Every new number is generated from the recorded runs (`make paper`), with new un
 
 # Round 4 (final)
 
-**Uploaded:** `paper_rev3.pdf` (the round-3 revision, 8 pages). **Revision:** `paper_rev4.pdf`,
-the final draft (8 pages). The reviewed revision is kept unchanged in `round3_draft/`. The
-comments are in `round4_deep_review.md` (30 of them, each given an ID). As in round 3, the
+**Uploaded:** `round4/reviewed/paper_rev3.pdf` (the round-3 revision, 8 pages). **Revision:** `round4/paper_rev4.pdf`,
+the final draft (8 pages). The reviewed revision is kept unchanged in `round4/reviewed/`. The
+comments are in `round4/review_comments.md` (30 of them, each given an ID). As in round 3, the
 reviewer re-derived the numbers of Tables II to IV, H1's percentages and the Fisher p-value and
 found them consistent, and the citation checker passed all 19 references. Every new number is
 generated from the recorded runs (`make paper`), with new unit tests.
@@ -384,7 +386,7 @@ generated from the recorded runs (`make paper`), with new unit tests.
 
 # Faculty guide's review (after round 4)
 
-The faculty guide reviewed the project and `paper_rev4.pdf` and asked: *"You need to add 12-14
+The faculty guide reviewed the project and `round4/paper_rev4.pdf` and asked: *"You need to add 12-14
 significant graphs. That will enhance the quality."*
 
 | Comment | Result | Modification, and where | Files, experiments |
@@ -403,8 +405,8 @@ change the twin predicts bears no relation to the one measured. The revised pape
 # Round 5
 
 **Uploaded:** `paper_final.pdf` (the 12-page paper with the guide's 14 graphs). **Revision:**
-`paper_rev5.pdf` (13 pages). The reviewed version is kept unchanged in `round4_draft/`. The
-comments are in `round5_deep_review.md` (39 of them, each given an ID). The reviewer re-derived
+`round5/paper_rev5.pdf` (13 pages). The reviewed version is kept unchanged in `round5/reviewed/`. The
+comments are in `round5/review_comments.md` (39 of them, each given an ID). The reviewer re-derived
 the ledger counts of Tables III and IV, H1's percentages and the Fisher p-value and found them
 exact. Every new number is generated from the recorded runs or the configuration (`make paper`),
 with new unit tests; every new sentence about the data was checked against it.
@@ -504,9 +506,9 @@ with new unit tests; every new sentence about the data was checked against it.
 
 1. Compile the paper (`make paper`, or on Overleaf) and upload the PDF to
    <https://research.google/deepreview/>.
-2. Paste each comment into `roundN_deep_review.md` and the table above.
+2. Make `roundN/`: copy the uploaded version (`paper/main.tex`, `references.bib`, `figures/`, `generated/` and the PDF) into `roundN/reviewed/` unchanged, and paste the comments into `roundN/review_comments.md`, giving each an ID.
 3. For each comment: change `paper/main.tex`; if a number, table or figure must change, change the
    code or re-run the experiment, then `make results` and `make paper` (the numbers are never
    edited by hand); if a comment needs a new experiment, record it in the last column.
-4. Save the PDF that was uploaded as `paper_revN.pdf` in this folder and fill in the round's table.
+4. Save the revised PDF as `roundN/paper_revN.pdf` and as `paper_final.pdf` next to this report, and fill in the round's table.
 5. `make submission` rebuilds `dist/Revision_Report.docx` from this file.

@@ -19,9 +19,10 @@ I = potential issue, M = minor correction); this report refers to those IDs.
 | Round 3 | `round3/reviewed/paper_rev2.pdf` (revised as `round3/paper_rev3.pdf`) | 28 | 12 (+1 not done, cosmetic) | 15 |
 | Round 4 (final) | `round4/reviewed/paper_rev3.pdf` (revised as `round4/paper_rev4.pdf`, the final draft) | 30 | 14 (+1 explained) | 15 |
 | Round 5 (after the faculty guide's graphs) | `round5/reviewed/paper_final.pdf` (revised as `round5/paper_rev5.pdf`) | 39 | 22 | 17 |
+| Round 6 | `round6/reviewed/paper_rev5.pdf` (revised as `round6/paper_rev6.pdf`) | 34 | 15 (+1 explained) | 18 |
 
 Two complete review and revision rounds are required before submission; a third is recommended.
-Each round has its own folder, `round1/` to `round5/`: `review_comments.md` (the comments, word
+Each round has its own folder, `round1/` to `round6/`: `review_comments.md` (the comments, word
 for word), `reviewed/` (the version that was uploaded, unchanged: source and PDF) and
 `paper_revN.pdf` (the revision the round produced). The latest revision is also `paper_final.pdf`
 next to this report, and its source is the current `paper/`.
@@ -399,7 +400,9 @@ with a steer that was rolled back before any disruption; the three failed rollba
 proposed shortly before the AP failure; in the flash crowd V2 and V3 bring Jain's index back to
 about the 0.8 target within a few minutes (five of their six runs end above it), so their means
 over the stress window miss it because of the first minutes after the onset; and the throughput
-change the twin predicts bears no relation to the one measured. The revised paper is
+change the twin predicts bears no relation to the one measured (corrected in round 6: that
+figure mixed flow sets; recomputed over the same flows, the measured change follows the
+predicted one only weakly). The revised paper is
 `paper_final.pdf` (the paper as built by `make paper`).
 
 # Round 5
@@ -501,6 +504,110 @@ with new unit tests; every new sentence about the data was checked against it.
 3. Offline validation of latency and loss, a transient-aware delay model, a later comparison
    window for kept actions, a QoS-only recovery time.
 4. Replaying the local model's semantic misses through the verifier; an external intent benchmark.
+
+# Round 6
+
+**Uploaded:** `round6/reviewed/paper_rev5.pdf` (13 pages). **Revision:** `round6/paper_rev6.pdf`
+(14 pages). The comments are in `round6/review_comments.md` (34 of them, each given an ID). Every
+new number is generated from the recorded runs or the configuration (`make paper`), with new unit
+tests; every new sentence about the data was checked against it.
+
+## What the review found that was right
+
+- **The AP-failure comparison is confounded by the operator gate too** (I4.4, read further than
+  the reviewer did). The reviewer assumed no high-impact action was proposed in the AP failure.
+  The ledgers show that after the failure both acting variants proposed channel changes in
+  every run, some later in the run too: V2 applied its 4, V3 held its 5 for an operator (5 of V3's 8 waiting changes; the
+  other 3 are the interference scenario's). The reviewer's conclusion stands: the twin rejected
+  none of V3's AP-failure proposals before 500 s, so the gap is not the twin's. Now in Sec. VII-A
+  and the Fig. 11 caption.
+- **(S1) left a steer to a down AP to the prediction, which would not reliably reject it** (I2.1,
+  W3): Jain's index over the up APs can rise and pass Eq. (6) alone. The heuristics only steer to
+  up APs and an LLM policy compiles to no steer, but the text no longer claims the prediction
+  covers it; a hard liveness bound is listed among the fixes in Sec. VIII.
+- **Unstated parts of the model** (I2.3, I2.4, I2.2, M3.1): web flows follow the inelastic loss
+  formula, and their fetch rate is cut to the rate limit and never negative; the delay plateau is
+  reached near rho = 1 and the 15.8 ms bound only far beyond; a starved queue still gets a bounded
+  delay; the 1.0 Mbit/s fallback overstates an unmeasured video flow's demand (the scenarios run
+  0.4 to 0.6); when k = 0 can occur.
+- **Scopes** (I2.5, I3.3): the verdict scope is the flows whose simulated KPIs differ (stated as
+  the code has it), only the affected AP's utilization counts in Eq. (5), and the three scopes in
+  play are named in Sec. VI.
+- **Prompt revision on the test set** (W5, I3.2): disclosed in Sec. I (H3 is in-sample), and a
+  held-out intent split is listed in Sec. VIII.
+- **New numbers from the ledgers** (I4.3, I4.1, I4.2): 6 of V2's 15 untainted harmful actions are
+  first-minute steers; 2 of V3's kept actions were tainted (so the 87 is transparent); every one
+  of the 19 harmful actions that "no regression" passes was also predicted to improve a KPI by
+  more than 5% (18 of them latency, compared without a noise floor); V2's closed-loop error by
+  action type (steers 56.9% vs 48.6% for the twin's own baseline, channel changes 59.7% vs
+  19.3%); and what triggered each rollback, from the executor's notes (throughput in 31 of 43,
+  loss 21, latency 8, Jain 2).
+- **Watch cancellation and state read-back** (I1.3, I1.1): Sec. VIII now lists external channel
+  changes and scheduled load changes as events that should cancel a watch, and that the twin must
+  read queues and rate limits back before an LLM policy is applied.
+- **The small points** (M1.1 to M3.5, M4.2): percentages, the campus sentence, the forward
+  references, the f in q note, the scenario order, Eq. (5)'s horizon, "fewer than 3", the training
+  runs, Table I's V2 row, the `make campaign` command, Table III's note, and Fig. 11 now stacks
+  actions of one tick within their row so none hides another.
+
+## A bug the review loop found (not raised by the reviewer)
+
+- **(S4) described the wrong flows, and Fig. 12 mixed flow sets.** The executor's rollback rule
+  compares the *whole network's* KPIs before and over the watch (`controller/executor/executor.py`
+  `check`, `_regressions`); the verdict's flows are measured only for the twin-versus-live
+  comparison. The paper said the watch measured "the live KPIs of the flows the verdict
+  compared". Worse, Fig. 12 (added in the faculty-guide round) divided the verdict-scope
+  throughput over the watch by the whole network's throughput before it. Fixed: (S4) rewritten;
+  Fig. 12 recomputes both windows over the verdict's flows from the recorded telemetry with the
+  executor's own window function (`paper_evidence.load_watched`; it reproduces the executor's
+  throughput within 1% for 106 of 113 actions, at worst 4.8%). On the corrected data the measured
+  change follows the predicted one only weakly (rank correlation 0.29), not "not at all"; the
+  text now says so. A "measured nothing changes" baseline the reviewer asked for (I4.2) was
+  computed first from the same mismatched fields and then dropped: the ledgers do not hold it,
+  and the telemetry reproduces the watch's latency and loss less well than its throughput.
+
+## What the data or the code answers
+
+- **"10.0% should be 10.1%"** (M4.1): the unrounded seed values average 10.04%.
+- **"A rate limit does not cap a web flow's throughput"** (I2.3): it does (`_capped`).
+- **"The delay model underpredicts by half near saturation"** (I2.4): the measured plateau,
+  8 to 10 ms, is what the model gives near rho = 1; the text now says where the plateau sits.
+- **"8 channel changes waited in the interference scenario"** (W1, I4.1): 3 did; 5 were in the
+  AP failure.
+
+## Per comment
+
+| ID | Comment (short) | Result | Modification, and where | Files, experiments |
+|---|---|---|---|---|
+| W1, I4.1 | V2 vs V3 confounded by the gate | Partly | Sec. III-B: the gate is V3's; Table I: V2 has none; Sec. VII-A: the AP failure is confounded too; V2's errors by action type. **Not done:** an auto-approving V3 or gated V2 (about 2 h of VM time) | `paper_build.py` (`ChanApFail*`, `LiveVtwoSteer*`, `LiveVtwoChan*`), `main.tex` |
+| W2, I2.4 | Simplified physics; delay cap; starvation; calibration | Partly | Sec. IV-A: calibration point, starved queue. **Not done:** a contention-aware or learned model (twin code, ADR) | `main.tex` |
+| W3, I2.1 | Dead-AP steer can pass on J; blind rollback | Partly | (S1) text corrected; Sec. VIII: a hard liveness bound. **Not changed:** the rule and the executor (ADR) | `main.tex` |
+| W4, I3.2 | Seed reuse; no roaming V1; in-sample prompt | Partly | Sec. I: H3 in-sample; Sec. VIII: held-out intents. **Not done:** fresh seeds, a roaming V1 | `main.tex` |
+| W5, I1.2 | LLM offline; action types; 9 misses not verified | Partly | Sec. III-B: which types the twin's throughput prediction was validated for. **Not done:** replaying the misses through the verifier | `main.tex` |
+| I1.1 | State drift once QoS or rate limits are applied | Partly | Sec. VIII: read back or take from the ledger. **Not done:** the state builder change | `main.tex` |
+| I1.3 | More watch-cancellation triggers | Fixed | Sec. VIII | `main.tex` |
+| M1.1 to M1.3 | Percent signs; campus sentence; T forward reference | Fixed | Abstract, Sec. III | `main.tex` |
+| I2.2 | Demand inversion, fallback rate | Partly | Sec. IV-A: the fallback's overstatement. **Not changed:** the estimator | `main.tex` |
+| I2.3 | Web loss, rate limit, T weighting | Partly | Sec. IV-A: the loss formula, the cap. **Not changed:** how T weights web fetch rates | `main.tex` |
+| I2.5 | Joint vs singleton verification; scope; U on one AP | Partly | Sec. IV-B: scope as the code has it; U on the affected AP only. **Not changed:** Algorithm 1 | `main.tex` |
+| M2.1 to M2.4 | f in q; order; Eq. (5) horizon; "fewer than 3" | Fixed | Sec. IV, Algorithm 1 | `main.tex` |
+| I3.1 | Rollback preconditions, stale approvals, attribution | Partly | Sec. VIII (fixes listed, extended). **Not changed:** the executor (ADR) | `main.tex` |
+| I3.3 | Three scopes; U column; roaming | Partly | Sec. VI names the scopes. **Not done:** a U column, a roaming V1 | `main.tex` |
+| M3.1 to M3.5 | k = 0; forward reference; training runs; Table I; make command | Fixed | Sec. IV-B, VI, Table I | `main.tex` |
+| I4.2 | Offline vs closed-loop errors | Partly | Rollback triggers; errors by action type. **Not done:** video-only closed-loop error, offline latency and loss validation; the measured baseline dropped (see above) | `paper_build.py` (`RbTrig*`), `main.tex` |
+| I4.3 | Start-up steers, tainted accounting, clause-B gains, forward steers | Partly | The start-up count, V3's tainted kept, the clause-B gains. **Kept:** the headline harm counts include the steers before the failure, as the watch judged them | `paper_build.py` (`HarmStartupVtwo`, `KeptStraddleVthree`, `HarmNoReg*`), `main.tex` |
+| I4.4 | V2 vs V3 in the AP failure | Fixed | Sec. VII-A (with the gate finding above) | `main.tex` |
+| M4.1 | 10.0 vs 10.1 | Explained | Unrounded mean 10.04 | none |
+| M4.2 | Table III note; Fig. 11 overlaps | Fixed | Table III caption; Fig. 11 stacks same-tick markers | `paper_figures.py` (`_stacked`), `main.tex` |
+
+## Not done, and what it needs (for the next paper)
+
+1. Campaigns: fresh seeds, an auto-approving V3 or a gated V2, a V1 with 802.11k/v/r roaming.
+2. Executor and verifier changes (an ADR first): liveness in (S1), rollback preconditions,
+   re-verifying approvals, watch cancellation on verifiable events, a noise floor in Eq. (6).
+3. Twin changes: per-flow queue delay, capacity-scaled service time, a contention-aware model,
+   reading queues and rate limits back into the state.
+4. A held-out intent set; replaying the local model's misses through the verifier.
 
 # How a round is done
 

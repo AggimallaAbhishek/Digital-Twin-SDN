@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from itertools import combinations
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import pyarrow.parquet as pq
 import yaml
@@ -71,7 +71,16 @@ SERIES_COLUMNS = {  # the telemetry the figures draw, per table
 Json = dict[str, Any]  # Any: JSON
 Row = dict[str, Any]  # Any: a telemetry row, column -> value
 Point = tuple[float, float]
-Window = tuple[KPIValues | None, KPIValues | None]  # an action's flows' KPIs: before, watch
+
+
+class Window(NamedTuple):
+    """An action's flows' KPIs in the `watch_s` before it and over its watch (`load_watched`;
+    only the flow KPIs are meaningful: no station rows go in, so `jain` is a placeholder)."""
+
+    before: KPIValues | None
+    during: KPIValues | None
+
+
 WINDOW_COLUMNS = (
     "run_id",
     "ts",
@@ -265,7 +274,7 @@ def load_watched(
             if r.status not in RESOLVED or r.applied_at is None or not r.scope:
                 continue
             at = r.applied_at
-            out[r.action.action_id] = (
+            out[r.action.action_id] = Window(
                 _window(rows, at - watch, at, r.scope),
                 _window(rows, at + settle, at + watch, r.scope),
             )
@@ -275,7 +284,7 @@ def load_watched(
 def _window(
     rows: Sequence[Row], start: datetime, end: datetime, scope: Sequence[str]
 ) -> KPIValues | None:
-    """The KPIs of `scope`'s flows over [start, end), as the executor computes a window."""
+    """The flow KPIs of `scope`'s flows over [start, end), with the executor's window function."""
     return window_kpis([r for r in rows if start <= r["ts"] < end], [], [], scope)
 
 

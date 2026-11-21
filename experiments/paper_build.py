@@ -244,16 +244,16 @@ def _trigger_kpis(note: str) -> set[str]:
 
 
 def _closed_loop_numbers(ev: Evidence) -> dict[str, str]:
-    """Round-6 counts from the ledgers: which KPI triggered each rollback, V2's harmful actions
+    """Counts from the ledgers: which KPI triggered each rollback, V2's harmful actions
     by start-up and by the gain that passed them, and the AP failure's channel changes."""
     harmful = [r for r in resolved_actions(ev) if r.status in HARMFUL]
     out = {"RbTrigN": str(len(harmful))}
     for kpi, word in LIVE_WORDS.items():
         out[f"RbTrig{word}"] = str(sum(kpi in _trigger_kpis(r.note) for r in harmful))
-    return out | _harmful_v2_numbers(ev) | _ap_failure_channel_numbers(ev)
+    return out | _v2_action_numbers(ev) | _ap_failure_channel_numbers(ev)
 
 
-def _harmful_v2_numbers(ev: Evidence) -> dict[str, str]:
+def _v2_action_numbers(ev: Evidence) -> dict[str, str]:
     """V2's harmful start-up actions among those the disruption did not taint, the gains that
     passed its harmful actions under "no regression", V3's tainted kept actions, and V2's
     closed-loop errors by action type."""

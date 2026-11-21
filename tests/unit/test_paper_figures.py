@@ -138,7 +138,9 @@ def _measured_from(ev: paper_evidence.Evidence, path: Path, *thr: float) -> pape
     records = _verdict_ledger(path)
     seen = [*thr, *[0.4] * (len(records) - len(thr))]
     watched = {
-        r.action.action_id: (KPIValues.model_validate(_kpis(thr=t)), r.measured)
+        r.action.action_id: paper_evidence.Window(
+            KPIValues.model_validate(_kpis(thr=t)), r.measured
+        )
         for r, t in zip(records, seen, strict=True)
     }
     ledgers = {"V1": {}, "V2": {"run": records}, "V3": {}}

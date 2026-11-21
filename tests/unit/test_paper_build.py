@@ -903,7 +903,7 @@ def test_harmful_actions_are_also_counted_by_start_up_and_by_the_gain_that_passe
 
 
 def test_ap_failure_channel_changes_are_counted_by_what_each_variant_did_with_them(
-    judged: paper_evidence.Evidence, tmp_path: Path
+    judged: paper_evidence.Evidence,
 ) -> None:
     change = ACTION_ADAPTER.validate_python(
         STEER

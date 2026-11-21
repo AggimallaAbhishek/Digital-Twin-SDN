@@ -49,6 +49,7 @@ from experiments.paper_evidence import (
     Point,
     Row,
     RunSeries,
+    Window,
     capacity_mbps,
     cochannel_pairs,
     correct_by_kind,
@@ -219,7 +220,7 @@ def throughput_changes(ev: Evidence) -> list[tuple[float, float, str]]:
     kpi = "throughput_mbps"
     out = []
     for r in resolved_actions(ev):
-        before, during = ev.watched.get(r.action.action_id, (None, None))
+        before, during = ev.watched.get(r.action.action_id, Window(None, None))
         if before is None or during is None:
             continue
         predicted = _better_pct(

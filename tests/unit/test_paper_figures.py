@@ -133,15 +133,34 @@ def test_each_action_is_placed_at_the_time_it_was_proposed_with_its_fate(
 
 
 def _measured_from(ev: paper_evidence.Evidence, path: Path, *thr: float) -> paper_evidence.Evidence:
-    """V2 runs the actions of CASES, the watch having seen these throughputs before CASES[0],
-    [1], ... (Mbit/s) and 0.4 before the rest."""
+    """V2 runs the actions of CASES; the telemetry shows their flows carrying these throughputs
+    before CASES[0], [1], ... (Mbit/s; 0.4 before the rest) and what CASES says over the watch."""
     records = _verdict_ledger(path)
     seen = [*thr, *[0.4] * (len(records) - len(thr))]
-    records = [
-        dataclasses.replace(r, baseline=KPIValues.model_validate(_kpis(thr=t)))
+    watched = {
+        r.action.action_id: (KPIValues.model_validate(_kpis(thr=t)), r.measured)
         for r, t in zip(records, seen, strict=True)
-    ]
-    return dataclasses.replace(ev, ledgers={"V1": {}, "V2": {"run": records}, "V3": {}})
+    }
+    ledgers = {"V1": {}, "V2": {"run": records}, "V3": {}}
+    return dataclasses.replace(ev, ledgers=ledgers, watched=watched)
+
+
+def test_an_actions_flows_are_measured_before_it_and_over_its_watch_from_the_telemetry(
+    evidence: paper_evidence.Evidence, tree: Path
+) -> None:
+    # the fixture's V2 run: the kept steer applied 230 s in; sta1-video carries 0.5 Mbit/s at
+    # 10 ms, sta2-video 0.5 Mbit/s at 11 ms, throughout
+    record = evidence.ledgers["V2"]["ap_failure-v2-s42"][0]
+    ledger = {"ap_failure-v2-s42": [dataclasses.replace(record, scope=("sta1-video",))]}
+    dataset = tree / evidence.results["datasets"]["V2"]
+    watched = paper_evidence.load_watched(dataset, ledger, evidence.config["executor"])
+    before, during = watched[record.action.action_id]
+    assert before is not None
+    assert during is not None
+    assert (before.throughput_mbps, before.latency_ms) == (0.5, 10.0)  # only the scope's flow
+    assert (during.throughput_mbps, during.latency_ms) == (0.5, 10.0)
+    unscoped = {"ap_failure-v2-s42": [record]}  # no scope recorded: nothing to compare
+    assert paper_evidence.load_watched(dataset, unscoped, evidence.config["executor"]) == {}
 
 
 def test_predicted_and_measured_changes_are_those_of_resolved_actions_with_a_measurement(
@@ -204,3 +223,10 @@ def test_every_figure_is_a_pdf_that_a_rebuild_reproduces_byte_for_byte(
     paper_figures.FIGURES[name](evidence, second)
     assert first.read_bytes().startswith(b"%PDF")
     assert first.read_bytes() == second.read_bytes()  # no creation date: no noise in git
+
+
+def test_actions_of_one_tick_are_stacked_in_their_row_and_keep_their_time() -> None:
+    actions = [(250.0, "kept"), (251.0, "verified"), (400.0, "kept")]  # two in one 5 s tick
+    step = paper_figures.STACK_STEP
+    rows = paper_figures._stacked(actions, 2.0, STEP_S)
+    assert rows == pytest.approx([2.0 - step / 2, 2.0 + step / 2, 2.0])

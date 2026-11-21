@@ -18,6 +18,7 @@ from __future__ import annotations
 import contextlib
 import math
 import statistics
+from collections import Counter
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from itertools import pairwise
 from pathlib import Path
@@ -212,18 +213,19 @@ def action_times(ev: Evidence, mode: str) -> dict[str, list[tuple[float, str]]]:
 
 
 def throughput_changes(ev: Evidence) -> list[tuple[float, float, str]]:
-    """Every resolved action that the watch measured: the change in throughput the twin
-    predicted and the change the watch measured against the live KPIs before the action (both
-    in %, positive is better, over the flows the verdict compared), and its fate."""
+    """Every resolved action measured before and over its watch: the change in throughput the
+    twin predicted and the change measured from the recorded telemetry (`Evidence.watched`),
+    both in %, positive is better, over the flows the verdict compared; and its fate."""
     kpi = "throughput_mbps"
     out = []
     for r in resolved_actions(ev):
-        if r.measured is None or r.baseline is None:
+        before, during = ev.watched.get(r.action.action_id, (None, None))
+        if before is None or during is None:
             continue
         predicted = _better_pct(
             kpi, r.verdict.baseline.throughput_mbps, r.verdict.predicted.throughput_mbps
         )
-        measured = _better_pct(kpi, r.baseline.throughput_mbps, r.measured.throughput_mbps)
+        measured = _better_pct(kpi, before.throughput_mbps, during.throughput_mbps)
         if math.isfinite(predicted) and math.isfinite(measured):  # a change from 0 has no %
             out.append((predicted, measured, r.status))
     return out
@@ -741,6 +743,21 @@ def _last(line: Sequence[float]) -> float:
 # ---------------------------------------------------------------- actions and the twin
 
 
+STACK_STEP = 0.22  # how far apart, in rows, markers of the same tick are drawn
+
+
+def _stacked(actions: Sequence[tuple[float, str]], y: float, period_s: float) -> list[float]:
+    """The row to draw each of a run's actions at: actions proposed in the same tick (within
+    one loop period) are stacked around `y`, so none hides another, and keep their time."""
+    ticks = [round(t / period_s) for t, _ in actions]
+    total, seen = Counter(ticks), Counter[int]()
+    rows = []
+    for tick in ticks:
+        rows.append(y + (seen[tick] - (total[tick] - 1) / 2) * STACK_STEP)
+        seen[tick] += 1
+    return rows
+
+
 def figure_timeline(ev: Evidence) -> Figure:
     """Every action of the variants that act, at the time it was proposed, by its fate; one row
     per run, a short bar at the disruption's onset."""
@@ -758,10 +775,15 @@ def figure_timeline(ev: Evidence) -> Figure:
         labels = [f"{_title(run.scenario)}, {run.seed}" for run in runs]
         for y, run in enumerate(runs):
             ax.plot([run.onset_s] * 2, [y - 0.38, y + 0.38], color=MUTED, linewidth=1.2)
+            rows = _stacked(times[run.run_id], y, _period_s(ev))
             for status in FATES:
-                at = [t for t, s in times[run.run_id] if s == status]
+                at = [
+                    (t, row)
+                    for (t, s), row in zip(times[run.run_id], rows, strict=True)
+                    if s == status
+                ]
                 if at:
-                    _fate_marker(ax, at, [y] * len(at), status)
+                    _fate_marker(ax, [t for t, _ in at], [row for _, row in at], status)
                     shown[status] = shown.get(status, 0) + len(at)
             if y and run.scenario != runs[y - 1].scenario:
                 ax.axhline(y - 0.5, color=GRID, linewidth=0.8)

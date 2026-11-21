@@ -846,3 +846,73 @@ def test_a_scenario_whose_video_items_differ_in_rate_has_no_one_rate_to_quote(
         monkeypatch.setattr(paper_build, "load_scenario", lambda _, s=mixed: s)
         with pytest.raises(ValueError, match="one stated video rate"):
             paper_build.video_rate("lecture_flash_crowd")
+
+
+def _noted(ev: paper_evidence.Evidence, notes: Sequence[str]) -> paper_evidence.Evidence:
+    """`ev` with its harmful actions (V2's, then V3's) given these rollback notes, in order."""
+    queue = list(notes)
+    ledgers = {
+        mode: {
+            run: [
+                dataclasses.replace(r, note=queue.pop(0))
+                if r.status in paper_evidence.HARMFUL
+                else r
+                for r in records
+            ]
+            for run, records in runs.items()
+        }
+        for mode, runs in ev.ledgers.items()
+    }
+    return dataclasses.replace(ev, ledgers=ledgers)
+
+
+def test_the_kpis_that_triggered_each_rollback_come_from_the_executors_notes(
+    judged: paper_evidence.Evidence,
+) -> None:
+    # the judged fixture's harmful actions: V2's CASES[1], [2], [3], then V3's one
+    ev = _noted(
+        judged,
+        [
+            "throughput_mbps 1.0 -> 0.8 (worse by more than 10%)",
+            "throughput_mbps 1.0 -> 0.8 (worse by more than 10%); loss_pct 1 -> 2 (worse ...)",
+            "latency_ms 12 -> 24 (worse by more than 10%)",
+            "loss_pct 1 -> 3 (worse by more than 10%); jain 0.9 -> 0.7 (worse ...)",
+        ],
+    )
+    n = paper_build.numbers(ev)
+    assert n["RbTrigN"] == "4"
+    assert (n["RbTrigThr"], n["RbTrigLat"], n["RbTrigLoss"], n["RbTrigJain"]) == (
+        "2",
+        "1",
+        "2",
+        "1",
+    )
+
+
+def test_harmful_actions_are_also_counted_by_start_up_and_by_the_gain_that_passed_them(
+    judged: paper_evidence.Evidence,
+) -> None:
+    # the fixture's actions are applied 230 s into the run: no start-up action; V2's harmful
+    # actions passed by "no KPI more than 5% worse" are CASES[2] (no change predicted: no gain)
+    n = paper_build.numbers(judged)
+    assert n["HarmStartupVtwo"] == "0"
+    assert (n["HarmNoRegN"], n["HarmNoRegLatGain"]) == ("1", "0")
+    early = paper_build.numbers(_started(judged, 200.0))  # 30 s into the run
+    assert early["HarmStartupVtwo"] == "3"
+    assert early["KeptStraddleVthree"] == "0"  # V3's one action is harmful, not kept
+
+
+def test_ap_failure_channel_changes_are_counted_by_what_each_variant_did_with_them(
+    judged: paper_evidence.Evidence, tmp_path: Path
+) -> None:
+    change = ACTION_ADAPTER.validate_python(
+        STEER
+        | {"type": "set_ap_channel", "params": {"ap": "ap1", "channel": 6}}
+        | {"action_id": "act_chan_1"}
+    )
+    record = dataclasses.replace(judged.ledgers["V2"]["ap_failure-v2-s42"][0], action=change)
+    v2 = dataclasses.replace(record, status="kept")
+    v3 = dataclasses.replace(record, status="verified")  # waiting for an operator
+    ledgers = {"V1": {}, "V2": {"ap_failure-v2-s42": [v2]}, "V3": {"ap_failure-v3-s42": [v3]}}
+    n = paper_build.numbers(dataclasses.replace(judged, ledgers=ledgers))
+    assert (n["ChanApFailVtwoApplied"], n["ChanApFailVthreeWaiting"]) == ("1", "1")

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import math
+from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -25,7 +26,9 @@ from typing import Any
 import pyarrow.parquet as pq
 import yaml
 
+from common.schemas import KPIValues
 from controller.executor.ledger import ActionRecord, read_records
+from controller.executor.live_kpis import window_kpis
 from experiments.analysis.campaign import affected_flows
 from experiments.analysis.results import run_tables, stress_window
 from experiments.batch import LOOP_MODES, load_scenario, run_ok
@@ -68,6 +71,16 @@ SERIES_COLUMNS = {  # the telemetry the figures draw, per table
 Json = dict[str, Any]  # Any: JSON
 Row = dict[str, Any]  # Any: a telemetry row, column -> value
 Point = tuple[float, float]
+Window = tuple[KPIValues | None, KPIValues | None]  # an action's flows' KPIs: before, watch
+WINDOW_COLUMNS = (
+    "run_id",
+    "ts",
+    "flow_id",
+    "app_class",
+    "throughput_mbps",
+    "latency_ms",
+    "loss_pct",
+)
 
 
 @dataclass(frozen=True)
@@ -106,6 +119,8 @@ class Evidence:
     config: Mapping[str, Json]  # config/<name>.yaml
     series: Mapping[str, Sequence[RunSeries]]  # mode -> its campaign runs, in run order; empty
     # when loaded without them (`make paper-check`: the generated text never reads them)
+    watched: Mapping[str, Window]  # action id -> its flows' KPIs before it and over its watch
+    # (`load_watched`); empty when loaded without the series
 
     def actions(self, mode: str) -> list[ActionRecord]:
         """Every action of the passed runs of one variant."""
@@ -184,6 +199,10 @@ def load_evidence(root: Path = ROOT, *, series: bool = True) -> Evidence:
             if (raw / run_id / "actions.db").exists()
         }
     table = _load(results / "results.json")
+    config = {
+        name: yaml.safe_load((root / "config" / f"{name}.yaml").read_text())
+        for name in ("sim", "optimizer", "loop", "executor", "campus_v1", "anomaly")
+    }
     starts = {
         mode: run_starts(root / table["datasets"][mode]) if ledgers[mode] else {}
         for mode in LOOP_MODES
@@ -209,15 +228,55 @@ def load_evidence(root: Path = ROOT, *, series: bool = True) -> Evidence:
             if line.strip()
         ],
         ledgers=ledgers,
-        config={
-            name: yaml.safe_load((root / "config" / f"{name}.yaml").read_text())
-            for name in ("sim", "optimizer", "loop", "executor", "campus_v1", "anomaly")
-        },
+        config=config,
         series={
             mode: load_series(root / path) if series else []
             for mode, path in table["datasets"].items()
         },
+        watched={
+            action_id: windows
+            for mode in JUDGED_MODES
+            if series and ledgers[mode]
+            for action_id, windows in load_watched(
+                root / table["datasets"][mode], ledgers[mode], config["executor"]
+            ).items()
+        },
     )
+
+
+def load_watched(
+    dataset: Path, ledger: Mapping[str, Sequence[ActionRecord]], executor: Json
+) -> dict[str, Window]:
+    """For every resolved action of a campaign that the twin judged over a scope: the KPIs of
+    the flows its verdict compared in the `watch_s` before it and over its watch (from
+    `settle_s` on), recomputed from the recorded telemetry with the executor's own window
+    function. The executor's ledger keeps only the network-wide KPIs before an action, so this
+    is the one before-and-after comparison over the same flows."""
+    watch = timedelta(seconds=executor["watch_s"])
+    settle = timedelta(seconds=executor["settle_s"])
+    table = pq.read_table(dataset / "kpi.parquet", columns=list(WINDOW_COLUMNS))
+    by_run: dict[str, list[Row]] = defaultdict(list)
+    for row in table.to_pylist():
+        by_run[row["run_id"]].append(row)
+    out = {}
+    for run_id, records in ledger.items():
+        rows = by_run.get(run_id, [])
+        for r in records:
+            if r.status not in RESOLVED or r.applied_at is None or not r.scope:
+                continue
+            at = r.applied_at
+            out[r.action.action_id] = (
+                _window(rows, at - watch, at, r.scope),
+                _window(rows, at + settle, at + watch, r.scope),
+            )
+    return out
+
+
+def _window(
+    rows: Sequence[Row], start: datetime, end: datetime, scope: Sequence[str]
+) -> KPIValues | None:
+    """The KPIs of `scope`'s flows over [start, end), as the executor computes a window."""
+    return window_kpis([r for r in rows if start <= r["ts"] < end], [], [], scope)
 
 
 def kpi_cells(ev: Evidence) -> dict[tuple[str, str, str], Json]:

@@ -127,6 +127,7 @@ def numbers(ev: Evidence) -> dict[str, str]:
         | _config_numbers(ev)
         | _verifier_numbers(ev)
         | _fault_numbers(ev)
+        | _closed_loop_numbers(ev)
         | _run_numbers(ev)
     )
 
@@ -227,6 +228,76 @@ def _verifier_numbers(ev: Evidence) -> dict[str, str]:
     for mode, records in resolved.items():  # apart too: V3 holds its channel changes, V2 not
         out |= _live_error_numbers(records, f"Live{MODE_WORDS[mode]}")
     return out
+
+
+# "the first minute": the steers of the AP-failure and interference runs, whose video starts at
+# 10 s, were all proposed 11 to 36 s into the run; no scenario has another event this early
+STARTUP_S = 60.0
+
+
+def _trigger_kpis(note: str) -> set[str]:
+    """The KPIs a rollback's note names as worse. The executor writes one
+    "<kpi> <before> -> <after> (worse by more than N%)" per regressed KPI, joined by "; "
+    (controller/executor/executor.py `_regressions`); the rollback rule compares the whole
+    network's KPIs before and over the watch."""
+    return {part.split(" ", 1)[0] for part in note.split("; ")} & set(LIVE_WORDS)
+
+
+def _closed_loop_numbers(ev: Evidence) -> dict[str, str]:
+    """Round-6 counts from the ledgers: which KPI triggered each rollback, V2's harmful actions
+    by start-up and by the gain that passed them, and the AP failure's channel changes."""
+    harmful = [r for r in resolved_actions(ev) if r.status in HARMFUL]
+    out = {"RbTrigN": str(len(harmful))}
+    for kpi, word in LIVE_WORDS.items():
+        out[f"RbTrig{word}"] = str(sum(kpi in _trigger_kpis(r.note) for r in harmful))
+    return out | _harmful_v2_numbers(ev) | _ap_failure_channel_numbers(ev)
+
+
+def _harmful_v2_numbers(ev: Evidence) -> dict[str, str]:
+    """V2's harmful start-up actions among those the disruption did not taint, the gains that
+    passed its harmful actions under "no regression", V3's tainted kept actions, and V2's
+    closed-loop errors by action type."""
+    taint = tainted_actions(ev)
+    v2 = [r for r in ev.actions("V2") if r.status in RESOLVED]
+    starts = ev.run_starts["V2"]
+    out: dict[str, str] = {}
+    out["HarmStartupVtwo"] = str(
+        sum(
+            r.status in HARMFUL
+            and r.action.action_id not in taint
+            and r.applied_at is not None
+            and (r.applied_at - starts[run]).total_seconds() < STARTUP_S
+            for run, records in ev.ledgers["V2"].items()
+            for r in records
+        )
+    )
+    passed = [r for r in v2 if r.status in HARMFUL and RULES["NoReg"](r)]
+    out["HarmNoRegN"] = str(len(passed))
+    out["HarmNoRegLatGain"] = str(sum(_gains(r)["latency_ms"] > CHANGE_PCT for r in passed))
+    v3_kept = [r for r in ev.actions("V3") if r.status == "kept"]
+    out["KeptStraddleVthree"] = str(sum(r.action.action_id in taint for r in v3_kept))
+    for word, kind in (("Steer", "steer_clients"), ("Chan", "set_ap_channel")):
+        out |= _live_error_numbers([r for r in v2 if r.action.type == kind], f"LiveVtwo{word}")
+    return out
+
+
+def _ap_failure_channel_numbers(ev: Evidence) -> dict[str, str]:
+    """The channel changes each variant proposed in the AP failure: applied by V2, held for an
+    operator by V3 (a run id starts with its scenario)."""
+
+    def changes(mode: str) -> list[ActionRecord]:
+        return [
+            r
+            for run, records in ev.ledgers[mode].items()
+            if run.startswith("ap_failure-")
+            for r in records
+            if r.action.type == "set_ap_channel"
+        ]
+
+    return {
+        "ChanApFailVtwoApplied": str(sum(r.applied_at is not None for r in changes("V2"))),
+        "ChanApFailVthreeWaiting": str(sum(r.status == "verified" for r in changes("V3"))),
+    }
 
 
 def _rule_numbers(

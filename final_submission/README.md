@@ -13,7 +13,7 @@ PDF into `dist/`, so nothing is copied by hand and nothing can drift from the co
 |---|---|
 | **Step 1.** Paper in the IEEE Overleaf template: abstract, introduction, related work; problem scenario, system model, mathematical formulation; proposed algorithm; baselines and experimental setup; results, graphs, performance analysis; conclusion; references in IEEE format | `paper/main.tex` (IEEEtran `conference` class), `paper/references.bib` (IEEE style) |
 | The paper reflects the implementation: equations, algorithm, figures and results | Every number, table and plot is generated from the recorded evaluation (`paper/generated/`, `paper/figures/`); `make paper-check` fails if the paper's numbers or tables and the evaluation disagree (`make paper` redraws the plots, byte for byte the same from the same evaluation); the equation-to-code map is in `REPRODUCE.md` |
-| **Step 2.** Google Deep Review, at least two rounds (a third recommended), with a revision report | `revisions/revision_report.md` (becomes `Revision_Report.docx`); five rounds are done, each in its own folder `revisions/round1/` to `round5/`: `review_comments.md` (the comments), `reviewed/` (the version uploaded, unchanged) and `paper_revN.pdf` (the revision); the current paper is `revisions/paper_final.pdf` (= `round5/paper_rev5.pdf`) |
+| **Step 2.** Google Deep Review, at least two rounds (a third recommended), with a revision report | `revisions/revision_report.md` (becomes `Revision_Report.docx`); six rounds are done, each in its own folder `revisions/round1/` to `round6/`: `review_comments.md` (the comments), `reviewed/` (the version uploaded, unchanged) and `paper_revN.pdf` (the revision); the **final paper** is `revisions/paper_final.pdf` (= `round6/paper_rev6.pdf`, 14 pages) |
 | **Step 3.** One ZIP, at most 100 MB: *Overleaf.zip, source code, figures, dataset (or a link), README, anything else* | `dist/Final_Submission.zip`: `Overleaf.zip`, `Source_Code/`, `Figures/`, `Dataset/`, `README.md`, plus `paper.pdf`, `Revision_Report.docx`, `REPRODUCE.md`, `requirements.txt`, `install_dataset.sh` (its own README is `package/README.md`) |
 | All implementation files (Python, Mininet and others) | `Source_Code/` in the ZIP: `common/ twin/ ml/ genai/ api/ controller/ telemetry/ testbed/ dashboard/ experiments/ config/ tests/` |
 | Step-by-step installation and execution instructions; system requirements; `requirements.txt` / environment configuration | `SETUP.md` (requirements and setup for the evaluator), `REPRODUCE.md`, `requirements.txt`, `pyproject.toml` + `uv.lock` (pinned), `.env.example` (variables, all blank), `docker-compose.yml` |
@@ -31,8 +31,8 @@ final_submission/
 ├── paper/                main.tex, references.bib, generated/ (numbers, tables), figures/
 ├── revisions/            the Deep Review rounds
 │   ├── revision_report.md    every round: comments, what changed, what was not done
-│   ├── paper_final.pdf       the current paper (`make submission` puts it in the ZIP)
-│   └── round1/ … round5/     one folder per round:
+│   ├── paper_final.pdf       THE FINAL PAPER (= round6/paper_rev6.pdf; `make submission` puts it in the ZIP)
+│   └── round1/ … round6/     one folder per round:
 │       ├── review_comments.md    the reviewer's comments, word for word, with IDs
 │       ├── reviewed/             the version that was uploaded (source and PDF), unchanged
 │       └── paper_revN.pdf        the revision the round produced

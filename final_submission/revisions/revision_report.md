@@ -17,9 +17,9 @@ I = potential issue, M = minor correction); this report refers to those IDs.
 | Round 1 | `round1/reviewed/paper_draft_v0.pdf` (revised as `round1/paper_rev1.pdf`) | 27 | 15 | 12 |
 | Round 2 | `round2/reviewed/paper_rev1.pdf` (revised as `round2/paper_rev2.pdf`) | 30 | 17 (+1 explained) | 12 |
 | Round 3 | `round3/reviewed/paper_rev2.pdf` (revised as `round3/paper_rev3.pdf`) | 28 | 12 (+1 not done, cosmetic) | 15 |
-| Round 4 (final) | `round4/reviewed/paper_rev3.pdf` (revised as `round4/paper_rev4.pdf`, the final draft) | 30 | 14 (+1 explained) | 15 |
+| Round 4 | `round4/reviewed/paper_rev3.pdf` (revised as `round4/paper_rev4.pdf`, the final draft) | 30 | 14 (+1 explained) | 15 |
 | Round 5 (after the faculty guide's graphs) | `round5/reviewed/paper_final.pdf` (revised as `round5/paper_rev5.pdf`) | 39 | 22 | 17 |
-| Round 6 | `round6/reviewed/paper_rev5.pdf` (revised as `round6/paper_rev6.pdf`) | 34 | 15 (+1 explained) | 18 |
+| Round 6 (final) | `round6/reviewed/paper_rev5.pdf` (revised as `round6/paper_rev6.pdf`) | 34 | 15 (+1 explained) | 18 |
 
 Two complete review and revision rounds are required before submission; a third is recommended.
 Each round has its own folder, `round1/` to `round6/`: `review_comments.md` (the comments, word
@@ -297,7 +297,7 @@ Every new number is generated from the recorded runs (`make paper`), with new un
    the loop when a watch is cancelled by an AP going down, one action per tick.
 5. Latency and loss validation of the twin, and a different delay model.
 
-# Round 4 (final)
+# Round 4
 
 **Uploaded:** `round4/reviewed/paper_rev3.pdf` (the round-3 revision, 8 pages). **Revision:** `round4/paper_rev4.pdf`,
 the final draft (8 pages). The reviewed revision is kept unchanged in `round4/reviewed/`. The
@@ -505,7 +505,7 @@ with new unit tests; every new sentence about the data was checked against it.
    window for kept actions, a QoS-only recovery time.
 4. Replaying the local model's semantic misses through the verifier; an external intent benchmark.
 
-# Round 6
+# Round 6 (final)
 
 **Uploaded:** `round6/reviewed/paper_rev5.pdf` (13 pages). **Revision:** `round6/paper_rev6.pdf`
 (14 pages). The comments are in `round6/review_comments.md` (34 of them, each given an ID). Every
